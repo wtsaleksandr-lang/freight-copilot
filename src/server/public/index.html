@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Freight Copilot</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Freight Copilot</h1>
+    <nav>
+      <button class="tab active" data-tab="new">New quote</button>
+      <button class="tab" data-tab="history">History</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-new" class="tab-pane active">
+      <div class="card">
+        <h2>Intake <span class="muted-inline">— paste a client's quote request</span></h2>
+        <p class="muted">Paste text or a screenshot (Ctrl+V inside the box). Claude extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <textarea id="intake-text" rows="5" placeholder="Paste text here, or paste a screenshot image…"></textarea>
+        <div id="intake-image-preview" hidden>
+          <img id="intake-image" alt="pasted screenshot" />
+          <button id="intake-clear-image" class="link-btn">Remove image</button>
+        </div>
+        <div class="row">
+          <button id="intake-btn" class="primary">Extract</button>
+          <div id="intake-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Quote details</h2>
+        <div class="grid">
+          <label>From (city/port)<input id="from" placeholder="Newark"></label>
+          <label>From region<input id="from-region" placeholder="New Jersey"></label>
+          <label>To (city/port)<input id="to" placeholder="Antwerp"></label>
+          <label>To region<input id="to-region" placeholder="Belgium"></label>
+          <label>Container type<input id="container" value="20 Dry Standard"></label>
+          <label>Weight per container (kg)<input id="weight" type="number" value="10000"></label>
+          <label class="full">Commodity<input id="commodity" value="Autoparts"></label>
+        </div>
+        <div class="row">
+          <button id="run-btn" class="primary">Get rates</button>
+          <div id="run-status" class="status-inline"></div>
+        </div>
+        <p class="muted small">A Chrome window opens briefly while Playwright drives Maersk. If a captcha appears, solve it in that window — the script waits.</p>
+      </div>
+
+      <div id="results-card" class="card" hidden>
+        <h2 id="results-title">Results</h2>
+        <div id="results-meta" class="muted"></div>
+        <div class="table-wrap">
+          <table id="results-table"></table>
+        </div>
+        <div class="row">
+          <button id="reply-btn">Generate client reply</button>
+          <button id="reply-copy-btn" class="link-btn" hidden>Copy to clipboard</button>
+          <div id="reply-status" class="status-inline"></div>
+        </div>
+        <textarea id="reply-text" rows="10" hidden placeholder="Generated client reply will appear here…"></textarea>
+      </div>
+    </section>
+
+    <section id="tab-history" class="tab-pane">
+      <div class="card">
+        <h2>Recent quotes</h2>
+        <div class="table-wrap">
+          <table id="history-table"></table>
+        </div>
+      </div>
+
+      <div id="quote-detail-card" class="card" hidden>
+        <h2 id="quote-detail-title"></h2>
+        <div id="quote-detail-meta" class="muted"></div>
+        <div class="table-wrap">
+          <table id="quote-detail-table"></table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
