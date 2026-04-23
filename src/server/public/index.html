@@ -12,6 +12,7 @@
     <nav>
       <button class="tab active" data-tab="new">New quote</button>
       <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="agent">Agent</button>
     </nav>
   </header>
 
@@ -34,14 +35,29 @@
       <div class="card">
         <h2>Quote details</h2>
         <div class="grid">
-          <label class="full">Carrier<select id="carrier"></select></label>
+          <label class="full">
+            Carrier
+            <div class="carrier-row">
+              <select id="carrier"></select>
+              <span id="session-badge" class="session-badge"></span>
+            </div>
+          </label>
           <label>From (city/port)<input id="from" placeholder="Newark"></label>
           <label>From region<input id="from-region" placeholder="New Jersey"></label>
           <label>To (city/port)<input id="to" placeholder="Antwerp"></label>
           <label>To region<input id="to-region" placeholder="Belgium"></label>
           <label>Container type<input id="container" value="20 Dry Standard"></label>
           <label>Weight per container (kg)<input id="weight" type="number" value="10000"></label>
-          <label class="full">Commodity<input id="commodity" value="Autoparts"></label>
+          <label>Commodity<input id="commodity" value="Autoparts"></label>
+          <label class="markup-label">Your markup
+            <span class="markup-inputs">
+              <input id="markup-pct" type="number" step="0.5" value="0" placeholder="%" title="Percentage on top of carrier cost">
+              <span class="markup-sep">%</span>
+              <span class="markup-sep">+</span>
+              <input id="markup-flat" type="number" step="5" value="0" placeholder="flat" title="Fixed amount added on top (USD)">
+              <span class="markup-sep">USD</span>
+            </span>
+          </label>
         </div>
         <div class="row">
           <button id="run-btn" class="primary">Get rates</button>
@@ -58,6 +74,7 @@
         </div>
         <div class="row">
           <button id="reply-btn">Generate client reply</button>
+          <a id="pdf-btn" class="btn-sm" hidden>Download PDF</a>
           <button id="reply-copy-btn" class="link-btn" hidden>Copy to clipboard</button>
           <div id="reply-status" class="status-inline"></div>
         </div>
@@ -65,16 +82,42 @@
       </div>
     </section>
 
+    <section id="tab-agent" class="tab-pane">
+      <div class="card">
+        <h2>Web agent <span class="muted-inline">— paste a URL + describe the task</span></h2>
+        <p class="muted">Claude drives a real Chrome window to accomplish a goal on any site. Examples: "complete this quiz", "fill this form with [details]", "find the cheapest option on this listing page". A browser window will open; feel free to watch it work. Avoid anything involving real money, payments, or account deletion — those are blocked by safety guardrails.</p>
+        <label class="full">Starting URL<input id="agent-url" placeholder="https://example.com/quiz"></label>
+        <label class="full">Goal<textarea id="agent-goal" rows="3" placeholder="Describe what you want done, e.g. 'Answer every question in this trivia quiz, pick the best-supported answer each time, and submit at the end.'"></textarea></label>
+        <div class="row">
+          <button id="agent-run-btn" class="primary">Run agent</button>
+          <label class="small-num">Max iterations <input id="agent-max-iter" type="number" value="25" min="5" max="60" style="width:70px"></label>
+          <div id="agent-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div id="agent-transcript-card" class="card" hidden>
+        <h2 id="agent-transcript-title">Transcript</h2>
+        <div id="agent-transcript-meta" class="muted"></div>
+        <ol id="agent-transcript"></ol>
+      </div>
+    </section>
+
     <section id="tab-history" class="tab-pane">
       <div class="card">
-        <h2>Recent quotes</h2>
+        <div class="card-header">
+          <h2>Recent quotes</h2>
+          <a class="btn-sm" href="/api/quotes.csv" download>Download CSV</a>
+        </div>
         <div class="table-wrap">
           <table id="history-table"></table>
         </div>
       </div>
 
       <div id="quote-detail-card" class="card" hidden>
-        <h2 id="quote-detail-title"></h2>
+        <div class="card-header">
+          <h2 id="quote-detail-title"></h2>
+          <a id="quote-detail-pdf-btn" class="btn-sm" hidden>Download PDF</a>
+        </div>
         <div id="quote-detail-meta" class="muted"></div>
         <div class="table-wrap">
           <table id="quote-detail-table"></table>

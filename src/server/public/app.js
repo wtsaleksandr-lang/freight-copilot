@@ -9,13 +9,21 @@ document.querySelectorAll('.tab').forEach((btn) => {
   });
 });
 
-// Populate carrier dropdown from /api/carriers
+// Populate carrier dropdown + session health badges
+let sessionStatusByCode = {};
+
 async function loadCarriers() {
   const sel = document.getElementById('carrier');
   try {
-    const r = await fetch('/api/carriers');
-    const data = await r.json();
-    sel.innerHTML = data.carriers
+    const [carriersResp, sessionsResp] = await Promise.all([
+      fetch('/api/carriers').then((r) => r.json()),
+      fetch('/api/sessions').then((r) => r.json()),
+    ]);
+    sessionStatusByCode = Object.fromEntries(
+      (sessionsResp.sessions || []).map((s) => [s.carrierCode, s])
+    );
+
+    sel.innerHTML = carriersResp.carriers
       .map(
         (c) =>
           `<option value="${c.code}"${c.isActive ? '' : ' disabled'}>` +
@@ -23,14 +31,65 @@ async function loadCarriers() {
           ` (${c.code})${c.isActive ? '' : ' — onboarding pending'}</option>`
       )
       .join('');
-    // Default to the first active carrier
-    const firstActive = data.carriers.find((c) => c.isActive);
+
+    const firstActive = carriersResp.carriers.find((c) => c.isActive);
     if (firstActive) sel.value = firstActive.code;
+
+    updateSessionBadge();
   } catch (err) {
     sel.innerHTML = '<option>Error loading carriers</option>';
   }
 }
+
+function updateSessionBadge() {
+  const sel = document.getElementById('carrier');
+  const badge = document.getElementById('session-badge');
+  const code = sel.value;
+  const s = sessionStatusByCode[code];
+  if (!s) {
+    badge.className = 'session-badge';
+    badge.textContent = '';
+    return;
+  }
+  let label;
+  if (s.status === 'fresh') label = `Session: ${s.daysLeft}d remaining`;
+  else if (s.status === 'expiring') label = `Session: ${s.daysLeft}d left (refresh soon)`;
+  else if (s.status === 'expired') label = 'Session expired — re-login';
+  else label = 'No session — run `carrier login ' + code + '`';
+  badge.className = 'session-badge ' + s.status;
+  badge.textContent = label;
+}
+
+document.getElementById('carrier').addEventListener('change', updateSessionBadge);
 loadCarriers();
+
+// ---- Markup (client-side, persisted in localStorage) ----
+const MARKUP_PCT_KEY = 'freight.markup.pct';
+const MARKUP_FLAT_KEY = 'freight.markup.flat';
+
+(function restoreMarkup() {
+  const pct = localStorage.getItem(MARKUP_PCT_KEY);
+  const flat = localStorage.getItem(MARKUP_FLAT_KEY);
+  if (pct != null) document.getElementById('markup-pct').value = pct;
+  if (flat != null) document.getElementById('markup-flat').value = flat;
+})();
+document.getElementById('markup-pct').addEventListener('change', (e) => {
+  localStorage.setItem(MARKUP_PCT_KEY, e.target.value);
+});
+document.getElementById('markup-flat').addEventListener('change', (e) => {
+  localStorage.setItem(MARKUP_FLAT_KEY, e.target.value);
+});
+
+function getMarkup() {
+  return {
+    pct: parseFloat(document.getElementById('markup-pct').value) || 0,
+    flat: parseFloat(document.getElementById('markup-flat').value) || 0,
+  };
+}
+
+function applyMarkup(cost, markup) {
+  return Math.round(cost * (1 + markup.pct / 100) + markup.flat);
+}
 
 // Intake — paste a client request (text or image), extract, auto-fill the form
 let pastedImageDataUrl = null;
@@ -210,6 +269,13 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     );
     lastQuote = { input: body, ranked: data.ranked, quoteId: data.quoteId };
     renderResults(body, data);
+
+    // Wire up the PDF download for this quote
+    const markup = getMarkup();
+    const pdfBtn = document.getElementById('pdf-btn');
+    pdfBtn.href = `/api/quotes/${data.quoteId}/pdf?pct=${markup.pct}&flat=${markup.flat}`;
+    pdfBtn.setAttribute('download', `quote-${data.quoteId}.pdf`);
+    pdfBtn.hidden = false;
   } catch (err) {
     setStatus('run-status', err.message, 'error');
   } finally {
@@ -224,8 +290,16 @@ function renderResults(input, data) {
   const table = document.getElementById('results-table');
   card.hidden = false;
 
+  const markup = getMarkup();
+  const markupLabel =
+    markup.pct || markup.flat
+      ? `Markup: +${markup.pct}% / +${markup.flat.toLocaleString()} USD`
+      : 'Markup: none';
+
   title.textContent = `Quote #${data.quoteId}: ${input.from} → ${input.to} (${input.container})`;
-  meta.innerHTML = `${data.ranked.length} rates · <a href="file:///${data.artifacts.screenshot.replace(/\\/g, '/')}" target="_blank" rel="noopener">screenshot</a>`;
+  meta.innerHTML = `${data.ranked.length} rates · ${esc(markupLabel)} · <a href="file:///${data.artifacts.screenshot.replace(/\\/g, '/')}" target="_blank" rel="noopener">screenshot</a>`;
+
+  const showMarkup = markup.pct !== 0 || markup.flat !== 0;
 
   const thead = `<thead>
     <tr>
@@ -234,14 +308,17 @@ function renderResults(input, data) {
       <th>Transit</th>
       <th>Vessel / voyage</th>
       <th>Service</th>
-      <th>Price</th>
+      <th>Our cost</th>
+      ${showMarkup ? '<th>Your price</th>' : ''}
       <th>Δ vs #1</th>
       <th>Flags</th>
     </tr>
   </thead>`;
 
   if (data.ranked.length === 0) {
-    table.innerHTML = thead + '<tbody><tr><td colspan="8" class="empty">No rates with prices were parsed.</td></tr></tbody>';
+    table.innerHTML =
+      thead +
+      `<tbody><tr><td colspan="${showMarkup ? 9 : 8}" class="empty">No rates with prices were parsed.</td></tr></tbody>`;
     return;
   }
 
@@ -255,14 +332,19 @@ function renderResults(input, data) {
           ? '—'
           : `+${Math.round(r.delta_from_lowest)} (+${r.delta_pct.toFixed(1)}%)`;
       const transit = r.transit_days != null ? `${r.transit_days}d` : '—';
-      const price = `${r.headline_price_currency ?? ''} ${(r.headline_price_amount ?? 0).toLocaleString()}`;
+      const currency = r.headline_price_currency ?? '';
+      const cost = r.headline_price_amount ?? 0;
+      const costStr = `${currency} ${cost.toLocaleString()}`;
+      const yourPrice = showMarkup ? applyMarkup(cost, markup) : null;
+      const yourPriceStr = yourPrice != null ? `${currency} ${yourPrice.toLocaleString()}` : '';
       return `<tr>
         <td class="rank">#${r.rank}</td>
         <td>${esc(r.sailing_date ?? '—')}</td>
         <td>${transit}</td>
         <td>${esc(r.vessel_voyage ?? '—')}</td>
         <td>${esc(r.service_name)}</td>
-        <td class="price">${esc(price)}</td>
+        <td class="price">${esc(costStr)}</td>
+        ${showMarkup ? `<td class="price your-price">${esc(yourPriceStr)}</td>` : ''}
         <td>${delta}</td>
         <td>${flags.join('') || '—'}</td>
       </tr>`;
@@ -319,6 +401,12 @@ async function loadQuote(id) {
     const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
     meta.textContent = `${q.containerType} · requested ${q.requestedDate} · created ${created}`;
 
+    const markup = getMarkup();
+    const detailPdfBtn = document.getElementById('quote-detail-pdf-btn');
+    detailPdfBtn.href = `/api/quotes/${q.id}/pdf?pct=${markup.pct}&flat=${markup.flat}`;
+    detailPdfBtn.setAttribute('download', `quote-${q.id}.pdf`);
+    detailPdfBtn.hidden = false;
+
     const thead = '<thead><tr><th>Rank</th><th>Sailing</th><th>Service</th><th>Transit</th><th>Price</th></tr></thead>';
     const snaps = data.rateSnapshots;
     if (snaps.length === 0) {
@@ -344,6 +432,77 @@ async function loadQuote(id) {
     meta.textContent = 'Error: ' + err.message;
     table.innerHTML = '';
   }
+}
+
+// ---- Agent tab ----
+document.getElementById('agent-run-btn').addEventListener('click', async () => {
+  const url = document.getElementById('agent-url').value.trim();
+  const goal = document.getElementById('agent-goal').value.trim();
+  const maxIter = parseInt(document.getElementById('agent-max-iter').value, 10) || 25;
+  if (!url || !goal) {
+    setStatus('agent-status', 'Fill both URL and goal.', 'error');
+    return;
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    setStatus('agent-status', 'URL must start with http:// or https://', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('agent-run-btn');
+  btn.disabled = true;
+  setStatus('agent-status', 'Running agent — a Chrome window will open. This can take a minute…', 'info');
+
+  const card = document.getElementById('agent-transcript-card');
+  const list = document.getElementById('agent-transcript');
+  card.hidden = false;
+  list.innerHTML = '<li class="muted">Running…</li>';
+
+  try {
+    const r = await fetch('/api/agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, goal, maxIterations: maxIter }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Agent failed');
+
+    renderAgentResult(data);
+    setStatus(
+      'agent-status',
+      data.finished ? 'Task complete.' : `Stopped: ${data.finishReason}`,
+      data.finished ? 'success' : 'info'
+    );
+  } catch (err) {
+    setStatus('agent-status', err.message, 'error');
+    list.innerHTML = `<li class="result err">Error: ${esc(err.message)}</li>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderAgentResult(data) {
+  const list = document.getElementById('agent-transcript');
+  const title = document.getElementById('agent-transcript-title');
+  const meta = document.getElementById('agent-transcript-meta');
+  title.textContent = data.finished ? 'Transcript — finished' : 'Transcript — stopped';
+  meta.textContent = `${data.steps.length} step(s) · start ${data.startUrl} · final ${data.finalUrl}`;
+
+  list.innerHTML = data.steps
+    .map((s) => {
+      let resultClass = 'result';
+      if (s.result.startsWith('BLOCKED')) resultClass += ' blocked';
+      else if (!s.ok) resultClass += ' err';
+      const argsStr = Object.entries(s.args)
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join(' ');
+      return `<li>
+        <span class="action">${esc(s.action)}</span>
+        <span class="muted">${esc(argsStr)}</span>
+        <br>
+        <span class="${resultClass}">→ ${esc(s.result)}</span>
+      </li>`;
+    })
+    .join('');
 }
 
 function setStatus(elId, msg, type) {

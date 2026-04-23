@@ -195,6 +195,53 @@ tbody tr.clickable:hover { background: #f8fafc; }
 
 .rank { font-weight: 700; font-variant-numeric: tabular-nums; }
 .price { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.your-price { color: var(--success); }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.card-header h2 { margin: 0; }
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+}
+.btn-sm:hover { background: #f1f5f9; }
+
+.small-num {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.small-num input { padding: 4px 6px; font-size: 12px; }
+
+#agent-transcript {
+  list-style: decimal inside;
+  padding-left: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+#agent-transcript li {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+#agent-transcript li:last-child { border-bottom: none; }
+#agent-transcript .action { color: var(--accent); font-weight: 600; }
+#agent-transcript .result { color: var(--ink-soft); }
+#agent-transcript .result.err { color: var(--error); }
+#agent-transcript .result.blocked { color: var(--warn); }
 
 .flag {
   display: inline-block;
@@ -242,3 +289,41 @@ tbody tr.clickable:hover { background: #f8fafc; }
 .confidence-high { color: var(--success); font-weight: 600; }
 .confidence-medium { color: var(--warn); font-weight: 600; }
 .confidence-low { color: var(--error); font-weight: 600; }
+
+.carrier-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.carrier-row select { flex: 1; }
+.session-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.session-badge.fresh { background: var(--success-bg); color: var(--success); }
+.session-badge.expiring { background: var(--warn-bg); color: var(--warn); }
+.session-badge.expired,
+.session-badge.missing {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.markup-label { grid-column: 1 / -1; }
+.markup-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.markup-inputs input {
+  width: 80px;
+}
+.markup-sep {
+  color: var(--muted);
+  font-size: 12.5px;
+}
