@@ -108,7 +108,7 @@ label {
   color: var(--muted);
   font-weight: 500;
 }
-input, textarea {
+input, textarea, select {
   font: inherit;
   color: var(--ink);
   background: white;
@@ -118,7 +118,8 @@ input, textarea {
   font-size: 13.5px;
   width: 100%;
 }
-input:focus, textarea:focus {
+select:disabled option:disabled { color: var(--muted); }
+input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);

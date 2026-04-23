@@ -9,6 +9,29 @@ document.querySelectorAll('.tab').forEach((btn) => {
   });
 });
 
+// Populate carrier dropdown from /api/carriers
+async function loadCarriers() {
+  const sel = document.getElementById('carrier');
+  try {
+    const r = await fetch('/api/carriers');
+    const data = await r.json();
+    sel.innerHTML = data.carriers
+      .map(
+        (c) =>
+          `<option value="${c.code}"${c.isActive ? '' : ' disabled'}>` +
+          esc(c.name) +
+          ` (${c.code})${c.isActive ? '' : ' — onboarding pending'}</option>`
+      )
+      .join('');
+    // Default to the first active carrier
+    const firstActive = data.carriers.find((c) => c.isActive);
+    if (firstActive) sel.value = firstActive.code;
+  } catch (err) {
+    sel.innerHTML = '<option>Error loading carriers</option>';
+  }
+}
+loadCarriers();
+
 // Intake — paste a client request (text or image), extract, auto-fill the form
 let pastedImageDataUrl = null;
 let pastedImageMediaType = null;
@@ -150,6 +173,7 @@ document.getElementById('reply-copy-btn').addEventListener('click', async () => 
 // Run quote
 document.getElementById('run-btn').addEventListener('click', async () => {
   const body = {
+    carrier: document.getElementById('carrier').value,
     from: document.getElementById('from').value.trim(),
     fromRegion: document.getElementById('from-region').value.trim() || undefined,
     to: document.getElementById('to').value.trim(),

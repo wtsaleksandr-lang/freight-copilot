@@ -5,29 +5,9 @@ import { eq } from 'drizzle-orm';
 import { createDbClient } from '../../db/client.js';
 import { carriers, sessions } from '../../db/schema.js';
 import { MAERSK_URLS, MAERSK_LABELS } from './selectors.js';
+import type { QuoteInput, FetchRatesResult } from '../types.js';
 
-export interface QuoteInput {
-  origin: string;
-  /** Country/region substring to disambiguate `origin` in the autocomplete, e.g. "New Jersey" or "United States". */
-  originRegion?: string;
-  destination: string;
-  /** Country/region substring to disambiguate `destination`, e.g. "Belgium". */
-  destinationRegion?: string;
-  containerType: string;
-  cargoWeightKg: number;
-  commodity?: string;
-}
-
-export interface FetchRatesResult {
-  finalUrl: string;
-  /** Full rendered HTML of the page (may miss Shadow DOM content — kept for debugging). */
-  sailingsHtml: string;
-  /** YAML-ish aria tree of the sailings section. Sees through Shadow DOM. THIS is what the LLM parses. */
-  sailingsAriaTree: string;
-  htmlPath: string;
-  ariaTreePath: string;
-  screenshotPath: string;
-}
+export type { QuoteInput, FetchRatesResult };
 
 const OUT_DIR = resolve('./samples/maersk');
 const DEFAULT_COMMODITY = 'Autoparts';

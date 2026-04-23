@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import { desc, eq } from 'drizzle-orm';
 import { createDbClient } from '../db/client.js';
-import { quotes, rateSnapshots, carriers } from '../db/schema.js';
-import { fetchMaerskRates } from '../carriers/maersk/fetchRates.js';
+import { quotes, rateSnapshots } from '../db/schema.js';
+import { getCarrier, listCarriers } from '../carriers/registry.js';
 import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
@@ -11,6 +11,7 @@ import { generateClientReply } from '../llm/generateReply.js';
 import type { RankedRateOption } from '../types.js';
 
 interface QuoteReqBody {
+  carrier?: string;
   from?: string;
   fromRegion?: string;
   to?: string;
@@ -22,8 +23,13 @@ interface QuoteReqBody {
 
 export function registerApiRoutes(app: Express): void {
   app.get('/api/carriers', async (_req: Request, res: Response) => {
-    const db = createDbClient();
-    const rows = await db.select().from(carriers);
+    // Source of truth is the registry (code/name/isActive live with the adapters).
+    const rows = listCarriers().map((c) => ({
+      code: c.code,
+      name: c.name,
+      homeUrl: c.homeUrl,
+      isActive: c.isActive,
+    }));
     res.json({ carriers: rows });
   });
 
@@ -60,7 +66,7 @@ export function registerApiRoutes(app: Express): void {
 
   app.post('/api/quote', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as QuoteReqBody;
-    const { from, fromRegion, to, toRegion, container, weight, commodity } = body;
+    const { carrier: carrierCodeRaw, from, fromRegion, to, toRegion, container, weight, commodity } = body;
     if (!from || !to || !container || weight == null) {
       res.status(400).json({
         error: 'Missing required fields: from, to, container, weight',
@@ -69,8 +75,27 @@ export function registerApiRoutes(app: Express): void {
     }
 
     try {
-      console.log(`[api/quote] ${from} -> ${to}, ${container}, ${weight}kg`);
-      const fetchResult = await fetchMaerskRates({
+      const carrierCode = carrierCodeRaw ?? 'MSK';
+      let carrier;
+      try {
+        carrier = getCarrier(carrierCode);
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+      if (!carrier.isActive) {
+        res.status(400).json({
+          error: `${carrier.name} (${carrier.code}) is not yet onboarded. See docs/onboarding-checklist.md.`,
+        });
+        return;
+      }
+
+      console.log(
+        `[api/quote] ${carrier.code} ${from} -> ${to}, ${container}, ${weight}kg`
+      );
+      const fetchResult = await carrier.fetchRates({
         origin: from,
         originRegion: fromRegion,
         destination: to,
@@ -90,7 +115,7 @@ export function registerApiRoutes(app: Express): void {
         destination: to,
         containerType: container,
         requestedDate: today,
-        carrierCode: 'MSK',
+        carrierCode: carrier.code,
         ranked,
         rawHtmlRef: fetchResult.htmlPath,
       });

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { fetchMaerskRates } from '../carriers/maersk/fetchRates.js';
+import { getCarrier } from '../carriers/registry.js';
 import { parseRates } from '../llm/parseRates.js';
 import { rankRates, formatRankedTable } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
@@ -10,6 +10,7 @@ export function registerQuoteCommand(program: Command): void {
     .description('Fetch ocean freight rates for a lane (Maersk only in V1)')
     .requiredOption('--from <city>', 'Origin city/port, e.g. "Newark"')
     .requiredOption('--to <city>', 'Destination city/port, e.g. "Antwerp"')
+    .option('--carrier <code>', 'Carrier code (MSK, MSC, CMA, HLC, ONE, OOC, ZIM)', 'MSK')
     .option(
       '--from-region <text>',
       'Disambiguator for From autocomplete, e.g. "New Jersey" or "United States"'
@@ -28,7 +29,16 @@ export function registerQuoteCommand(program: Command): void {
     .option('--no-parse', 'Fetch rates but skip Claude parsing + DB save (for debugging the fetch)')
     .action(async (opts: Record<string, string | boolean>) => {
       try {
-        const result = await fetchMaerskRates({
+        const carrierCode = (opts.carrier as string) ?? 'MSK';
+        const carrier = getCarrier(carrierCode);
+        if (!carrier.isActive) {
+          throw new Error(
+            `${carrier.name} (${carrier.code}) is registered but not yet onboarded. ` +
+              'See docs/onboarding-checklist.md.'
+          );
+        }
+
+        const result = await carrier.fetchRates({
           origin: opts.from as string,
           originRegion: opts.fromRegion as string | undefined,
           destination: opts.to as string,
@@ -60,7 +70,7 @@ export function registerQuoteCommand(program: Command): void {
           destination: opts.to as string,
           containerType: opts.container as string,
           requestedDate: today,
-          carrierCode: 'MSK',
+          carrierCode,
           ranked,
           rawHtmlRef: result.htmlPath,
         });
