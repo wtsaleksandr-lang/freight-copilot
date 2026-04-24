@@ -5,6 +5,7 @@ import { registerParseCommand } from './cli/parseCmd.js';
 import { registerHistoryCommands } from './cli/historyCmd.js';
 import { registerServeCommand } from './cli/serveCmd.js';
 import { registerAgentCommand } from './cli/agentCmd.js';
+import { registerRecordCommand } from './cli/recordCmd.js';
 
 const program = new Command();
 
@@ -26,5 +27,6 @@ registerParseCommand(program);
 registerHistoryCommands(program);
 registerServeCommand(program);
 registerAgentCommand(program);
+registerRecordCommand(program);
 
 program.parse();
