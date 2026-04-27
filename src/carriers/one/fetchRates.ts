@@ -122,17 +122,11 @@ export async function fetchOneRates(
   const page = await context.newPage();
 
   try {
-    console.log(`[fetchRates] Navigating to ${ONE_URLS.home}`);
-    await page.goto(ONE_URLS.home, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(4000);
-
-    // Open the quote tool: PRICES → Launch ONE QUOTE.
-    console.log('[fetchRates] Opening PRICES menu...');
-    await page.getByText(ONE_LABELS.prices, { exact: true }).first().click();
-    await page.waitForTimeout(600);
-    await page.getByText(ONE_LABELS.launchQuote).first().click();
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(3500);
+    // Direct deep-link to the quote form. Skips the PRICES menu walk
+    // entirely (which depended on post-login chrome that's session-fragile).
+    console.log(`[fetchRates] Navigating to ${ONE_URLS.quoteForm}`);
+    await page.goto(ONE_URLS.quoteForm, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(4500);
 
     const earlyCaptcha = await detectCaptcha(page);
     if (earlyCaptcha) {
@@ -143,8 +137,18 @@ export async function fetchOneRates(
       );
     }
 
-    await fillPortByIndex(page, 0, input.origin, 'Origin');
-    await fillPortByIndex(page, 1, input.destination, 'Destination');
+    await fillPortByIndex(
+      page,
+      0,
+      input.originPortCode || input.origin,
+      'Origin'
+    );
+    await fillPortByIndex(
+      page,
+      1,
+      input.destinationPortCode || input.destination,
+      'Destination'
+    );
 
     // Cargo Owner radio is the user's "price owner" choice (vs. NVOCC).
     console.log('[fetchRates] Selecting Cargo Owner role...');

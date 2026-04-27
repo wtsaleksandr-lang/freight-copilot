@@ -119,14 +119,14 @@ export async function fetchCmaRates(
       page,
       CMA_SELECTORS.originInput,
       CMA_SELECTORS.originFirstOption,
-      input.origin,
+      input.originPortCode || input.origin,
       'Origin'
     );
     await pickPort(
       page,
       CMA_SELECTORS.destinationInput,
       CMA_SELECTORS.destinationFirstOption,
-      input.destination,
+      input.destinationPortCode || input.destination,
       'Destination'
     );
 

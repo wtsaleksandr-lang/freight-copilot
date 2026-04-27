@@ -7,7 +7,8 @@
 
 export const HLC_URLS = {
   home: 'https://www.hapag-lloyd.com/en/home.html',
-  newQuote: 'https://www.hapag-lloyd.com/solutions/new-quote/#/?language=en',
+  /** Quote form — `/simple` lands directly on the search inputs. */
+  newQuote: 'https://www.hapag-lloyd.com/solutions/new-quote/#/simple?language=en',
   newQuotePattern: /\/new-quote/,
 };
 

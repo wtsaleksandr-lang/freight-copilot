@@ -9,8 +9,13 @@
 export interface QuoteInput {
   origin: string;
   originRegion?: string;
+  /** UN/LOCODE for the origin port (e.g. "USSAV") if the user picked a port
+   *  from the typeahead. Adapters prefer this when set — it's a 5-char
+   *  unambiguous match in carrier autocompletes. */
+  originPortCode?: string;
   destination: string;
   destinationRegion?: string;
+  destinationPortCode?: string;
   containerType: string;
   cargoWeightKg: number;
   commodity?: string;

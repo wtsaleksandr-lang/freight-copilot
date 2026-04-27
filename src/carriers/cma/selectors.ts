@@ -8,9 +8,9 @@
 
 export const CMA_URLS = {
   home: 'https://www.cma-cgm.com/ebusiness/customer-hub/',
-  /** Direct deep link to SpotOn quoting (skips menu navigation when possible). */
-  spotOn: 'https://www.cma-cgm.com/ebusiness/customer-hub/spoton',
-  spotOnPattern: /spoton/i,
+  /** Direct deep link to the Instant Quoting (SpotOn) form. */
+  spotOn: 'https://www.cma-cgm.com/ebusiness/pricing/instant-Quoting',
+  spotOnPattern: /(spoton|instant-quoting)/i,
 };
 
 export const CMA_SELECTORS = {

@@ -238,8 +238,10 @@ export async function runQuoteBundle(
       const fetchResult = await carrier.fetchRates({
         origin: cleanOrigin,
         originRegion: input.originRegion,
+        originPortCode: input.originStruct?.portCode,
         destination: cleanDestination,
         destinationRegion: input.destinationRegion,
+        destinationPortCode: input.destinationStruct?.portCode,
         containerType: input.containerType,
         cargoWeightKg: input.cargoWeightKg,
         commodity: input.commodity,

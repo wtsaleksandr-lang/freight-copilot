@@ -134,12 +134,14 @@ export async function fetchMscRates(
 
     await selectOnlyContainer(page, input.containerType);
 
+    // Prefer LOCODE; MSC's autocomplete shows e.g. "CHARLESTON [USCHS]"
+    // and matches LOCODE substring queries reliably.
     await pickPort(
       page,
       MSC_SELECTORS.originDropdownTrigger,
       MSC_SELECTORS.originInput,
       MSC_SELECTORS.originFirstOption,
-      input.origin,
+      input.originPortCode || input.origin,
       'Origin'
     );
 
@@ -148,7 +150,7 @@ export async function fetchMscRates(
       MSC_SELECTORS.destinationDropdownTrigger,
       MSC_SELECTORS.destinationInput,
       MSC_SELECTORS.destinationFirstOption,
-      input.destination,
+      input.destinationPortCode || input.destination,
       'Destination'
     );
 

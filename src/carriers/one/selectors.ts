@@ -7,8 +7,9 @@
 
 export const ONE_URLS = {
   home: 'https://ecomm.one-line.com/one-ecom',
-  /** SPA route reached after PRICES → Launch ONE QUOTE. */
-  quotePattern: /one-ecom\/aoq/i,
+  /** Direct deep link to the ONE QUOTE booking form (skips menu walk). */
+  quoteForm: 'https://ecomm.one-line.com/one-ecom/prices/one-quote-booking',
+  quotePattern: /one-ecom\/(aoq|prices|one-quote-booking)/i,
 };
 
 export const ONE_LABELS = {

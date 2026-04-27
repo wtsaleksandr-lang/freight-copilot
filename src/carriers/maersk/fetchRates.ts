@@ -49,18 +49,17 @@ async function pickFromAutocomplete(
     const regex = new RegExp(regionHint, 'i');
     const option = page.getByRole('option', { name: regex }).first();
     const count = await option.count();
-    if (count === 0) {
-      throw new Error(
-        `No autocomplete option matched "${regionHint}" for field "${labelName}" after typing "${value}". ` +
-          `Try a different region hint or a more specific search term.`
-      );
+    if (count > 0) {
+      await option.click();
+      return;
     }
-    await option.click();
-  } else {
-    // No region hint: take the first suggestion (fine for unambiguous names).
-    await field.press('ArrowDown');
-    await field.press('Enter');
+    console.warn(
+      `[fetchRates] No option matched "${regionHint}" for "${labelName}" after typing "${value}" — falling back to first option.`
+    );
   }
+  // Fallback (or no region hint): take the first suggestion.
+  await field.press('ArrowDown');
+  await field.press('Enter');
 }
 
 async function waitForEnabled(page: Page, labelName: string, timeoutMs = 15000) {
@@ -179,26 +178,33 @@ export async function fetchMaerskRates(
     await page.waitForTimeout(5000); // let SPA render
 
     // --- Fill location fields ---
+    // Prefer the UN/LOCODE if the user picked a known port — it's a 5-char
+    // unambiguous match in Maersk's combobox. Falls back to typing the
+    // city name (with region hint) if no code was provided.
+    const fromValue = input.originPortCode || input.origin;
     console.log(
-      `[fetchRates] From: ${input.origin}` +
+      `[fetchRates] From: ${fromValue}` +
+        (input.originPortCode ? ' (LOCODE)' : '') +
         (input.originRegion ? ` (region: ${input.originRegion})` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.fromCombobox,
-      input.origin,
-      input.originRegion
+      fromValue,
+      input.originPortCode ? undefined : input.originRegion
     );
 
+    const toValue = input.destinationPortCode || input.destination;
     console.log(
-      `[fetchRates] To: ${input.destination}` +
+      `[fetchRates] To: ${toValue}` +
+        (input.destinationPortCode ? ' (LOCODE)' : '') +
         (input.destinationRegion ? ` (region: ${input.destinationRegion})` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.toCombobox,
-      input.destination,
-      input.destinationRegion
+      toValue,
+      input.destinationPortCode ? undefined : input.destinationRegion
     );
 
     // --- Commodity (autocomplete too) ---

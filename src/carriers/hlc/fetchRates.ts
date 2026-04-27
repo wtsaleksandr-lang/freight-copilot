@@ -48,16 +48,15 @@ async function fillLocation(
   if (regionHint) {
     const re = new RegExp(regionHint, 'i');
     const opt = page.getByText(re).first();
-    if ((await opt.count()) === 0) {
-      throw new Error(
-        `No HL autocomplete option matched "${regionHint}" for "${fieldLabel}".`
-      );
+    if ((await opt.count()) > 0) {
+      await opt.click();
+      return;
     }
-    await opt.click();
-    return;
+    console.warn(
+      `[fetchRates] No HL option matched "${regionHint}" for "${fieldLabel}" — falling back to first match.`
+    );
   }
-  // Take the first visible suggestion. HL renders results as <q-item> rows
-  // with a name caption — clicking the typed text usually selects.
+  // Take the first visible suggestion that contains the typed value.
   const upperFirstWord = value.split(/[\s,]/)[0]?.toUpperCase() ?? value;
   const opt = page.getByText(new RegExp(upperFirstWord, 'i')).first();
   await opt.waitFor({ state: 'visible', timeout: 10_000 });
@@ -108,16 +107,16 @@ export async function fetchHlcRates(
     await fillLocation(
       page,
       HLC_TESTIDS.startInput,
-      input.origin,
+      input.originPortCode || input.origin,
       'Origin',
-      input.originRegion
+      input.originPortCode ? undefined : input.originRegion
     );
     await fillLocation(
       page,
       HLC_TESTIDS.endInput,
-      input.destination,
+      input.destinationPortCode || input.destination,
       'Destination',
-      input.destinationRegion
+      input.destinationPortCode ? undefined : input.destinationRegion
     );
     await pickContainerType(page, input.containerType);
 
