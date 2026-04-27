@@ -13,6 +13,7 @@
       <button class="tab active" data-tab="new">New quote</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="agent">Agent</button>
+      <button class="tab" data-tab="record">Record</button>
     </nav>
   </header>
 
@@ -99,6 +100,49 @@
         <h2 id="agent-transcript-title">Transcript</h2>
         <div id="agent-transcript-meta" class="muted"></div>
         <ol id="agent-transcript"></ol>
+      </div>
+    </section>
+
+    <section id="tab-record" class="tab-pane">
+      <div class="card">
+        <h2>Record a workflow <span class="muted-inline">— teach the app a new site</span></h2>
+        <p class="muted">Paste a URL. A browser opens, you do your normal flow (login, search, click through), then close the browser. Claude reads everything you did and produces a step-by-step workflow you can refer to or replay later.</p>
+        <label class="full">URL to record on
+          <input id="rec-url" placeholder="https://www.example.com/quote-request" />
+        </label>
+        <div class="grid">
+          <label>Save under carrier (optional)<select id="rec-carrier"></select></label>
+          <label>Description (optional)<input id="rec-description" placeholder="e.g. MSC FCL Spot quote" /></label>
+        </div>
+        <div class="row">
+          <button id="rec-start-btn" class="primary">Start recording</button>
+          <button id="rec-stop-btn" class="link-btn" hidden>Cancel recording</button>
+          <div id="rec-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div id="rec-active-card" class="card" hidden>
+        <h2>Recording in progress…</h2>
+        <p class="muted">A Chromium window opened (look for it on your taskbar). Do your normal workflow there. <strong>When you're done, close the browser window</strong> — Claude will analyze automatically.</p>
+        <div class="row">
+          <div id="rec-active-meta" class="muted"></div>
+        </div>
+      </div>
+
+      <div id="rec-analysis-card" class="card" hidden>
+        <h2 id="rec-analysis-title">Workflow captured</h2>
+        <div id="rec-analysis-meta" class="muted"></div>
+        <div id="rec-analysis-body"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Past recordings</h2>
+          <button id="rec-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table id="rec-list-table"></table>
+        </div>
       </div>
     </section>
 

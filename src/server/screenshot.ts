@@ -14,6 +14,11 @@ async function main() {
   await page.waitForTimeout(500);
   await page.screenshot({ path: './samples/dashboard-agent.png', fullPage: true });
 
+  // Record tab
+  await page.getByRole('button', { name: 'Record' }).click();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: './samples/dashboard-record.png', fullPage: true });
+
   // Back to new quote for more coverage
   await page.getByRole('button', { name: 'New quote' }).click();
   await page.waitForTimeout(300);

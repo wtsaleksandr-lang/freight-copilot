@@ -571,6 +571,187 @@ function renderAgentResult(data) {
     .join('');
 }
 
+// ---- Record tab ----
+let activeRecordingId = null;
+let recordingPollHandle = null;
+
+async function loadRecCarrierDropdown() {
+  const sel = document.getElementById('rec-carrier');
+  try {
+    const r = await fetch('/api/carriers');
+    const data = await r.json();
+    sel.innerHTML =
+      '<option value="">(none — save under _recordings)</option>' +
+      data.carriers
+        .map((c) => `<option value="${c.code}">${esc(c.name)} (${c.code})</option>`)
+        .join('');
+  } catch {
+    sel.innerHTML = '<option value="">(error loading carriers)</option>';
+  }
+}
+loadRecCarrierDropdown();
+
+document.getElementById('rec-start-btn').addEventListener('click', async () => {
+  const url = document.getElementById('rec-url').value.trim();
+  const carrier = document.getElementById('rec-carrier').value || undefined;
+  const description = document.getElementById('rec-description').value.trim() || undefined;
+
+  if (!url) {
+    setStatus('rec-status', 'Paste a URL first.', 'error');
+    return;
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    setStatus('rec-status', 'URL must start with http:// or https://', 'error');
+    return;
+  }
+
+  setStatus('rec-status', 'Launching recorder…', 'info');
+  document.getElementById('rec-start-btn').disabled = true;
+  document.getElementById('rec-analysis-card').hidden = true;
+
+  try {
+    const r = await fetch('/api/record/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, carrierCode: carrier, description }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Could not start recording');
+
+    activeRecordingId = data.id;
+    document.getElementById('rec-active-card').hidden = false;
+    document.getElementById('rec-active-meta').innerHTML =
+      `Recording <code>${esc(data.id.slice(0, 8))}</code> · started ${new Date(data.startedAt).toLocaleTimeString()} · saving to <code>${esc(data.outFile)}</code>`;
+    document.getElementById('rec-stop-btn').hidden = false;
+    setStatus('rec-status', 'Recording started — do your workflow in the browser window.', 'info');
+
+    pollRecording();
+  } catch (err) {
+    setStatus('rec-status', err.message, 'error');
+    document.getElementById('rec-start-btn').disabled = false;
+  }
+});
+
+document.getElementById('rec-stop-btn').addEventListener('click', async () => {
+  if (!activeRecordingId) return;
+  if (!confirm('Cancel the recording? Any captured actions will be discarded.')) return;
+  await fetch(`/api/record/stop/${activeRecordingId}`, { method: 'POST' });
+  finishRecordingUi('Cancelled.');
+});
+
+document.getElementById('rec-refresh-btn').addEventListener('click', loadRecList);
+
+async function pollRecording() {
+  if (!activeRecordingId) return;
+  if (recordingPollHandle) clearInterval(recordingPollHandle);
+  recordingPollHandle = setInterval(async () => {
+    if (!activeRecordingId) {
+      clearInterval(recordingPollHandle);
+      return;
+    }
+    try {
+      const r = await fetch(`/api/record/status/${activeRecordingId}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'status check failed');
+      if (data.status === 'running') return; // still recording
+
+      // Recording finished — analyze.
+      clearInterval(recordingPollHandle);
+      const id = activeRecordingId;
+      setStatus('rec-status', 'Browser closed. Sending to Claude for analysis…', 'info');
+      try {
+        const ar = await fetch(`/api/record/analyze/${id}`, { method: 'POST' });
+        const adata = await ar.json();
+        if (!ar.ok) throw new Error(adata.error || 'analysis failed');
+        finishRecordingUi('Analysis complete.');
+        renderAnalysis(adata.meta, adata.analysis);
+        loadRecList();
+      } catch (err) {
+        finishRecordingUi('Analyze failed: ' + err.message);
+        setStatus('rec-status', err.message, 'error');
+      }
+    } catch (err) {
+      clearInterval(recordingPollHandle);
+      setStatus('rec-status', err.message, 'error');
+    }
+  }, 2000);
+}
+
+function finishRecordingUi(msg) {
+  activeRecordingId = null;
+  if (recordingPollHandle) {
+    clearInterval(recordingPollHandle);
+    recordingPollHandle = null;
+  }
+  document.getElementById('rec-active-card').hidden = true;
+  document.getElementById('rec-stop-btn').hidden = true;
+  document.getElementById('rec-start-btn').disabled = false;
+  if (msg) setStatus('rec-status', msg, 'success');
+}
+
+function renderAnalysis(meta, a) {
+  const card = document.getElementById('rec-analysis-card');
+  const title = document.getElementById('rec-analysis-title');
+  const metaEl = document.getElementById('rec-analysis-meta');
+  const body = document.getElementById('rec-analysis-body');
+  card.hidden = false;
+  title.textContent = a.summary;
+  metaEl.innerHTML =
+    `<code>${esc(a.starting_url)}</code> · ` +
+    (meta.carrierCode ? `carrier <code>${esc(meta.carrierCode)}</code> · ` : '') +
+    `<span class="confidence-${a.readiness.status === 'ready_to_replay' ? 'high' : 'medium'}">${esc(a.readiness.status)}</span> — ${esc(a.readiness.reason)}` +
+    ` · saved to <code>${esc(a.saved_to)}</code>`;
+
+  let html = '<h3 class="bd-title">Steps</h3><ol class="rec-steps">';
+  for (const s of a.steps) {
+    html += `<li><div class="rec-step-desc">${esc(s.description)}</div><pre class="rec-step-code">${esc(s.playwright_call)}</pre></li>`;
+  }
+  html += '</ol>';
+
+  if (a.parameters && a.parameters.length > 0) {
+    html += '<h3 class="bd-title">Parameters (inputs you change per run)</h3>';
+    html += '<table class="bd-mini" style="min-width:520px">';
+    html += '<tr><th align="left">Name</th><th align="left">Description</th><th align="left">Example</th><th>Step</th></tr>';
+    for (const p of a.parameters) {
+      html += `<tr><td><code>${esc(p.name)}</code></td><td>${esc(p.description)}</td><td>${esc(p.example_value)}</td><td>#${p.step_number}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  body.innerHTML = html;
+  card.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function loadRecList() {
+  const table = document.getElementById('rec-list-table');
+  table.innerHTML = '<tbody><tr><td class="empty">Loading…</td></tr></tbody>';
+  try {
+    const r = await fetch('/api/record/list');
+    const data = await r.json();
+    if (!data.recordings || data.recordings.length === 0) {
+      table.innerHTML = '<tbody><tr><td class="empty">No recordings yet.</td></tr></tbody>';
+      return;
+    }
+    const thead = '<thead><tr><th>Started</th><th>URL</th><th>Carrier</th><th>Status</th><th>File</th></tr></thead>';
+    const rows = data.recordings
+      .map((r) => {
+        const started = new Date(r.startedAt).toISOString().slice(0, 16).replace('T', ' ');
+        const statusCls = r.status === 'finished' ? 'success' : r.status === 'failed' ? 'error' : 'info';
+        return `<tr>
+          <td>${esc(started)}</td>
+          <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url.slice(0, 50))}</a></td>
+          <td>${esc(r.carrierCode || '—')}</td>
+          <td><span class="status-inline ${statusCls}">${esc(r.status)}</span></td>
+          <td><code class="muted small">${esc(r.outFile.split(/[\\/]/).slice(-2).join('/'))}</code></td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+  } catch (err) {
+    table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+  }
+}
+loadRecList();
+
 function setStatus(elId, msg, type) {
   const el = document.getElementById(elId);
   el.className = 'status-inline ' + (type || '');

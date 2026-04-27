@@ -16,6 +16,14 @@ import { generateClientReply } from '../llm/generateReply.js';
 import type { RankedRateOption } from '../types.js';
 import { renderQuotePdf } from './pdf.js';
 import { runAgent } from '../agent/runAgent.js';
+import {
+  startRecording,
+  getRecording,
+  listRecordings,
+  stopRecording,
+  readRecordingFile,
+} from './recordingService.js';
+import { analyzeRecording } from '../llm/analyzeRecording.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -391,6 +399,104 @@ export function registerApiRoutes(app: Express): void {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  });
+
+  // ---- Recording (one-click in-dashboard workflow capture) ----
+
+  app.post('/api/record/start', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      url?: string;
+      carrierCode?: string;
+      description?: string;
+    };
+    if (!body.url) {
+      res.status(400).json({ error: '`url` is required.' });
+      return;
+    }
+    try {
+      const meta = await startRecording({
+        url: body.url,
+        carrierCode: body.carrierCode,
+        description: body.description,
+      });
+      res.json(meta);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/record/status/:id', (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ error: 'Invalid id' });
+      return;
+    }
+    const meta = getRecording(id);
+    if (!meta) {
+      res.status(404).json({ error: 'Recording not found.' });
+      return;
+    }
+    res.json(meta);
+  });
+
+  app.post('/api/record/stop/:id', (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ error: 'Invalid id' });
+      return;
+    }
+    const ok = stopRecording(id);
+    res.json({ ok });
+  });
+
+  app.post('/api/record/analyze/:id', async (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ error: 'Invalid id' });
+      return;
+    }
+    const meta = getRecording(id);
+    if (!meta) {
+      res.status(404).json({ error: 'Recording not found.' });
+      return;
+    }
+    if (meta.status === 'running') {
+      res.status(400).json({
+        error: 'Recording is still running — close the browser window first.',
+      });
+      return;
+    }
+    try {
+      const code = await readRecordingFile(id);
+      if (!code.trim()) {
+        res.status(400).json({
+          error: 'Recording file is empty. The browser may have been closed before any actions were captured.',
+        });
+        return;
+      }
+      const analysis = await analyzeRecording({
+        recordingPath: meta.outFile,
+        recordingCode: code,
+        url: meta.url,
+        carrierCode: meta.carrierCode,
+        description: meta.description,
+      });
+      res.json({ meta, analysis });
+    } catch (err) {
+      console.error('[api/record/analyze] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/record/list', (_req: Request, res: Response) => {
+    res.json({ recordings: listRecordings() });
   });
 
   // Generic web agent — Claude drives a browser to complete a goal on any site.

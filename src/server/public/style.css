@@ -323,6 +323,26 @@ table.bd-mini tr.bd-total td {
 .confidence-medium { color: var(--warn); font-weight: 600; }
 .confidence-low { color: var(--error); font-weight: 600; }
 
+.rec-steps {
+  padding-left: 22px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  margin: 0 0 14px 0;
+}
+.rec-steps li { margin-bottom: 10px; }
+.rec-step-desc { color: var(--ink); }
+.rec-step-code {
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  margin: 4px 0 0 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .carrier-row {
   display: flex;
   align-items: center;
