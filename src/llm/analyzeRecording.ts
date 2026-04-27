@@ -185,8 +185,9 @@ export async function analyzeRecording(
     throw new Error('Analyzer output failed schema validation');
   }
 
-  // Save analysis next to the raw recording.
-  const savedTo = input.recordingPath.replace(/\.ts$/, '.analysis.json');
+  // Save analysis next to the raw recording. Strip any known extension so
+  // we never overwrite the source file (Codegen .ts/.js OR uploaded .json).
+  const savedTo = input.recordingPath.replace(/\.(ts|js|json|txt)$/i, '') + '.analysis.json';
   const full: RecordingAnalysis = {
     ...parsed.data,
     saved_to: savedTo,
