@@ -46,7 +46,31 @@ export const MAJOR_PORTS: Port[] = [
   { code: 'ESVLC', name: 'Valencia', country: 'Spain' },
   { code: 'ESALG', name: 'Algeciras', country: 'Spain' },
   { code: 'ITGOA', name: 'Genoa', country: 'Italy' },
+  { code: 'ITGIT', name: 'Gioia Tauro', country: 'Italy' },
+  { code: 'ITTRS', name: 'Trieste', country: 'Italy' },
   { code: 'GRPIR', name: 'Piraeus', country: 'Greece' },
+  { code: 'MAPTM', name: 'Tanger Med', country: 'Morocco' },
+
+  // Black Sea
+  { code: 'ROCND', name: 'Constanta', country: 'Romania' },
+  { code: 'BGVAR', name: 'Varna', country: 'Bulgaria' },
+  { code: 'BGBOJ', name: 'Burgas', country: 'Bulgaria' },
+  { code: 'UAODS', name: 'Odessa', country: 'Ukraine' },
+  { code: 'TRAMB', name: 'Ambarli', country: 'Turkey' },
+  { code: 'TRMER', name: 'Mersin', country: 'Turkey' },
+  { code: 'TRGEM', name: 'Gemlik', country: 'Turkey' },
+  { code: 'TRIST', name: 'Istanbul (Haydarpasa)', country: 'Turkey' },
+
+  // Baltic / Northern Europe
+  { code: 'PLGDY', name: 'Gdynia', country: 'Poland' },
+  { code: 'PLGDN', name: 'Gdansk', country: 'Poland' },
+  { code: 'LTKLJ', name: 'Klaipeda', country: 'Lithuania' },
+  { code: 'LVRIX', name: 'Riga', country: 'Latvia' },
+  { code: 'EETLL', name: 'Tallinn', country: 'Estonia' },
+  { code: 'FIHEL', name: 'Helsinki', country: 'Finland' },
+  { code: 'DKAAR', name: 'Aarhus', country: 'Denmark' },
+  { code: 'DKCPH', name: 'Copenhagen', country: 'Denmark' },
+  { code: 'SEGOT', name: 'Gothenburg', country: 'Sweden' },
 
   // Middle East / Africa
   { code: 'EGPSD', name: 'Port Said', country: 'Egypt' },
