@@ -18,5 +18,6 @@ if %errorlevel% equ 0 (
 REM Open browser in ~4s so the server has time to boot
 start "" /b cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:3000"
 
-REM Run the server (blocks this window until Ctrl+C or close)
-pnpm dev serve
+REM Run the server (blocks this window until Ctrl+C or close).
+REM --host 0.0.0.0 = reachable on LAN + Tailscale (not just this PC).
+pnpm dev serve --host 0.0.0.0

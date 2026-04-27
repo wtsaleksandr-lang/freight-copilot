@@ -102,6 +102,65 @@ export function registerApiRoutes(app: Express): void {
     });
   });
 
+  /**
+   * Address autosuggest via OpenStreetMap Nominatim. Free, no API key.
+   * Proxied through our server so we can attach a proper User-Agent and
+   * (later) cache responses if needed.
+   *
+   * Returns a normalized list: [{ display, street, city, state, zip, country }]
+   * Frontend debounces input.
+   */
+  app.get('/api/data/geocode', async (req: Request, res: Response) => {
+    const rawQ = req.query.q;
+    const q = typeof rawQ === 'string' ? rawQ.trim() : '';
+    if (q.length < 3) {
+      res.json({ results: [] });
+      return;
+    }
+    try {
+      const url = new URL('https://nominatim.openstreetmap.org/search');
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('addressdetails', '1');
+      url.searchParams.set('limit', '6');
+      url.searchParams.set('q', q);
+      const r = await fetch(url, {
+        headers: {
+          'User-Agent': 'freight-copilot/1.0 (personal-use freight forwarder app)',
+          Accept: 'application/json',
+        },
+      });
+      if (!r.ok) {
+        res.status(502).json({ error: `Nominatim returned ${r.status}` });
+        return;
+      }
+      const raw = (await r.json()) as Array<{
+        display_name: string;
+        address?: Record<string, string | undefined>;
+      }>;
+      const results = raw.map((it) => {
+        const a = it.address ?? {};
+        const street = [a.house_number, a.road].filter(Boolean).join(' ').trim();
+        const city =
+          a.city ?? a.town ?? a.village ?? a.hamlet ?? a.municipality ?? '';
+        return {
+          display: it.display_name,
+          street,
+          city,
+          state: a.state ?? a.region ?? '',
+          zip: a.postcode ?? '',
+          country: a.country ?? '',
+          countryCode: (a.country_code ?? '').toUpperCase(),
+        };
+      });
+      res.json({ results });
+    } catch (err) {
+      console.error('[api/data/geocode] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   app.get('/api/carriers', async (_req: Request, res: Response) => {
     // Source of truth is the registry (code/name/isActive live with the adapters).
     const rows = listCarriers().map((c) => ({

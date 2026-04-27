@@ -109,6 +109,128 @@ document.addEventListener('click', () => {
   });
 });
 
+// ---------- Reusable Autosuggest (mobile-friendly, no <datalist>) ----------
+// Usage: new Autosuggest(inputEl, fetchSuggestions(q) -> Promise<Array<{primary,secondary?,data?}>>,
+//                       onPick(item))
+class Autosuggest {
+  constructor(inputEl, fetchFn, onPick, opts = {}) {
+    this.input = inputEl;
+    this.fetchFn = fetchFn;
+    this.onPick = onPick;
+    this.minChars = opts.minChars ?? 1;
+    this.debounceMs = opts.debounceMs ?? 200;
+    this.timer = null;
+    this.activeIdx = -1;
+    this.items = [];
+    this.wrap();
+    this.bind();
+  }
+  wrap() {
+    // Wrap input in a positioned div for the popover
+    const parent = this.input.parentElement;
+    if (parent && !parent.classList.contains('autosuggest-wrap')) {
+      const wrap = document.createElement('span');
+      wrap.className = 'autosuggest-wrap';
+      wrap.style.display = 'block';
+      wrap.style.position = 'relative';
+      parent.insertBefore(wrap, this.input);
+      wrap.appendChild(this.input);
+      this.wrapEl = wrap;
+    } else {
+      this.wrapEl = parent;
+    }
+    this.panel = document.createElement('div');
+    this.panel.className = 'autosuggest-panel';
+    this.panel.hidden = true;
+    this.wrapEl.appendChild(this.panel);
+  }
+  bind() {
+    this.input.addEventListener('input', () => this.scheduleQuery());
+    this.input.addEventListener('focus', () => {
+      if (this.input.value.length >= this.minChars) this.scheduleQuery();
+    });
+    this.input.addEventListener('keydown', (e) => {
+      if (this.panel.hidden) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.move(1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.move(-1);
+      } else if (e.key === 'Enter') {
+        if (this.activeIdx >= 0 && this.items[this.activeIdx]) {
+          e.preventDefault();
+          this.pick(this.items[this.activeIdx]);
+        }
+      } else if (e.key === 'Escape') {
+        this.close();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!this.wrapEl.contains(e.target)) this.close();
+    });
+  }
+  scheduleQuery() {
+    if (this.timer) clearTimeout(this.timer);
+    const q = this.input.value;
+    if (q.length < this.minChars) {
+      this.close();
+      return;
+    }
+    this.timer = setTimeout(() => this.runQuery(q), this.debounceMs);
+  }
+  async runQuery(q) {
+    try {
+      const items = await this.fetchFn(q);
+      this.render(items || []);
+    } catch (err) {
+      console.warn('autosuggest error:', err);
+    }
+  }
+  render(items) {
+    this.items = items;
+    this.activeIdx = -1;
+    if (items.length === 0) {
+      this.panel.innerHTML = '<div class="autosuggest-empty">No matches</div>';
+      this.panel.hidden = false;
+      return;
+    }
+    this.panel.innerHTML = items
+      .map(
+        (it, i) =>
+          `<div class="autosuggest-item" data-idx="${i}">
+        <span class="as-primary">${esc(it.primary)}</span>
+        ${it.secondary ? `<span class="as-secondary">${esc(it.secondary)}</span>` : ''}
+      </div>`
+      )
+      .join('');
+    this.panel.hidden = false;
+    this.panel.querySelectorAll('.autosuggest-item').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(el.dataset.idx, 10);
+        this.pick(this.items[idx]);
+      });
+    });
+  }
+  move(delta) {
+    const els = this.panel.querySelectorAll('.autosuggest-item');
+    if (els.length === 0) return;
+    if (this.activeIdx >= 0) els[this.activeIdx].classList.remove('active');
+    this.activeIdx = (this.activeIdx + delta + els.length) % els.length;
+    els[this.activeIdx].classList.add('active');
+    els[this.activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+  pick(item) {
+    this.close();
+    this.onPick?.(item);
+  }
+  close() {
+    this.panel.hidden = true;
+    this.activeIdx = -1;
+  }
+}
+
 // ---------- Lookups (containers, ports, drayage equipment, accessorials) ----------
 let LOOKUPS = null;
 
@@ -127,43 +249,107 @@ async function loadLookups() {
     };
   }
 
-  // Populate container <select> elements
-  const containerOpts = LOOKUPS.containerTypes
-    .map((c) => `<option value="${esc(c.label)}">${esc(c.label)}</option>`)
-    .join('');
-  document.querySelectorAll('select.container-select').forEach((sel) => {
-    const current = sel.dataset.current || sel.value || '40 Dry High';
-    sel.innerHTML = containerOpts;
-    sel.value = current;
-  });
+  // Container <select> elements already have static defaults inline; if the
+  // server returns a richer list we replace, but only after preserving the
+  // user's current pick.
+  if (LOOKUPS.containerTypes && LOOKUPS.containerTypes.length > 0) {
+    const containerOpts = LOOKUPS.containerTypes
+      .map((c) => `<option value="${esc(c.label)}">${esc(c.label)}</option>`)
+      .join('');
+    document.querySelectorAll('select.container-select').forEach((sel) => {
+      const current = sel.value || sel.dataset.current || '40 Dry High';
+      sel.innerHTML = containerOpts;
+      sel.value = current;
+    });
+  }
 
-  // Populate port datalist
-  const portDl = document.getElementById('dl-ports');
-  if (portDl) {
-    portDl.innerHTML = LOOKUPS.ports
-      .map(
+  // Wire ports + address autosuggest
+  wirePortAutosuggest();
+  wireAddressAutosuggest();
+}
+
+// ---- Port autosuggest (linked code <-> name fields) ----
+function wirePortAutosuggest() {
+  if (!LOOKUPS) return;
+  const ports = LOOKUPS.ports || [];
+
+  const portsByName = (q) => {
+    const lower = q.toLowerCase();
+    return ports
+      .filter(
         (p) =>
-          `<option value="${esc(p.name)}">${esc(p.code)} — ${esc(p.country)}</option>`
+          p.name.toLowerCase().includes(lower) ||
+          p.code.toLowerCase().includes(lower) ||
+          p.country.toLowerCase().includes(lower)
       )
-      .join('');
+      .slice(0, 10)
+      .map((p) => ({
+        primary: p.name,
+        secondary: `${p.code} · ${p.country}`,
+        data: p,
+      }));
+  };
+
+  // Pick handler shared by both name + code: fills the OTHER linked field +
+  // the (hidden) region input so Maersk's autocomplete disambiguates correctly.
+  function applyPortPick(endpointFields, port) {
+    const codeEl = endpointFields?.querySelector('.port-code-input');
+    const nameEl = endpointFields?.querySelector('.port-name-input');
+    const regionEl = endpointFields?.querySelector('input[id$="-region"]');
+    if (codeEl) codeEl.value = port.code;
+    if (nameEl) nameEl.value = port.name;
+    if (regionEl) regionEl.value = port.country;
   }
-  // Port code datalist (for code-only fields)
-  const codeDl = document.getElementById('dl-port-codes');
-  if (codeDl) {
-    codeDl.innerHTML = LOOKUPS.ports
-      .map(
-        (p) =>
-          `<option value="${esc(p.code)}">${esc(p.name)}, ${esc(p.country)}</option>`
-      )
-      .join('');
-  }
-  // Recent address datalist
-  const addrDl = document.getElementById('dl-addresses');
-  if (addrDl) {
-    addrDl.innerHTML = LOOKUPS.recentAddresses
-      .map((a) => `<option value="${esc(a)}"></option>`)
-      .join('');
-  }
+
+  document.querySelectorAll('.port-name-input').forEach((input) => {
+    new Autosuggest(input, async (q) => portsByName(q), (item) => {
+      applyPortPick(input.closest('.endpoint-fields'), item.data);
+    });
+  });
+  document.querySelectorAll('.port-code-input').forEach((input) => {
+    new Autosuggest(input, async (q) => portsByName(q), (item) => {
+      applyPortPick(input.closest('.endpoint-fields'), item.data);
+    });
+  });
+}
+
+// ---- Address autosuggest via /api/data/geocode (Nominatim) ----
+function wireAddressAutosuggest() {
+  document.querySelectorAll('.address-input').forEach((input) => {
+    new Autosuggest(
+      input,
+      async (q) => {
+        const r = await fetch(
+          `/api/data/geocode?q=${encodeURIComponent(q)}`
+        );
+        if (!r.ok) return [];
+        const data = await r.json();
+        return (data.results || []).map((it) => ({
+          primary:
+            [it.street, it.city, it.state, it.zip].filter(Boolean).join(', ') ||
+            it.display,
+          secondary: it.country,
+          data: it,
+        }));
+      },
+      (item) => {
+        const it = item.data;
+        input.value = it.street || item.primary;
+        // Find sibling fields in the same endpoint-fields container
+        const ep = input.closest('.endpoint-fields');
+        if (!ep) return;
+        const setIf = (suffix, val) => {
+          const el = ep.querySelector(`input[id$="-${suffix}"]`);
+          if (el && val) el.value = val;
+        };
+        setIf('city', it.city);
+        setIf('state', it.state);
+        setIf('zip', it.zip);
+        setIf('country', it.countryCode || it.country);
+      },
+      { minChars: 4, debounceMs: 350 }
+    );
+  });
 }
 
 // Tab switching
@@ -182,16 +368,21 @@ document.querySelectorAll('.tab').forEach((btn) => {
 
 // ---- Drayage tab ----
 
-// Toggle CY/DOOR conditional fields
+// Toggle CY/DOOR conditional fields. Uses .is-hidden class (with !important)
+// so it can never lose to grid/flex display rules.
 function wireCyDoorToggle(radioName, cyDivId, doorDivId) {
   const radios = document.querySelectorAll(`input[name="${radioName}"]`);
   const cyDiv = document.getElementById(cyDivId);
   const doorDiv = document.getElementById(doorDivId);
+  if (!cyDiv || !doorDiv) {
+    console.warn('wireCyDoorToggle: missing div(s)', cyDivId, doorDivId);
+    return;
+  }
   function update() {
     const checked = document.querySelector(`input[name="${radioName}"]:checked`);
     const v = checked ? checked.value : 'CY';
-    cyDiv.hidden = v !== 'CY';
-    doorDiv.hidden = v !== 'DOOR';
+    cyDiv.classList.toggle('is-hidden', v !== 'CY');
+    doorDiv.classList.toggle('is-hidden', v !== 'DOOR');
   }
   radios.forEach((r) => r.addEventListener('change', update));
   update();
@@ -231,6 +422,24 @@ document.getElementById('dr-intake-clear-image').addEventListener('click', () =>
   drIntakeImageMediaType = null;
   drIntakePreview.hidden = true;
   drIntakePreviewImg.src = '';
+});
+
+// Mobile image upload for drayage intake
+document.getElementById('dr-intake-file-btn').addEventListener('click', () => {
+  document.getElementById('dr-intake-file').click();
+});
+document.getElementById('dr-intake-file').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    drIntakeImageDataUrl = String(reader.result);
+    drIntakeImageMediaType = file.type || 'image/png';
+    drIntakePreviewImg.src = drIntakeImageDataUrl;
+    drIntakePreview.hidden = false;
+    setStatus('dr-intake-status', 'Image loaded. Tap "Extract" to parse.', 'info');
+  };
+  reader.readAsDataURL(file);
 });
 
 document.getElementById('dr-intake-btn').addEventListener('click', async () => {
@@ -830,6 +1039,24 @@ document.getElementById('intake-clear-image').addEventListener('click', () => {
   intakePreview.hidden = true;
   intakePreviewImg.src = '';
   setStatus('intake-status', '', '');
+});
+
+// Mobile-friendly image upload (file picker)
+document.getElementById('intake-file-btn').addEventListener('click', () => {
+  document.getElementById('intake-file').click();
+});
+document.getElementById('intake-file').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    pastedImageDataUrl = String(reader.result);
+    pastedImageMediaType = file.type || 'image/png';
+    intakePreviewImg.src = pastedImageDataUrl;
+    intakePreview.hidden = false;
+    setStatus('intake-status', 'Image loaded. Tap "Extract" to parse.', 'info');
+  };
+  reader.readAsDataURL(file);
 });
 
 // Wire ocean origin/destination CY/DOOR toggles

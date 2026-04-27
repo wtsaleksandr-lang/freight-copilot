@@ -530,25 +530,28 @@ label.check-line input[type="checkbox"] {
 }
 
 .cy-door-row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   margin-top: 4px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .cy-door-radio {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--ink);
   background: white;
   transition: all 0.1s;
+  white-space: nowrap;
+  text-align: center;
+  justify-content: center;
 }
 .cy-door-radio:has(input:checked) {
   background: var(--info-bg);
@@ -559,7 +562,56 @@ label.check-line input[type="checkbox"] {
   width: auto;
   accent-color: var(--accent);
   cursor: pointer;
+  margin: 0;
 }
+
+/* Bulletproof show/hide for CY vs DOOR (avoids any [hidden] attribute conflicts). */
+.is-hidden { display: none !important; }
+
+/* Endpoint conditional fields container (replaces .grid for CY/DOOR blocks). */
+.endpoint-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.endpoint-fields .full { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .endpoint-fields { grid-template-columns: 1fr; }
+}
+
+/* ---- Custom Autosuggest dropdown ---- */
+.autosuggest-wrap {
+  position: relative;
+}
+.autosuggest-panel {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.autosuggest-item {
+  padding: 9px 12px;
+  font-size: 13.5px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.autosuggest-item:last-child { border-bottom: none; }
+.autosuggest-item:hover,
+.autosuggest-item.active { background: #f1f5f9; }
+.autosuggest-item .as-primary { color: var(--ink); font-weight: 500; }
+.autosuggest-item .as-secondary { color: var(--muted); font-size: 11.5px; }
+.autosuggest-empty { padding: 10px 12px; color: var(--muted); font-size: 12.5px; }
 
 /* ---- Side-by-side origin/destination endpoint cards ---- */
 .endpoint-row {

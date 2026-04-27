@@ -29,7 +29,7 @@
     <section id="tab-new" class="tab-pane active">
       <div class="card">
         <h2>Intake <span class="muted-inline">— paste a client's quote request</span></h2>
-        <p class="muted">Paste text or a screenshot (Ctrl+V inside the box). Claude extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <p class="muted">Paste text, paste a screenshot (Ctrl+V on desktop), or tap "Upload image" on mobile. Claude extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
         <textarea id="intake-text" rows="5" placeholder="Paste text here, or paste a screenshot image…"></textarea>
         <div id="intake-image-preview" hidden>
           <img id="intake-image" alt="pasted screenshot" />
@@ -37,6 +37,8 @@
         </div>
         <div class="row">
           <button id="intake-btn" class="primary">Extract</button>
+          <input type="file" id="intake-file" accept="image/*" hidden />
+          <button id="intake-file-btn" class="btn-sm">📷 Upload image</button>
           <div id="intake-status" class="status-inline"></div>
         </div>
       </div>
@@ -57,10 +59,42 @@
             </select>
           </label>
           <label>Container type
-            <select id="container" class="container-select" data-current="40 Dry High"></select>
+            <select id="container" class="container-select" data-current="40 Dry High">
+              <option value="20 Dry Standard">20 Dry Standard</option>
+              <option value="40 Dry Standard">40 Dry Standard</option>
+              <option value="40 Dry High" selected>40 Dry High</option>
+              <option value="20 Reefer">20 Reefer</option>
+              <option value="40 Reefer">40 Reefer</option>
+              <option value="40 Reefer High Cube">40 Reefer High Cube</option>
+              <option value="20 Open Top">20 Open Top</option>
+              <option value="40 Open Top">40 Open Top</option>
+              <option value="20 Flat Rack">20 Flat Rack</option>
+              <option value="40 Flat Rack">40 Flat Rack</option>
+              <option value="20 Tank">20 Tank</option>
+              <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
+            </select>
           </label>
-          <label>Weight per container (kg)<input id="weight" type="number" value="10000"></label>
-          <label>Commodity<input id="commodity" value="Autoparts"></label>
+          <label>Weight per container
+            <select id="weight" class="weight-select">
+              <option value="5000">3,000 – 5,000 kg</option>
+              <option value="10000" selected>5,000 – 10,000 kg</option>
+              <option value="17900">10,000 – 17,900 kg</option>
+              <option value="19800">17,900 – 19,800 kg</option>
+              <option value="22000">19,800+ kg</option>
+            </select>
+          </label>
+          <label>Cargo / commodity
+            <select id="commodity" class="commodity-select">
+              <option value="General cargo" selected>General cargo</option>
+              <option value="Pharmaceuticals">Pharmaceuticals</option>
+              <option value="Controlled cargo">Controlled cargo</option>
+              <option value="Used vehicles">Used vehicles</option>
+              <option value="Brand new vehicles">Brand new vehicles</option>
+              <option value="Used electric vehicles">Used electric vehicles</option>
+              <option value="Brand new electric vehicles">Brand new electric vehicles</option>
+              <option value="Dangerous cargo">Dangerous cargo</option>
+            </select>
+          </label>
           <label class="full">Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
         </div>
 
@@ -75,14 +109,14 @@
                 <input type="radio" name="oc-origin-type" value="DOOR"> DOOR — street
               </label>
             </div>
-            <div id="oc-origin-cy" class="grid">
-              <label>Port code<input id="oc-origin-port-code" list="dl-port-codes" placeholder="USEWR"></label>
-              <label>Port name<input id="from" list="dl-ports" placeholder="Newark"></label>
-              <label class="full">Region hint<input id="from-region" placeholder="New Jersey / United States"></label>
-              <label class="full">Specific terminal (optional)<input id="oc-origin-terminal" placeholder="APM Terminals Newark"></label>
+            <div id="oc-origin-cy" class="endpoint-fields">
+              <label class="full">Port code<input id="oc-origin-port-code" class="port-code-input" placeholder="USEWR" autocomplete="off"></label>
+              <label class="full">Port name<input id="from" class="port-name-input" placeholder="Newark" autocomplete="off"></label>
+              <input type="hidden" id="from-region" />
+              <input type="hidden" id="oc-origin-terminal" />
             </div>
-            <div id="oc-origin-door" class="grid" hidden>
-              <label class="full">Street<input id="oc-origin-address" list="dl-addresses"></label>
+            <div id="oc-origin-door" class="endpoint-fields is-hidden">
+              <label class="full">Address (street + city + ZIP)<input id="oc-origin-address" class="address-input" placeholder="Start typing — suggestions appear" autocomplete="off"></label>
               <label>City<input id="oc-origin-city"></label>
               <label>State<input id="oc-origin-state"></label>
               <label>ZIP<input id="oc-origin-zip"></label>
@@ -100,14 +134,14 @@
                 <input type="radio" name="oc-destination-type" value="DOOR"> DOOR — street
               </label>
             </div>
-            <div id="oc-destination-cy" class="grid">
-              <label>Port code<input id="oc-destination-port-code" list="dl-port-codes" placeholder="BEANR"></label>
-              <label>Port name<input id="to" list="dl-ports" placeholder="Antwerp"></label>
-              <label class="full">Region hint<input id="to-region" placeholder="Belgium"></label>
-              <label class="full">Specific terminal (optional)<input id="oc-destination-terminal"></label>
+            <div id="oc-destination-cy" class="endpoint-fields">
+              <label class="full">Port code<input id="oc-destination-port-code" class="port-code-input" placeholder="BEANR" autocomplete="off"></label>
+              <label class="full">Port name<input id="to" class="port-name-input" placeholder="Antwerp" autocomplete="off"></label>
+              <input type="hidden" id="to-region" />
+              <input type="hidden" id="oc-destination-terminal" />
             </div>
-            <div id="oc-destination-door" class="grid" hidden>
-              <label class="full">Street<input id="oc-destination-address" list="dl-addresses"></label>
+            <div id="oc-destination-door" class="endpoint-fields is-hidden">
+              <label class="full">Address (street + city + ZIP)<input id="oc-destination-address" class="address-input" placeholder="Start typing — suggestions appear" autocomplete="off"></label>
               <label>City<input id="oc-destination-city"></label>
               <label>State<input id="oc-destination-state"></label>
               <label>ZIP<input id="oc-destination-zip"></label>
@@ -192,6 +226,8 @@
         </div>
         <div class="row">
           <button id="dr-intake-btn" class="primary">Extract</button>
+          <input type="file" id="dr-intake-file" accept="image/*" hidden />
+          <button id="dr-intake-file-btn" class="btn-sm">📷 Upload image</button>
           <div id="dr-intake-status" class="status-inline"></div>
         </div>
       </div>
@@ -210,9 +246,30 @@
             </select>
           </label>
           <label>Container type
-            <select id="dr-container" class="container-select" data-current="40 Dry High"></select>
+            <select id="dr-container" class="container-select" data-current="40 Dry High">
+              <option value="20 Dry Standard">20 Dry Standard</option>
+              <option value="40 Dry Standard">40 Dry Standard</option>
+              <option value="40 Dry High" selected>40 Dry High</option>
+              <option value="20 Reefer">20 Reefer</option>
+              <option value="40 Reefer">40 Reefer</option>
+              <option value="40 Reefer High Cube">40 Reefer High Cube</option>
+              <option value="20 Open Top">20 Open Top</option>
+              <option value="40 Open Top">40 Open Top</option>
+              <option value="20 Flat Rack">20 Flat Rack</option>
+              <option value="40 Flat Rack">40 Flat Rack</option>
+              <option value="20 Tank">20 Tank</option>
+              <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
+            </select>
           </label>
-          <label class="full">Cargo weight (kg)<input id="dr-weight" type="number" placeholder="optional" /></label>
+          <label>Cargo weight
+            <select id="dr-weight" class="weight-select">
+              <option value="5000">3,000 – 5,000 kg</option>
+              <option value="10000" selected>5,000 – 10,000 kg</option>
+              <option value="17900">10,000 – 17,900 kg</option>
+              <option value="19800">17,900 – 19,800 kg</option>
+              <option value="22000">19,800+ kg</option>
+            </select>
+          </label>
         </div>
 
         <div class="endpoint-row">
@@ -226,13 +283,13 @@
                 <input type="radio" name="dr-origin-type" value="DOOR"> DOOR — street
               </label>
             </div>
-            <div id="dr-origin-cy" class="grid">
-              <label>Port code<input id="dr-origin-port-code" list="dl-port-codes" placeholder="USEWR" /></label>
-              <label>Port name<input id="dr-origin-port-name" list="dl-ports" placeholder="Newark" /></label>
-              <label class="full">Specific terminal (optional)<input id="dr-origin-terminal" placeholder="APM Terminals Newark" /></label>
+            <div id="dr-origin-cy" class="endpoint-fields">
+              <label class="full">Port code<input id="dr-origin-port-code" class="port-code-input" placeholder="USEWR" autocomplete="off" /></label>
+              <label class="full">Port name<input id="dr-origin-port-name" class="port-name-input" placeholder="Newark" autocomplete="off" /></label>
+              <input type="hidden" id="dr-origin-terminal" />
             </div>
-            <div id="dr-origin-door" class="grid" hidden>
-              <label class="full">Street<input id="dr-origin-address" list="dl-addresses" /></label>
+            <div id="dr-origin-door" class="endpoint-fields is-hidden">
+              <label class="full">Address (street + city + ZIP)<input id="dr-origin-address" class="address-input" placeholder="Start typing — suggestions appear" autocomplete="off" /></label>
               <label>City<input id="dr-origin-city" /></label>
               <label>State<input id="dr-origin-state" /></label>
               <label>ZIP<input id="dr-origin-zip" /></label>
@@ -250,13 +307,13 @@
                 <input type="radio" name="dr-destination-type" value="DOOR" checked> DOOR — street
               </label>
             </div>
-            <div id="dr-destination-cy" class="grid" hidden>
-              <label>Port code<input id="dr-destination-port-code" list="dl-port-codes" /></label>
-              <label>Port name<input id="dr-destination-port-name" list="dl-ports" /></label>
-              <label class="full">Specific terminal (optional)<input id="dr-destination-terminal" /></label>
+            <div id="dr-destination-cy" class="endpoint-fields is-hidden">
+              <label class="full">Port code<input id="dr-destination-port-code" class="port-code-input" autocomplete="off" /></label>
+              <label class="full">Port name<input id="dr-destination-port-name" class="port-name-input" autocomplete="off" /></label>
+              <input type="hidden" id="dr-destination-terminal" />
             </div>
-            <div id="dr-destination-door" class="grid">
-              <label class="full">Street<input id="dr-destination-address" list="dl-addresses" placeholder="1234 Main St" /></label>
+            <div id="dr-destination-door" class="endpoint-fields">
+              <label class="full">Address (street + city + ZIP)<input id="dr-destination-address" class="address-input" placeholder="Start typing — suggestions appear" autocomplete="off" /></label>
               <label>City<input id="dr-destination-city" placeholder="Chicago" /></label>
               <label>State<input id="dr-destination-state" placeholder="IL" /></label>
               <label>ZIP<input id="dr-destination-zip" placeholder="60601" /></label>
