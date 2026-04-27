@@ -1,4 +1,4 @@
-import { chromium, type Page } from 'playwright';
+import { type Page } from 'playwright';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -6,35 +6,28 @@ import { createDbClient } from '../../db/client.js';
 import { carriers, sessions } from '../../db/schema.js';
 import { MAERSK_URLS, MAERSK_LABELS } from './selectors.js';
 import type { QuoteInput, FetchRatesResult } from '../types.js';
+import { createBrowserContext } from '../browserContext.js';
 
 export type { QuoteInput, FetchRatesResult };
 
 const OUT_DIR = resolve('./samples/maersk');
 const DEFAULT_COMMODITY = 'Autoparts';
 
-async function loadSession() {
+/** Returns the saved Maersk storageState if present and unexpired, else null.
+ *  In real-Chrome mode this is null (the user's Chrome owns the cookies). */
+async function loadStoredStateOrNull() {
   const db = createDbClient();
-
   const [carrier] = await db
     .select()
     .from(carriers)
     .where(eq(carriers.code, 'MSK'));
-  if (!carrier) throw new Error('Maersk row missing from carriers table.');
-
+  if (!carrier) return null;
   const [session] = await db
     .select()
     .from(sessions)
     .where(eq(sessions.carrierId, carrier.id));
-  if (!session) {
-    throw new Error('No saved Maersk session. Run: pnpm dev maersk login');
-  }
-  if (session.expiresAt < new Date()) {
-    throw new Error(
-      'Maersk session expired. Run: pnpm dev maersk login'
-    );
-  }
-
-  return { carrier, session };
+  if (!session || session.expiresAt < new Date()) return null;
+  return session.storageState;
 }
 
 async function pickFromAutocomplete(
@@ -165,14 +158,16 @@ async function expandAllBreakdowns(page: Page): Promise<void> {
 export async function fetchMaerskRates(
   input: QuoteInput
 ): Promise<FetchRatesResult> {
-  const { session } = await loadSession();
-
-  console.log('[fetchRates] Launching browser (headed)...');
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    storageState: session.storageState as any,
+  // In bundled-Chromium mode we restore the saved Maersk storageState.
+  // In real-Chrome mode we use the user's actual Chrome session — they're
+  // already logged in via normal browsing.
+  const ctxResult = await createBrowserContext({
+    storageState: await loadStoredStateOrNull(),
   });
+  const { context, usingRealChrome, close } = ctxResult;
+  console.log(
+    `[fetchRates] ${usingRealChrome ? 'Connected to real Chrome (CDP)' : 'Launched bundled Chromium'}`
+  );
   const page = await context.newPage();
 
   try {
@@ -367,6 +362,8 @@ export async function fetchMaerskRates(
       screenshotPath,
     };
   } finally {
-    await browser.close();
+    // Close just our page; close() handles the browser if we own it.
+    await page.close().catch(() => undefined);
+    await close();
   }
 }

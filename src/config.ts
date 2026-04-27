@@ -4,6 +4,16 @@ import { z } from 'zod';
 const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
   DATABASE_FILE: z.string().min(1).default('./data/freight-copilot.db'),
+  /**
+   * If "true", record/quote/agent connect to a real Chrome you've launched
+   * with --remote-debugging-port=9222 (use the "Chrome (Freight Copilot)"
+   * desktop shortcut). Bypasses bot-detection on hostile sites
+   * (Hapag, CMA, etc.) by using your actual Chrome fingerprint + cookies.
+   */
+  USE_REAL_CHROME: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
 });
 
 export type Env = z.infer<typeof envSchema>;

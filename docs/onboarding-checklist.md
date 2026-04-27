@@ -31,6 +31,26 @@ Writing carrier code without seeing the real portal produces hallucinated select
 5. Runs a live test quote. Iterates until clean ranked rates come back.
 6. Commits + pushes to GitHub.
 
+## When a carrier serves a captcha during recording / quoting
+
+Hapag-Lloyd (Cloudflare Turnstile loops) and CMA CGM (slider captcha) frequently detect Playwright's bundled Chromium and block automation. **Fix: switch to "real Chrome" mode.**
+
+One-time setup:
+```
+powershell -ExecutionPolicy Bypass -File setup-chrome-debug.ps1
+```
+This creates a "Chrome (Freight Copilot)" desktop shortcut that launches Chrome with `--remote-debugging-port=9222` against a dedicated profile (separate from your normal Chrome).
+
+Then:
+1. Set `USE_REAL_CHROME=true` in `.env`.
+2. Double-click "Chrome (Freight Copilot)" on your Desktop.
+3. Log into the carrier portals once in that window — cookies persist there.
+4. Run quotes/agent/record. Our scripts attach to that Chrome instead of launching a fresh Chromium.
+
+Captchas that fired against Playwright's bundled Chromium typically stop firing entirely in this mode, because the browser fingerprint, IP, cookie history, and `navigator.webdriver` flag now match a normal user.
+
+To go back to bundled mode: set `USE_REAL_CHROME=false`.
+
 ## First step for any carrier (works right now, no onboarding needed)
 
 The generic login works today. Run:

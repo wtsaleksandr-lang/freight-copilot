@@ -10,3 +10,4 @@ samples/
 *.log
 .DS_Store
 .secrets/
+.chrome-profile/

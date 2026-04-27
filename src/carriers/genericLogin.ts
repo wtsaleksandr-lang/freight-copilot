@@ -1,8 +1,9 @@
-import { chromium } from 'playwright';
 import * as readline from 'node:readline/promises';
 import { eq } from 'drizzle-orm';
 import { createDbClient } from '../db/client.js';
 import { carriers, sessions } from '../db/schema.js';
+import { createBrowserContext } from './browserContext.js';
+import { loadEnv } from '../config.js';
 
 const SESSION_TTL_DAYS = 7;
 
@@ -23,6 +24,7 @@ export interface GenericLoginParams {
  */
 export async function genericLogin(params: GenericLoginParams): Promise<void> {
   const db = createDbClient();
+  const env = loadEnv();
 
   const [carrier] = await db
     .select()
@@ -34,9 +36,24 @@ export async function genericLogin(params: GenericLoginParams): Promise<void> {
     );
   }
 
-  console.log(`[login] Launching Chromium for ${params.carrierName}...`);
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
+  // In real-Chrome mode the user's own browser owns the cookies; we don't need
+  // to capture or save anything. Just open the URL and let them log in.
+  if (env.USE_REAL_CHROME) {
+    console.log('');
+    console.log('USE_REAL_CHROME=true — your real Chrome owns the cookies.');
+    console.log(
+      `Open ${params.homeUrl} in your "Chrome (Freight Copilot)" window and log in.`
+    );
+    console.log(
+      'No session needs to be saved here; cookies persist in that Chrome profile.'
+    );
+    console.log('');
+    return;
+  }
+
+  console.log(`[login] Launching bundled Chromium for ${params.carrierName}...`);
+  const ctxResult = await createBrowserContext();
+  const { context, close } = ctxResult;
   const page = await context.newPage();
 
   console.log(`[login] Opening ${params.homeUrl}`);
@@ -99,5 +116,6 @@ export async function genericLogin(params: GenericLoginParams): Promise<void> {
   console.log(
     `[login] Session saved for ${params.carrierName}. Expires: ${expiresAt.toISOString()}`
   );
-  await browser.close();
+  await page.close().catch(() => undefined);
+  await close();
 }

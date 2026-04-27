@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { chromium, type Page } from 'playwright';
+import { type Page } from 'playwright';
 import { loadEnv } from '../config.js';
 import { AGENT_TOOL_DEFS, isDangerous } from './tools.js';
+import { createBrowserContext } from '../carriers/browserContext.js';
 
 const MODEL = 'claude-sonnet-4-6';
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
@@ -127,8 +128,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const maxIterations = opts.maxIterations ?? 25;
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
+  const ctxResult = await createBrowserContext();
+  const { context, close, usingRealChrome } = ctxResult;
+  console.log(
+    `[agent] ${usingRealChrome ? 'Connected to real Chrome (CDP)' : 'Launched bundled Chromium'}`
+  );
   const page = await context.newPage();
 
   const steps: AgentStep[] = [];
@@ -242,6 +246,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       finishReason: finishReason || 'Loop ended',
     };
   } finally {
-    await browser.close();
+    await page.close().catch(() => undefined);
+    await close();
   }
 }
