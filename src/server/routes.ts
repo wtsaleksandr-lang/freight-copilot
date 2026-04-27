@@ -36,6 +36,7 @@ import {
   listRecordings,
   stopRecording,
   readRecordingFile,
+  saveUploadedRecording,
 } from './recordingService.js';
 import { analyzeRecording } from '../llm/analyzeRecording.js';
 
@@ -961,6 +962,46 @@ export function registerApiRoutes(app: Express): void {
 
   app.get('/api/record/list', (_req: Request, res: Response) => {
     res.json({ recordings: listRecordings() });
+  });
+
+  /**
+   * Upload an existing recording file (Chrome DevTools Recorder JSON,
+   * Playwright Codegen .ts, or Puppeteer .js). Saves it to disk, registers
+   * it in the in-memory recordings list, and immediately runs Claude
+   * analysis so the dashboard can render results in one round-trip.
+   */
+  app.post('/api/record/upload', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      content?: string;
+      filename?: string;
+      carrierCode?: string;
+      description?: string;
+    };
+    if (!body.content || body.content.trim().length === 0) {
+      res.status(400).json({ error: '`content` is required.' });
+      return;
+    }
+    try {
+      const meta = await saveUploadedRecording({
+        content: body.content,
+        filename: body.filename,
+        carrierCode: body.carrierCode,
+        description: body.description,
+      });
+      const analysis = await analyzeRecording({
+        recordingPath: meta.outFile,
+        recordingCode: body.content,
+        url: meta.url,
+        carrierCode: meta.carrierCode,
+        description: meta.description,
+      });
+      res.json({ meta, analysis });
+    } catch (err) {
+      console.error('[api/record/upload] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   // Generic web agent — Claude drives a browser to complete a goal on any site.

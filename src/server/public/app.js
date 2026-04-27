@@ -1711,20 +1711,70 @@ let activeRecordingId = null;
 let recordingPollHandle = null;
 
 async function loadRecCarrierDropdown() {
-  const sel = document.getElementById('rec-carrier');
+  const targets = [
+    document.getElementById('rec-carrier'),
+    document.getElementById('rec-upload-carrier'),
+  ].filter(Boolean);
   try {
     const r = await fetch('/api/carriers');
     const data = await r.json();
-    sel.innerHTML =
+    const html =
       '<option value="">(none — save under _recordings)</option>' +
       data.carriers
         .map((c) => `<option value="${c.code}">${esc(c.name)} (${c.code})</option>`)
         .join('');
+    for (const sel of targets) sel.innerHTML = html;
   } catch {
-    sel.innerHTML = '<option value="">(error loading carriers)</option>';
+    for (const sel of targets) {
+      sel.innerHTML = '<option value="">(error loading carriers)</option>';
+    }
   }
 }
 loadRecCarrierDropdown();
+
+document.getElementById('rec-upload-btn').addEventListener('click', async () => {
+  const fileInput = document.getElementById('rec-upload-file');
+  const carrier = document.getElementById('rec-upload-carrier').value || undefined;
+  const description =
+    document.getElementById('rec-upload-description').value.trim() || undefined;
+  const btn = document.getElementById('rec-upload-btn');
+
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) {
+    setStatus('rec-upload-status', 'Pick a recording file first.', 'error');
+    return;
+  }
+
+  setStatus('rec-upload-status', 'Reading file…', 'info');
+  btn.disabled = true;
+  document.getElementById('rec-analysis-card').hidden = true;
+
+  try {
+    const content = await file.text();
+    if (!content.trim()) throw new Error('File is empty.');
+    setStatus('rec-upload-status', 'Sending to Claude for analysis…', 'info');
+    const r = await fetch('/api/record/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content,
+        filename: file.name,
+        carrierCode: carrier,
+        description,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Upload failed');
+    setStatus('rec-upload-status', 'Analysis complete.', 'success');
+    renderAnalysis(data.meta, data.analysis);
+    fileInput.value = '';
+    loadRecList();
+  } catch (err) {
+    setStatus('rec-upload-status', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 document.getElementById('rec-start-btn').addEventListener('click', async () => {
   const url = document.getElementById('rec-url').value.trim();

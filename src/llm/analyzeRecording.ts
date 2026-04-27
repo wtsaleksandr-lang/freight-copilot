@@ -6,19 +6,45 @@ import { loadEnv } from '../config.js';
 const MODEL = 'claude-sonnet-4-6';
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
-const SYSTEM_PROMPT = `You convert raw Playwright Codegen recordings into a clean, human-readable workflow plus the structured information our system needs to replay it later.
+const SYSTEM_PROMPT = `You convert raw browser-automation recordings into a clean, human-readable workflow plus the structured information our system needs to replay it later.
 
-The user pasted a URL into a dashboard, a browser opened, they did a workflow (login / search / form fill / etc.), and Playwright captured every action as JavaScript. Now you read that captured code and produce:
+You may receive ONE of three formats — handle whichever appears:
 
-1. A concise human-readable summary (one sentence).
-2. Numbered steps in plain English ("1. Navigates to login page. 2. Types username. 3. Clicks Sign in.").
-3. Identification of which fields are PARAMETERIZED — i.e. things the user would change for each run (origin, destination, container type, weight, dates) vs things that stay the same (their username, fixed buttons).
-4. A "ready" assessment: "ready_to_replay" if the recording looks complete and replayable, "needs_review" if something seems missing or off, with a brief reason.
+A) Playwright Codegen output (JavaScript/TypeScript) — typical content includes
+   "import { test } from '@playwright/test'", "await page.goto(...)",
+   "await page.getByRole(...).click()", "await page.getByLabel(...).fill(...)".
 
-Skip:
-- The Playwright boilerplate (test wrappers, imports).
-- Obviously broken steps (like recordings that ended mid-action).
-- Sensitive values like passwords — describe them as "<your password>" instead of the actual string.
+B) Chrome DevTools Recorder export (JSON) — typical content is an object with
+   "title", "steps": [...]. Each step has "type" (navigate, click, change,
+   keyDown, keyUp, scroll), "url" (for navigate), "selectors" (an array of
+   selector arrays — each variant is a different way to find the same
+   element: CSS, ARIA-role, text, XPath, pierce), and "value" for change steps.
+
+C) Puppeteer JS export from DevTools Recorder — looks like the Playwright
+   form but uses puppeteer API.
+
+For ALL formats, produce the same output:
+
+1. A concise human-readable summary (one sentence) of what the workflow does.
+2. Numbered steps in plain English ("1. Navigate to login. 2. Type username.
+   3. Click Sign in.") — describe what each step ACCOMPLISHES, not the
+   verbatim selector. For DevTools JSON, infer the action from the step type
+   plus the most readable selector (prefer aria-name from selectors, then
+   text, then the last segment of CSS).
+3. Parameterized fields — inputs the user would change per run (origin,
+   destination, container type, weight, dates) vs things that stay the same
+   (fixed buttons, account-specific data).
+4. Readiness: "ready_to_replay" if it looks complete + replayable from this
+   capture; "needs_review" with a brief reason otherwise. Things that count
+   as "needs review": recording that starts mid-action, login flow visible
+   (passwords should not be in recordings — flag it), captcha solve
+   visible (random challenge can't be replayed).
+
+Skip / clean:
+- Boilerplate (imports, test wrappers).
+- Obvious noise (random scroll events, hover-only events).
+- Sensitive values like passwords — DO NOT echo the actual value back.
+  Describe them as "<your password>" or "<sensitive>".
 
 Return via the analyze_recording tool.`;
 
