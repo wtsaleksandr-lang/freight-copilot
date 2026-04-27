@@ -38,16 +38,35 @@ async function pickPort(
   inputSelector: string,
   resultSelector: string,
   value: string,
-  fieldLabel: string
+  fieldLabel: string,
+  fallbackValue?: string
 ): Promise<void> {
-  console.log(`[fetchRates] ${fieldLabel}: typing "${value}"`);
   const input = page.locator(inputSelector).first();
-  await input.click();
-  await input.fill(value);
-  await page.waitForTimeout(1500);
-
   const opt = page.locator(resultSelector).first();
-  await opt.waitFor({ state: 'visible', timeout: 10_000 });
+
+  async function typeAndCheck(typed: string): Promise<boolean> {
+    console.log(`[fetchRates] ${fieldLabel}: typing "${typed}"`);
+    await input.click();
+    await input.fill('');
+    await input.fill(typed);
+    await page.waitForTimeout(1500);
+    return opt.isVisible({ timeout: 4_000 }).catch(() => false);
+  }
+
+  let visible = await typeAndCheck(value);
+  if (!visible && fallbackValue && fallbackValue !== value) {
+    console.warn(
+      `[fetchRates] CMA returned no port suggestion for "${value}" — retrying with "${fallbackValue}".`
+    );
+    visible = await typeAndCheck(fallbackValue);
+  }
+  if (!visible) {
+    throw new Error(
+      `CMA showed no port suggestion for "${value}"` +
+        (fallbackValue ? ` (or fallback "${fallbackValue}")` : '') +
+        ` in field ${fieldLabel}.`
+    );
+  }
   await opt.click();
   await page.waitForTimeout(500);
 }
@@ -120,14 +139,16 @@ export async function fetchCmaRates(
       CMA_SELECTORS.originInput,
       CMA_SELECTORS.originFirstOption,
       input.originPortCode || input.origin,
-      'Origin'
+      'Origin',
+      input.originPortCode ? input.origin : undefined
     );
     await pickPort(
       page,
       CMA_SELECTORS.destinationInput,
       CMA_SELECTORS.destinationFirstOption,
       input.destinationPortCode || input.destination,
-      'Destination'
+      'Destination',
+      input.destinationPortCode ? input.destination : undefined
     );
 
     // Container — pick the size tile by mapped index, then click "Add".

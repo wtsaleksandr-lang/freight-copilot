@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { createDbClient } from '../../db/client.js';
 import { carriers, sessions } from '../../db/schema.js';
-import { MSC_URLS, MSC_SELECTORS } from './selectors.js';
+import { MSC_URLS, MSC_SELECTORS, MSC_CONTAINER_PATTERNS } from './selectors.js';
 import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
@@ -41,8 +41,16 @@ async function selectOnlyContainer(
   page: Page,
   containerType: string
 ): Promise<void> {
-  const target = containerType.trim().toUpperCase();
-  console.log(`[fetchRates] Filtering containers to "${target}" only...`);
+  // Build a list of patterns that MSC's checkbox label might match for our
+  // requested container. Falls back to literal-string match for unknown
+  // container types.
+  const patterns = MSC_CONTAINER_PATTERNS[containerType] ?? [
+    new RegExp('^' + containerType.replace(/[^a-z0-9]/gi, '\\s*') + '\\b', 'i'),
+  ];
+  console.log(
+    `[fetchRates] Filtering containers to "${containerType}" only ` +
+      `(patterns: ${patterns.map((p) => p.source).join(', ')})`
+  );
 
   const checkboxes = page.locator(MSC_SELECTORS.equipmentInputPrefix);
   const count = await checkboxes.count();
@@ -57,8 +65,8 @@ async function selectOnlyContainer(
     const cb = checkboxes.nth(i);
     const ariaLabel = (await cb.getAttribute('aria-label').catch(() => null)) ?? '';
     const value = (await cb.getAttribute('value').catch(() => null)) ?? '';
-    const label = (ariaLabel || value).toUpperCase().trim();
-    const isMatch = label === target;
+    const label = (ariaLabel || value).trim();
+    const isMatch = patterns.some((p) => p.test(label));
     const checked = await cb.isChecked().catch(() => false);
 
     if (isMatch && !checked) {
@@ -75,9 +83,18 @@ async function selectOnlyContainer(
   }
 
   if (kept === 0) {
+    // Help future debugging: dump what we did see.
+    const seen: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const cb = checkboxes.nth(i);
+      const a = (await cb.getAttribute('aria-label').catch(() => null)) ?? '';
+      const v = (await cb.getAttribute('value').catch(() => null)) ?? '';
+      seen.push((a || v).trim());
+    }
     throw new Error(
-      `Container type "${containerType}" was not found among MSC's equipment checkboxes. ` +
-        'Check the spelling against MSC\'s portal (e.g. 20GP, 40DV, 40HC, 45HC).'
+      `No MSC checkbox matched "${containerType}". ` +
+        `MSC offered: [${seen.filter(Boolean).join(', ')}]. ` +
+        'Add a pattern to MSC_CONTAINER_PATTERNS in selectors.ts.'
     );
   }
 }

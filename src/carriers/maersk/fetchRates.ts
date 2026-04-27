@@ -38,26 +38,47 @@ async function pickFromAutocomplete(
   labelName: string,
   value: string,
   /** If provided, pick the dropdown option whose text contains this substring (case-insensitive). */
-  regionHint?: string
+  regionHint?: string,
+  /** If `value` (e.g. a LOCODE) produces no options, retry with this. */
+  fallbackValue?: string
 ): Promise<void> {
   const field = page.getByRole('combobox', { name: labelName });
-  await field.click();
-  await field.fill(value);
-  await page.waitForTimeout(1500); // wait for suggestions
+
+  async function typeAndOptionCount(typed: string): Promise<number> {
+    await field.click();
+    await field.fill('');
+    await field.fill(typed);
+    await page.waitForTimeout(1500);
+    return page.getByRole('option').count();
+  }
+
+  let optionsCount = await typeAndOptionCount(value);
+  if (optionsCount === 0 && fallbackValue && fallbackValue !== value) {
+    console.warn(
+      `[fetchRates] "${value}" produced 0 options for "${labelName}" — retrying with "${fallbackValue}".`
+    );
+    optionsCount = await typeAndOptionCount(fallbackValue);
+  }
+  if (optionsCount === 0) {
+    throw new Error(
+      `No autocomplete options for "${labelName}" after typing "${value}"` +
+        (fallbackValue ? ` (and fallback "${fallbackValue}")` : '') +
+        '.'
+    );
+  }
 
   if (regionHint) {
     const regex = new RegExp(regionHint, 'i');
     const option = page.getByRole('option', { name: regex }).first();
-    const count = await option.count();
-    if (count > 0) {
+    if ((await option.count()) > 0) {
       await option.click();
       return;
     }
     console.warn(
-      `[fetchRates] No option matched "${regionHint}" for "${labelName}" after typing "${value}" — falling back to first option.`
+      `[fetchRates] No option matched "${regionHint}" for "${labelName}" — falling back to first option.`
     );
   }
-  // Fallback (or no region hint): take the first suggestion.
+  // Take the first suggestion.
   await field.press('ArrowDown');
   await field.press('Enter');
 }
@@ -181,30 +202,36 @@ export async function fetchMaerskRates(
     // Prefer the UN/LOCODE if the user picked a known port — it's a 5-char
     // unambiguous match in Maersk's combobox. Falls back to typing the
     // city name (with region hint) if no code was provided.
-    const fromValue = input.originPortCode || input.origin;
+    const fromPrimary = input.originPortCode || input.origin;
+    const fromFallback = input.originPortCode ? input.origin : undefined;
     console.log(
-      `[fetchRates] From: ${fromValue}` +
-        (input.originPortCode ? ' (LOCODE)' : '') +
-        (input.originRegion ? ` (region: ${input.originRegion})` : '')
+      `[fetchRates] From: ${fromPrimary}` +
+        (input.originPortCode ? ` (LOCODE; fallback "${input.origin}")` : '') +
+        (input.originRegion ? ` region: ${input.originRegion}` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.fromCombobox,
-      fromValue,
-      input.originPortCode ? undefined : input.originRegion
+      fromPrimary,
+      input.originRegion,
+      fromFallback
     );
 
-    const toValue = input.destinationPortCode || input.destination;
+    const toPrimary = input.destinationPortCode || input.destination;
+    const toFallback = input.destinationPortCode
+      ? input.destination
+      : undefined;
     console.log(
-      `[fetchRates] To: ${toValue}` +
-        (input.destinationPortCode ? ' (LOCODE)' : '') +
-        (input.destinationRegion ? ` (region: ${input.destinationRegion})` : '')
+      `[fetchRates] To: ${toPrimary}` +
+        (input.destinationPortCode ? ` (LOCODE; fallback "${input.destination}")` : '') +
+        (input.destinationRegion ? ` region: ${input.destinationRegion}` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.toCombobox,
-      toValue,
-      input.destinationPortCode ? undefined : input.destinationRegion
+      toPrimary,
+      input.destinationRegion,
+      toFallback
     );
 
     // --- Commodity (autocomplete too) ---

@@ -42,19 +42,37 @@ async function fillPortByIndex(
   page: Page,
   comboboxIndex: number,
   value: string,
-  fieldLabel: string
+  fieldLabel: string,
+  fallbackValue?: string
 ): Promise<void> {
-  console.log(`[fetchRates] ${fieldLabel}: typing "${value}"`);
   // The route comboboxes appear above the equipment/commodity comboboxes.
   // Index 0 = origin, 1 = destination.
   const combo = page.getByRole('combobox').nth(comboboxIndex);
-  await combo.click();
-  await combo.fill(value);
-  await page.waitForTimeout(1500);
-
-  // First option in the open listbox.
   const opt = page.getByRole('option').first();
-  await opt.waitFor({ state: 'visible', timeout: 10_000 });
+
+  async function typeAndCheck(typed: string): Promise<boolean> {
+    console.log(`[fetchRates] ${fieldLabel}: typing "${typed}"`);
+    await combo.click();
+    await combo.fill('');
+    await combo.fill(typed);
+    await page.waitForTimeout(1500);
+    return opt.isVisible({ timeout: 4_000 }).catch(() => false);
+  }
+
+  let visible = await typeAndCheck(value);
+  if (!visible && fallbackValue && fallbackValue !== value) {
+    console.warn(
+      `[fetchRates] ONE returned no suggestion for "${value}" — retrying with "${fallbackValue}".`
+    );
+    visible = await typeAndCheck(fallbackValue);
+  }
+  if (!visible) {
+    throw new Error(
+      `ONE showed no port suggestion for "${value}"` +
+        (fallbackValue ? ` (or fallback "${fallbackValue}")` : '') +
+        ` in field ${fieldLabel}.`
+    );
+  }
   await opt.click();
   await page.waitForTimeout(400);
 }
@@ -141,13 +159,15 @@ export async function fetchOneRates(
       page,
       0,
       input.originPortCode || input.origin,
-      'Origin'
+      'Origin',
+      input.originPortCode ? input.origin : undefined
     );
     await fillPortByIndex(
       page,
       1,
       input.destinationPortCode || input.destination,
-      'Destination'
+      'Destination',
+      input.destinationPortCode ? input.destination : undefined
     );
 
     // Cargo Owner radio is the user's "price owner" choice (vs. NVOCC).

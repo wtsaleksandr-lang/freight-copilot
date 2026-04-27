@@ -37,31 +37,52 @@ async function pickPort(
   inputSelector: string,
   value: string,
   fieldLabel: string,
-  regionHint?: string
+  regionHint?: string,
+  fallbackValue?: string
 ): Promise<void> {
-  console.log(`[fetchRates] ${fieldLabel}: typing "${value}"`);
   const input = page.locator(inputSelector).first();
-  await input.click();
-  await input.fill(value);
-  await page.waitForTimeout(1500);
-
-  const re = new RegExp(regionHint ?? value, 'i');
   const options = page.locator(OOCL_SELECTORS.locationOption);
-  const count = await options.count();
-  for (let i = 0; i < count; i++) {
-    const opt = options.nth(i);
-    const text = (await opt.textContent().catch(() => '')) ?? '';
-    if (re.test(text)) {
-      console.log(`[fetchRates]   match: "${text.trim()}"`);
-      await opt.click();
-      return;
+
+  async function typeAndCount(typed: string): Promise<number> {
+    console.log(`[fetchRates] ${fieldLabel}: typing "${typed}"`);
+    await input.click();
+    await input.fill('');
+    await input.fill(typed);
+    await page.waitForTimeout(1500);
+    return options.count();
+  }
+
+  let count = await typeAndCount(value);
+  if (count === 0 && fallbackValue && fallbackValue !== value) {
+    console.warn(
+      `[fetchRates] OOCL returned no port suggestion for "${value}" — retrying with "${fallbackValue}".`
+    );
+    count = await typeAndCount(fallbackValue);
+  }
+  if (count === 0) {
+    throw new Error(
+      `OOCL showed no port suggestion for "${value}"` +
+        (fallbackValue ? ` (or fallback "${fallbackValue}")` : '') +
+        ` in field ${fieldLabel}.`
+    );
+  }
+
+  if (regionHint) {
+    const re = new RegExp(regionHint, 'i');
+    for (let i = 0; i < count; i++) {
+      const opt = options.nth(i);
+      const text = (await opt.textContent().catch(() => '')) ?? '';
+      if (re.test(text)) {
+        console.log(`[fetchRates]   match: "${text.trim()}"`);
+        await opt.click();
+        return;
+      }
     }
   }
-  // Fallback: take the first visible option.
   const first = options.first();
   await first.waitFor({ state: 'visible', timeout: 5_000 });
   console.log(
-    `[fetchRates]   no regex match; taking first option: "${(await first.textContent())?.trim() ?? ''}"`
+    `[fetchRates]   taking first option: "${(await first.textContent())?.trim() ?? ''}"`
   );
   await first.click();
 }
@@ -113,14 +134,16 @@ export async function fetchOoclRates(
       OOCL_SELECTORS.originInput,
       input.originPortCode || input.origin,
       'Origin',
-      input.originPortCode ? undefined : input.originRegion
+      input.originRegion,
+      input.originPortCode ? input.origin : undefined
     );
     await pickPort(
       page,
       OOCL_SELECTORS.destinationInput,
       input.destinationPortCode || input.destination,
       'Destination',
-      input.destinationPortCode ? undefined : input.destinationRegion
+      input.destinationRegion,
+      input.destinationPortCode ? input.destination : undefined
     );
     await pickContainerType(page, input.containerType);
 
