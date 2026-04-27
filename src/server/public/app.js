@@ -1937,6 +1937,174 @@ async function loadRecList() {
 }
 loadRecList();
 
+// ---- Secrets tab ----
+async function loadCredCarrierDropdown() {
+  const sel = document.getElementById('cred-carrier');
+  if (!sel) return;
+  try {
+    const r = await fetch('/api/carriers');
+    const data = await r.json();
+    sel.innerHTML = data.carriers
+      .map((c) => `<option value="${c.code}">${esc(c.name)} (${c.code})</option>`)
+      .join('');
+  } catch {
+    sel.innerHTML = '<option value="">(error loading carriers)</option>';
+  }
+}
+
+async function loadCredList() {
+  const table = document.getElementById('cred-list-table');
+  if (!table) return;
+  table.innerHTML = '<tbody><tr><td class="empty">Loading…</td></tr></tbody>';
+  try {
+    const r = await fetch('/api/credentials');
+    const data = await r.json();
+    if (!data.credentials || data.credentials.length === 0) {
+      table.innerHTML =
+        '<tbody><tr><td class="empty">No credentials stored yet.</td></tr></tbody>';
+      return;
+    }
+    const thead =
+      '<thead><tr><th>Carrier</th><th>Username</th><th>Password</th><th>Notes</th><th>Updated</th><th></th></tr></thead>';
+    const rows = data.credentials
+      .map((c) => {
+        const updated = new Date(c.updatedAt).toISOString().slice(0, 16).replace('T', ' ');
+        return `<tr data-carrier="${esc(c.carrierCode)}">
+          <td><code>${esc(c.carrierCode)}</code></td>
+          <td>${esc(c.username)}</td>
+          <td>
+            <span class="cred-pw-mask">••••••••</span>
+            <span class="cred-pw-clear" hidden></span>
+            <button class="btn-sm cred-reveal-btn">Reveal</button>
+            <button class="btn-sm cred-copy-btn" hidden>Copy</button>
+          </td>
+          <td>${esc(c.notes || '')}</td>
+          <td><span class="muted small">${esc(updated)}</span></td>
+          <td><button class="link-btn cred-delete-btn">Delete</button></td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+  } catch (err) {
+    table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+  }
+}
+
+(function wireSecretsTab() {
+  const saveBtn = document.getElementById('cred-save-btn');
+  const refreshBtn = document.getElementById('cred-refresh-btn');
+  const table = document.getElementById('cred-list-table');
+  if (!saveBtn || !refreshBtn || !table) return;
+
+  loadCredCarrierDropdown();
+  loadCredList();
+
+  saveBtn.addEventListener('click', async () => {
+    const carrierCode = document.getElementById('cred-carrier').value;
+    const username = document.getElementById('cred-username').value.trim();
+    const password = document.getElementById('cred-password').value;
+    const notes = document.getElementById('cred-notes').value.trim();
+    if (!carrierCode) {
+      setStatus('cred-status', 'Pick a carrier.', 'error');
+      return;
+    }
+    if (!username || !password) {
+      setStatus('cred-status', 'Username and password are required.', 'error');
+      return;
+    }
+    setStatus('cred-status', 'Saving…', 'info');
+    saveBtn.disabled = true;
+    try {
+      const r = await fetch(`/api/credentials/${encodeURIComponent(carrierCode)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, notes: notes || undefined }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Save failed');
+      setStatus('cred-status', `Saved ${data.carrierCode}.`, 'success');
+      document.getElementById('cred-password').value = '';
+      loadCredList();
+    } catch (err) {
+      setStatus('cred-status', err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  refreshBtn.addEventListener('click', loadCredList);
+
+  table.addEventListener('click', async (e) => {
+    const row = e.target.closest('tr[data-carrier]');
+    if (!row) return;
+    const carrierCode = row.getAttribute('data-carrier');
+
+    if (e.target.classList.contains('cred-reveal-btn')) {
+      try {
+        const r = await fetch(
+          `/api/credentials/${encodeURIComponent(carrierCode)}/reveal`
+        );
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Reveal failed');
+        const mask = row.querySelector('.cred-pw-mask');
+        const clear = row.querySelector('.cred-pw-clear');
+        const copyBtn = row.querySelector('.cred-copy-btn');
+        mask.hidden = true;
+        clear.hidden = false;
+        clear.textContent = data.password;
+        copyBtn.hidden = false;
+        e.target.textContent = 'Hide';
+        e.target.classList.remove('cred-reveal-btn');
+        e.target.classList.add('cred-hide-btn');
+      } catch (err) {
+        alert(err.message);
+      }
+      return;
+    }
+
+    if (e.target.classList.contains('cred-hide-btn')) {
+      const mask = row.querySelector('.cred-pw-mask');
+      const clear = row.querySelector('.cred-pw-clear');
+      const copyBtn = row.querySelector('.cred-copy-btn');
+      mask.hidden = false;
+      clear.hidden = true;
+      clear.textContent = '';
+      copyBtn.hidden = true;
+      e.target.textContent = 'Reveal';
+      e.target.classList.remove('cred-hide-btn');
+      e.target.classList.add('cred-reveal-btn');
+      return;
+    }
+
+    if (e.target.classList.contains('cred-copy-btn')) {
+      const clear = row.querySelector('.cred-pw-clear');
+      try {
+        await navigator.clipboard.writeText(clear.textContent || '');
+        e.target.textContent = 'Copied!';
+        setTimeout(() => (e.target.textContent = 'Copy'), 1500);
+      } catch {
+        alert('Clipboard write failed — select & copy manually.');
+      }
+      return;
+    }
+
+    if (e.target.classList.contains('cred-delete-btn')) {
+      if (!confirm(`Delete stored credential for ${carrierCode}?`)) return;
+      try {
+        const r = await fetch(
+          `/api/credentials/${encodeURIComponent(carrierCode)}`,
+          { method: 'DELETE' }
+        );
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Delete failed');
+        loadCredList();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+  });
+})();
+
 function setStatus(elId, msg, type) {
   const el = document.getElementById(elId);
   el.className = 'status-inline ' + (type || '');

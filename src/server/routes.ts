@@ -39,6 +39,12 @@ import {
   saveUploadedRecording,
 } from './recordingService.js';
 import { analyzeRecording } from '../llm/analyzeRecording.js';
+import {
+  listCredentials,
+  upsertCredential,
+  revealCredential,
+  deleteCredential,
+} from './credentialsService.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -1070,4 +1076,98 @@ export function registerApiRoutes(app: Express): void {
       });
     }
   });
+
+  // ---- Carrier credential vault ----
+  // Local-only: passwords are AES-256-GCM encrypted at rest with a key in
+  // .secrets/secrets.key (gitignored). The dashboard never returns plaintext
+  // unless /reveal is called explicitly.
+
+  app.get('/api/credentials', async (_req: Request, res: Response) => {
+    try {
+      res.json({ credentials: await listCredentials() });
+    } catch (err) {
+      console.error('[api/credentials] list error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.put('/api/credentials/:carrierCode', async (req: Request, res: Response) => {
+    const rawId = req.params.carrierCode;
+    const carrierCode = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!carrierCode) {
+      res.status(400).json({ error: 'carrierCode is required' });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      username?: string;
+      password?: string;
+      notes?: string;
+    };
+    if (!body.username || !body.password) {
+      res.status(400).json({ error: 'username and password are required' });
+      return;
+    }
+    try {
+      const summary = await upsertCredential({
+        carrierCode,
+        username: body.username,
+        password: body.password,
+        notes: body.notes ?? null,
+      });
+      res.json(summary);
+    } catch (err) {
+      console.error('[api/credentials] upsert error:', err);
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get(
+    '/api/credentials/:carrierCode/reveal',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.carrierCode;
+      const carrierCode = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!carrierCode) {
+        res.status(400).json({ error: 'carrierCode is required' });
+        return;
+      }
+      try {
+        const cred = await revealCredential(carrierCode);
+        if (!cred) {
+          res.status(404).json({ error: 'No credential stored for this carrier.' });
+          return;
+        }
+        res.json(cred);
+      } catch (err) {
+        console.error('[api/credentials] reveal error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/credentials/:carrierCode',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.carrierCode;
+      const carrierCode = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!carrierCode) {
+        res.status(400).json({ error: 'carrierCode is required' });
+        return;
+      }
+      try {
+        const ok = await deleteCredential(carrierCode);
+        res.json({ ok });
+      } catch (err) {
+        console.error('[api/credentials] delete error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
 }

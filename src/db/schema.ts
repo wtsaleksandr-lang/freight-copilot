@@ -268,6 +268,24 @@ export const truckingRates = sqliteTable('trucking_rates', {
     .default(sql`(unixepoch())`),
 });
 
+/**
+ * Carrier portal login credentials. Vault-only — the system does not type
+ * these into login forms. They're stored here so the user can keep them in
+ * one place across devices, copy-paste them when logging in, and not have
+ * to remember them. Passwords are AES-256-GCM encrypted via secretsCrypto.
+ */
+export const carrierCredentials = sqliteTable('carrier_credentials', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  carrierCode: text('carrier_code').notNull().unique(),
+  username: text('username').notNull(),
+  /** "iv:tag:ct" base64 segments. */
+  passwordEncrypted: text('password_encrypted').notNull(),
+  notes: text('notes'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const sessions = sqliteTable('sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   carrierId: integer('carrier_id')

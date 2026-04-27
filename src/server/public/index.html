@@ -25,6 +25,7 @@
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="agent">Agent</button>
       <button class="tab" data-tab="record">Record</button>
+      <button class="tab" data-tab="secrets">Secrets</button>
     </nav>
   </header>
 
@@ -577,6 +578,35 @@
         </div>
         <div class="table-wrap">
           <table id="rec-list-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-secrets" class="tab-pane">
+      <div class="card">
+        <h2>Carrier credentials <span class="muted-inline">— password vault</span></h2>
+        <p class="muted">Store login credentials per carrier so you don't have to remember them across devices. Passwords are AES-256-GCM encrypted at rest with a key in <code>.secrets/secrets.key</code> (gitignored). The system does <strong>not</strong> auto-fill them — you copy/paste manually when logging in. The dashboard never shows a stored password unless you click <strong>Reveal</strong>.</p>
+
+        <h3 class="bd-title">Add or update a credential</h3>
+        <div class="grid">
+          <label>Carrier<select id="cred-carrier"></select></label>
+          <label>Username / email<input id="cred-username" autocomplete="off" /></label>
+          <label>Password<input id="cred-password" type="password" autocomplete="off" /></label>
+          <label>Notes (optional)<input id="cred-notes" placeholder="e.g. 2FA via SMS to +1…" /></label>
+        </div>
+        <div class="row">
+          <button id="cred-save-btn" class="primary">Save</button>
+          <div id="cred-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Stored credentials</h2>
+          <button id="cred-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table id="cred-list-table"></table>
         </div>
       </div>
     </section>
