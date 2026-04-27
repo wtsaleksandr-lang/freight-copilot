@@ -85,18 +85,44 @@ export function registerHistoryCommands(program: Command): void {
         return;
       }
 
-      console.log('Rate options (ranked by total freight cost):');
+      console.log('Rate options (ranked by Freight cost):');
       for (const s of snaps) {
         const price = (s.totalCostCents / 100).toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
+        const dnd =
+          s.detentionFreetimeDays != null || s.demurrageFreetimeDays != null
+            ? ` Det/Dem ${s.detentionFreetimeDays ?? '?'}d/${s.demurrageFreetimeDays ?? '?'}d`
+            : '';
+        const flags: string[] = [];
+        if (s.rollable) flags.push('Rollable');
+        if (s.headlineMismatch) flags.push('!mismatch');
+        const flagStr = flags.length ? ` [${flags.join(', ')}]` : '';
         console.log(
           `  #${s.rank}  ${s.sailingDate ?? '?'}  ` +
             `${s.currency} ${price}  ` +
-            `${s.serviceName}  ` +
-            `(${s.transitDays ?? '?'}d)`
+            `${s.serviceName}` +
+            (s.vesselVoyage ? ` · ${s.vesselVoyage}` : '') +
+            ` (${s.transitDays ?? '?'}d)${dnd}${flagStr}`
         );
+
+        if (s.charges && s.charges.length > 0) {
+          console.log('     Freight charges:');
+          for (const c of s.charges) {
+            console.log(
+              `       - ${c.name.padEnd(40)} ${c.currency} ${c.total.toFixed(2)}`
+            );
+          }
+        }
+        if (s.destinationCharges && s.destinationCharges.length > 0) {
+          console.log(`     Destination charges (on collect):`);
+          for (const c of s.destinationCharges) {
+            console.log(
+              `       - ${c.name.padEnd(40)} ${c.currency} ${c.total.toFixed(2)}`
+            );
+          }
+        }
       }
       console.log('');
       if (snaps[0]?.rawHtmlRef) {

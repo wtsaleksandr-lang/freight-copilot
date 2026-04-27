@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getCarrier } from '../carriers/registry.js';
 import { parseRates } from '../llm/parseRates.js';
-import { rankRates, formatRankedTable } from '../ranker/rankRates.js';
+import { rankRates, formatRankedTable, formatBreakdown } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
 
 export function registerQuoteCommand(program: Command): void {
@@ -84,6 +84,15 @@ export function registerQuoteCommand(program: Command): void {
         console.log('');
         console.log(formatRankedTable(ranked));
         console.log('');
+
+        // Show breakdown for the top-ranked option (and any that have charges).
+        const haveBreakdown = ranked.some((r) => r.freight_charges.length > 0);
+        if (haveBreakdown && ranked[0]) {
+          console.log('Breakdown for top-ranked option:');
+          console.log(formatBreakdown(ranked[0]));
+          console.log('');
+        }
+
         console.log(
           `(${rates.length} option(s) parsed, ${ranked.length} ranked by price, saved as quote #${quoteId})`
         );

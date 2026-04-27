@@ -19,7 +19,16 @@ export const quotes = sqliteTable('quotes', {
   notes: text('notes'),
 });
 
-export type RateCharge = { name: string; amountCents: number };
+/** Stored shape of one charge row. Note: total is in MAJOR units (e.g. dollars, not cents)
+ * to match what Maersk shows to the user — easier to debug. */
+export type StoredCharge = {
+  name: string;
+  basis: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  total: number;
+  currency: string;
+};
 
 export const rateSnapshots = sqliteTable('rate_snapshots', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -31,12 +40,22 @@ export const rateSnapshots = sqliteTable('rate_snapshots', {
     .references(() => carriers.id),
   serviceName: text('service_name'),
   sailingDate: text('sailing_date'),
+  vesselVoyage: text('vessel_voyage'),
   transitDays: integer('transit_days'),
   validUntil: text('valid_until'),
+  detentionFreetimeDays: integer('detention_freetime_days'),
+  demurrageFreetimeDays: integer('demurrage_freetime_days'),
+  rollable: integer('rollable', { mode: 'boolean' }),
   baseFreightCents: integer('base_freight_cents').notNull(),
-  charges: text('charges', { mode: 'json' }).$type<RateCharge[]>(),
+  /** Itemized "Freight charges" rows (our cost). */
+  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  /** Itemized "Destination charges" (on-collect, informational). */
+  destinationCharges: text('destination_charges', { mode: 'json' }).$type<StoredCharge[]>(),
   totalCostCents: integer('total_cost_cents').notNull(),
   currency: text('currency').notNull(),
+  destinationTotal: integer('destination_total'),
+  destinationCurrency: text('destination_currency'),
+  headlineMismatch: integer('headline_mismatch', { mode: 'boolean' }),
   rawHtmlRef: text('raw_html_ref'),
   parsedAt: integer('parsed_at', { mode: 'timestamp' })
     .notNull()

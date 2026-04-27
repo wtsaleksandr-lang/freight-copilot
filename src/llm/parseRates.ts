@@ -11,6 +11,15 @@ import {
 const MODEL = 'claude-sonnet-4-6';
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
+const ChargeSchema = z.object({
+  name: z.string(),
+  basis: z.string().nullable(),
+  quantity: z.number().int().nullable(),
+  unit_price: z.number().nullable(),
+  total: z.number(),
+  currency: z.string(),
+});
+
 const RateOptionSchema = z.object({
   service_name: z.string(),
   sailing_date: z.string().nullable(),
@@ -25,6 +34,8 @@ const RateOptionSchema = z.object({
   rollable: z.boolean(),
   detention_freetime_days: z.number().int().nullable(),
   demurrage_freetime_days: z.number().int().nullable(),
+  freight_charges: z.array(ChargeSchema).default([]),
+  destination_charges: z.array(ChargeSchema).default([]),
 });
 
 const ParseResponseSchema = z.object({

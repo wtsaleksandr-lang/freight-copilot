@@ -254,6 +254,39 @@ tbody tr.clickable:hover { background: #f8fafc; }
 }
 .flag.rollable { background: var(--warn-bg); color: var(--warn); }
 .flag.close { background: var(--success-bg); color: var(--success); }
+.flag.mismatch { background: var(--error-bg); color: var(--error); }
+
+.breakdown-row td {
+  background: #f8fafc;
+  padding: 14px 18px;
+}
+.bd-title {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 8px 0 6px 0;
+}
+.bd-title:first-child { margin-top: 0; }
+table.bd-mini {
+  width: auto;
+  min-width: 360px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+table.bd-mini td {
+  padding: 4px 14px 4px 0;
+  border-bottom: 1px dotted #e5e7eb;
+  vertical-align: middle;
+}
+table.bd-mini tr.bd-total td {
+  font-weight: 700;
+  border-bottom: none;
+  border-top: 1px solid var(--ink-soft);
+  padding-top: 6px;
+}
 
 .empty {
   color: var(--muted);

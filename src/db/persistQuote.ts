@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { createDbClient } from './client.js';
-import { carriers, quotes, rateSnapshots } from './schema.js';
-import type { RankedRateOption } from '../types.js';
+import { carriers, quotes, rateSnapshots, type StoredCharge } from './schema.js';
+import type { RankedRateOption, RateCharge } from '../types.js';
 
 export interface PersistQuoteInput {
   origin: string;
@@ -12,6 +12,17 @@ export interface PersistQuoteInput {
   carrierCode: string;
   ranked: RankedRateOption[];
   rawHtmlRef?: string;
+}
+
+function toStored(c: RateCharge): StoredCharge {
+  return {
+    name: c.name,
+    basis: c.basis,
+    quantity: c.quantity,
+    unit_price: c.unit_price,
+    total: c.total,
+    currency: c.currency,
+  };
 }
 
 export async function persistQuote(input: PersistQuoteInput): Promise<number> {
@@ -33,27 +44,31 @@ export async function persistQuote(input: PersistQuoteInput): Promise<number> {
       notes: input.notes,
     })
     .returning({ id: quotes.id });
-
   if (!quote) throw new Error('Failed to insert quote');
 
   if (input.ranked.length > 0) {
     await db.insert(rateSnapshots).values(
       input.ranked.map((r) => {
-        const cents =
-          r.headline_price_amount != null
-            ? Math.round(r.headline_price_amount * 100)
-            : 0;
+        const totalCents = Math.round(r.freight_total * 100);
         return {
           quoteId: quote.id,
           carrierId: carrier.id,
           serviceName: r.service_name,
           sailingDate: r.sailing_date,
+          vesselVoyage: r.vessel_voyage,
           transitDays: r.transit_days,
           validUntil: null,
-          baseFreightCents: cents,
-          charges: null,
-          totalCostCents: cents,
-          currency: r.headline_price_currency ?? 'USD',
+          detentionFreetimeDays: r.detention_freetime_days,
+          demurrageFreetimeDays: r.demurrage_freetime_days,
+          rollable: r.rollable,
+          baseFreightCents: totalCents,
+          charges: r.freight_charges.map(toStored),
+          destinationCharges: r.destination_charges.map(toStored),
+          totalCostCents: totalCents,
+          currency: r.freight_currency,
+          destinationTotal: r.destination_total || null,
+          destinationCurrency: r.destination_currency,
+          headlineMismatch: r.headline_mismatch,
           rawHtmlRef: input.rawHtmlRef ?? null,
           rank: r.rank,
         };

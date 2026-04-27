@@ -1,5 +1,11 @@
 import { chromium } from 'playwright';
 
+export interface PdfRateCharge {
+  name: string;
+  total: number;
+  currency: string;
+}
+
 export interface PdfQuote {
   id: number;
   carrierCode: string;
@@ -14,9 +20,17 @@ export interface PdfQuote {
     rank: number | null;
     serviceName: string;
     sailingDate: string | null;
+    vesselVoyage?: string | null;
     transitDays: number | null;
+    detentionFreetimeDays?: number | null;
+    demurrageFreetimeDays?: number | null;
+    rollable?: boolean | null;
     currency: string;
     totalCostCents: number;
+    freightCharges?: PdfRateCharge[];
+    destinationCharges?: PdfRateCharge[];
+    destinationTotal?: number | null;
+    destinationCurrency?: string | null;
   }>;
 }
 
@@ -49,14 +63,50 @@ function buildHtml(q: PdfQuote, markup: Markup): string {
         maximumFractionDigits: 2,
       });
       const yourPrice = showMarkup ? applyMarkup(r.totalCostCents, markup) : null;
+      const dnd =
+        r.detentionFreetimeDays != null || r.demurrageFreetimeDays != null
+          ? `${r.detentionFreetimeDays ?? '?'}d / ${r.demurrageFreetimeDays ?? '?'}d`
+          : '—';
+      const flags: string[] = [];
+      if (r.rollable) flags.push('Rollable');
       return `<tr>
         <td class="rank">#${r.rank ?? '—'}</td>
         <td>${esc(r.sailingDate) || '—'}</td>
-        <td>${esc(r.serviceName)}</td>
+        <td>${esc(r.vesselVoyage || '')}</td>
         <td>${r.transitDays != null ? r.transitDays + 'd' : '—'}</td>
+        <td>${esc(dnd)}</td>
         <td class="num">${esc(r.currency)} ${costDollars}</td>
         ${showMarkup ? `<td class="num your-price">${esc(r.currency)} ${yourPrice!.toLocaleString()}</td>` : ''}
+        <td>${esc(flags.join(', ') || '—')}</td>
       </tr>`;
+    })
+    .join('');
+
+  const breakdownSections = q.rates
+    .filter((r) => (r.freightCharges?.length ?? 0) > 0 || (r.destinationCharges?.length ?? 0) > 0)
+    .map((r) => {
+      const freight = (r.freightCharges ?? [])
+        .map(
+          (c) =>
+            `<tr><td>${esc(c.name)}</td><td class="num">${esc(c.currency)} ${c.total.toFixed(2)}</td></tr>`
+        )
+        .join('');
+      const dest = (r.destinationCharges ?? [])
+        .map(
+          (c) =>
+            `<tr><td>${esc(c.name)}</td><td class="num">${esc(c.currency)} ${c.total.toFixed(2)}</td></tr>`
+        )
+        .join('');
+      const destTotal =
+        r.destinationTotal && r.destinationCurrency
+          ? `<tr class="row-total"><td>Destination total (on-collect)</td><td class="num">${esc(r.destinationCurrency)} ${r.destinationTotal.toLocaleString()}</td></tr>`
+          : '';
+      return `
+      <h3>#${r.rank ?? '—'} — ${esc(r.serviceName)} (${esc(r.sailingDate || '')})</h3>
+      <table class="bd">
+        ${freight ? `<tbody class="bd-section"><tr><th colspan="2">Freight charges (your cost)</th></tr>${freight}<tr class="row-total"><td>Freight total</td><td class="num">${esc(r.currency)} ${(r.totalCostCents / 100).toFixed(2)}</td></tr></tbody>` : ''}
+        ${dest ? `<tbody class="bd-section"><tr><th colspan="2">Destination charges (paid by receiver)</th></tr>${dest}${destTotal}</tbody>` : ''}
+      </table>`;
     })
     .join('');
 
@@ -122,6 +172,11 @@ function buildHtml(q: PdfQuote, markup: Markup): string {
   td.rank { font-weight: 700; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .your-price { color: #15803d; font-weight: 600; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt 0; }
+  table.bd { margin-bottom: 8pt; }
+  table.bd th { background: #f1f5f9; padding: 5pt 8pt; }
+  table.bd .row-total td { font-weight: 600; border-top: 0.75pt solid #0f172a; }
+  .bd-section td { padding: 5pt 8pt; }
   .notes { margin-top: 20pt; font-size: 10pt; color: #475569; }
   footer {
     margin-top: 24pt;
@@ -153,14 +208,18 @@ function buildHtml(q: PdfQuote, markup: Markup): string {
       <tr>
         <th>Rank</th>
         <th>Sailing</th>
-        <th>Service</th>
+        <th>Vessel/voyage</th>
         <th>Transit</th>
+        <th>Det/Dem free</th>
         <th class="num">Our cost</th>
         ${showMarkup ? '<th class="num">Your price</th>' : ''}
+        <th>Flags</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
+
+  ${breakdownSections ? '<h2>Charge breakdown</h2>' + breakdownSections : ''}
 
   ${q.notes ? `<div class="notes"><strong>Notes:</strong> ${esc(q.notes)}</div>` : ''}
 

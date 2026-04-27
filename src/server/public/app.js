@@ -306,51 +306,117 @@ function renderResults(input, data) {
       <th>Rank</th>
       <th>Sailing</th>
       <th>Transit</th>
+      <th>Det/Dem free</th>
       <th>Vessel / voyage</th>
       <th>Service</th>
-      <th>Our cost</th>
+      <th>Freight (our cost)</th>
       ${showMarkup ? '<th>Your price</th>' : ''}
       <th>Δ vs #1</th>
       <th>Flags</th>
+      <th></th>
     </tr>
   </thead>`;
 
+  const colCount = 10 + (showMarkup ? 1 : 0);
   if (data.ranked.length === 0) {
     table.innerHTML =
       thead +
-      `<tbody><tr><td colspan="${showMarkup ? 9 : 8}" class="empty">No rates with prices were parsed.</td></tr></tbody>`;
+      `<tbody><tr><td colspan="${colCount}" class="empty">No rates with prices were parsed.</td></tr></tbody>`;
     return;
   }
 
   const rows = data.ranked
-    .map((r) => {
+    .map((r, idx) => {
       const flags = [];
       if (r.rollable) flags.push('<span class="flag rollable">Rollable</span>');
       if (r.close_to_lowest) flags.push('<span class="flag close">≈ lowest</span>');
+      if (r.headline_mismatch) flags.push('<span class="flag mismatch">! mismatch</span>');
       const delta =
         r.rank === 1
           ? '—'
           : `+${Math.round(r.delta_from_lowest)} (+${r.delta_pct.toFixed(1)}%)`;
       const transit = r.transit_days != null ? `${r.transit_days}d` : '—';
-      const currency = r.headline_price_currency ?? '';
-      const cost = r.headline_price_amount ?? 0;
+      const dnd =
+        r.detention_freetime_days != null || r.demurrage_freetime_days != null
+          ? `${r.detention_freetime_days ?? '?'}d / ${r.demurrage_freetime_days ?? '?'}d`
+          : '—';
+      const cost = r.freight_total ?? r.headline_price_amount ?? 0;
+      const currency = r.freight_currency ?? r.headline_price_currency ?? '';
       const costStr = `${currency} ${cost.toLocaleString()}`;
       const yourPrice = showMarkup ? applyMarkup(cost, markup) : null;
       const yourPriceStr = yourPrice != null ? `${currency} ${yourPrice.toLocaleString()}` : '';
+      const hasBreakdown =
+        (r.freight_charges?.length ?? 0) > 0 ||
+        (r.destination_charges?.length ?? 0) > 0;
+      const expandBtn = hasBreakdown
+        ? `<button class="link-btn" data-expand="${idx}">+ breakdown</button>`
+        : '';
+
+      const breakdownRow = hasBreakdown
+        ? `<tr class="breakdown-row" id="bd-${idx}" hidden>
+             <td colspan="${colCount}">${renderBreakdown(r)}</td>
+           </tr>`
+        : '';
+
       return `<tr>
         <td class="rank">#${r.rank}</td>
         <td>${esc(r.sailing_date ?? '—')}</td>
         <td>${transit}</td>
+        <td>${esc(dnd)}</td>
         <td>${esc(r.vessel_voyage ?? '—')}</td>
         <td>${esc(r.service_name)}</td>
         <td class="price">${esc(costStr)}</td>
         ${showMarkup ? `<td class="price your-price">${esc(yourPriceStr)}</td>` : ''}
         <td>${delta}</td>
         <td>${flags.join('') || '—'}</td>
-      </tr>`;
+        <td>${expandBtn}</td>
+      </tr>${breakdownRow}`;
     })
     .join('');
   table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+
+  // Wire expand buttons
+  table.querySelectorAll('button[data-expand]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = 'bd-' + btn.dataset.expand;
+      const row = document.getElementById(id);
+      row.hidden = !row.hidden;
+      btn.textContent = row.hidden ? '+ breakdown' : '− breakdown';
+    });
+  });
+}
+
+function renderBreakdown(r) {
+  const lines = [];
+  if (r.freight_charges?.length) {
+    lines.push('<div class="bd-title">Freight charges (your cost)</div>');
+    lines.push('<table class="bd-mini">');
+    for (const c of r.freight_charges) {
+      lines.push(
+        `<tr><td>${esc(c.name)}</td><td class="price">${esc(c.currency)} ${c.total.toFixed(2)}</td></tr>`
+      );
+    }
+    lines.push(
+      `<tr class="bd-total"><td>Total</td><td class="price">${esc(r.freight_currency ?? '')} ${r.freight_total.toLocaleString()}</td></tr>`
+    );
+    lines.push('</table>');
+  }
+  if (r.destination_charges?.length) {
+    lines.push('<div class="bd-title">Destination charges (paid by receiver, on collect)</div>');
+    lines.push('<table class="bd-mini">');
+    for (const c of r.destination_charges) {
+      lines.push(
+        `<tr><td>${esc(c.name)}</td><td class="price">${esc(c.currency)} ${c.total.toFixed(2)}</td></tr>`
+      );
+    }
+    if (r.destination_currency) {
+      lines.push(
+        `<tr class="bd-total"><td>Total</td><td class="price">${esc(r.destination_currency)} ${r.destination_total.toLocaleString()}</td></tr>`
+      );
+    }
+    lines.push('</table>');
+  }
+  return lines.join('');
 }
 
 async function loadHistory() {
