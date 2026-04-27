@@ -72,13 +72,18 @@ async function pickFromCmaDropdown(
 export async function fetchCmaRates(
   input: QuoteInput
 ): Promise<FetchRatesResult> {
-  const ctxResult = await createBrowserContext({
-    storageState: await loadStoredStateOrNull(),
-  });
+  const storedState = await loadStoredStateOrNull();
+  const ctxResult = await createBrowserContext({ storageState: storedState });
   const { context, usingRealChrome, close } = ctxResult;
   console.log(
     `[fetchRates] ${usingRealChrome ? 'Connected to real Chrome (CDP)' : 'Launched bundled Chromium'}`
   );
+  if (!usingRealChrome && !storedState) {
+    console.warn(
+      '[fetchRates] WARNING: no CMA session on disk — if CMA redirects to login, run:\n' +
+        '   pnpm exec tsx src/index.ts carrier login CMA'
+    );
+  }
   const page = await context.newPage();
 
   try {

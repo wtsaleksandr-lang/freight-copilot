@@ -14,6 +14,23 @@ import { rankRates } from '../ranker/rankRates.js';
 import type { RankedRateOption } from '../types.js';
 import { CaptchaBlockedError, type CaptchaType } from '../captcha/types.js';
 
+/**
+ * Strip UI markers from a port display name so the bare value matches what
+ * carrier portals expect in their autocomplete fields. Examples:
+ *   "Toronto, ON (rail)"   → "Toronto"
+ *   "Newark, NJ"           → "Newark"
+ *   "Tianjin (Xingang)"    → "Tianjin"
+ *   "Ho Chi Minh City (Cat Lai)" → "Ho Chi Minh City"
+ */
+function cleanPortQuery(value: string | undefined | null): string {
+  if (!value) return '';
+  return value
+    .replace(/\s*\([^)]*\)\s*/g, ' ') // any parenthetical
+    .replace(/,\s*[A-Z]{2}\s*$/, '')   // trailing 2-letter state/province
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export type EndType = 'CY' | 'DOOR';
 export type CargoType = 'general' | 'hazmat' | 'high_value' | 'reefer';
 
@@ -172,10 +189,17 @@ export async function runQuoteBundle(
 
     try {
       console.log(`[bundle ${refId}] Fetching ${carrier.name}...`);
+      const cleanOrigin = cleanPortQuery(input.origin);
+      const cleanDestination = cleanPortQuery(input.destination);
+      if (cleanOrigin !== input.origin || cleanDestination !== input.destination) {
+        console.log(
+          `[bundle ${refId}] Cleaned port names — origin "${input.origin}" → "${cleanOrigin}", destination "${input.destination}" → "${cleanDestination}"`
+        );
+      }
       const fetchResult = await carrier.fetchRates({
-        origin: input.origin,
+        origin: cleanOrigin,
         originRegion: input.originRegion,
-        destination: input.destination,
+        destination: cleanDestination,
         destinationRegion: input.destinationRegion,
         containerType: input.containerType,
         cargoWeightKg: input.cargoWeightKg,

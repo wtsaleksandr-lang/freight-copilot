@@ -107,13 +107,18 @@ async function pickFirstAvailableDate(page: Page): Promise<void> {
 export async function fetchOneRates(
   input: QuoteInput
 ): Promise<FetchRatesResult> {
-  const ctxResult = await createBrowserContext({
-    storageState: await loadStoredStateOrNull(),
-  });
+  const storedState = await loadStoredStateOrNull();
+  const ctxResult = await createBrowserContext({ storageState: storedState });
   const { context, usingRealChrome, close } = ctxResult;
   console.log(
     `[fetchRates] ${usingRealChrome ? 'Connected to real Chrome (CDP)' : 'Launched bundled Chromium'}`
   );
+  if (!usingRealChrome && !storedState) {
+    console.warn(
+      '[fetchRates] WARNING: no ONE session on disk — if ONE redirects to login, run:\n' +
+        '   pnpm exec tsx src/index.ts carrier login ONE'
+    );
+  }
   const page = await context.newPage();
 
   try {
