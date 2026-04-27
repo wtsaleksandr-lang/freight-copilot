@@ -14,6 +14,7 @@ import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
 import { CaptchaBlockedError } from '../../captcha/types.js';
+import { captureFailure } from '../failureCapture.js';
 
 const OUT_DIR = resolve('./samples/one');
 const DEFAULT_COMMODITY = 'parts';
@@ -272,6 +273,9 @@ export async function fetchOneRates(
       ariaTreePath,
       screenshotPath,
     };
+  } catch (err) {
+    await captureFailure(page, 'ONE', (err as Error).message ?? 'unknown');
+    throw err;
   } finally {
     await page.close().catch(() => undefined);
     await close();

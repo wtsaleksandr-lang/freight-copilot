@@ -9,6 +9,7 @@ import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
 import { CaptchaBlockedError } from '../../captcha/types.js';
+import { captureFailure } from '../failureCapture.js';
 import { getSolver } from '../../captcha/solver.js';
 
 export type { QuoteInput, FetchRatesResult };
@@ -411,6 +412,9 @@ export async function fetchMaerskRates(
       ariaTreePath,
       screenshotPath,
     };
+  } catch (err) {
+    await captureFailure(page, 'MSK', (err as Error).message ?? 'unknown');
+    throw err;
   } finally {
     // Close just our page; close() handles the browser if we own it.
     await page.close().catch(() => undefined);

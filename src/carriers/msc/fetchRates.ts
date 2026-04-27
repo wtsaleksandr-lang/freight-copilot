@@ -9,6 +9,7 @@ import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
 import { CaptchaBlockedError } from '../../captcha/types.js';
+import { captureFailure } from '../failureCapture.js';
 
 const OUT_DIR = resolve('./samples/msc');
 
@@ -249,6 +250,9 @@ export async function fetchMscRates(
       ariaTreePath,
       screenshotPath,
     };
+  } catch (err) {
+    await captureFailure(page, 'MSC', (err as Error).message ?? 'unknown');
+    throw err;
   } finally {
     await page.close().catch(() => undefined);
     await close();

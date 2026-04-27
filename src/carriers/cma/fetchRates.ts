@@ -15,6 +15,7 @@ import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
 import { CaptchaBlockedError } from '../../captcha/types.js';
+import { captureFailure } from '../failureCapture.js';
 
 const OUT_DIR = resolve('./samples/cma');
 
@@ -171,6 +172,29 @@ export async function fetchCmaRates(
     await weight.click();
     await weight.fill(String(input.cargoWeightKg));
 
+    // Departure date — CMA's inland flow needs this set; if missing,
+    // the form silently rejects the submit. Pick the first non-disabled
+    // calendar cell (= "earliest available" sailing).
+    const dateTrigger = page.locator(CMA_SELECTORS.departureDateTrigger).first();
+    if (await dateTrigger.isVisible().catch(() => false)) {
+      console.log('[fetchRates] Setting earliest-available departure date...');
+      await dateTrigger.click();
+      await page.waitForTimeout(700);
+      const firstAvailableDay = page
+        .locator(CMA_SELECTORS.calendarDayCell)
+        .first();
+      const ok = await firstAvailableDay
+        .waitFor({ state: 'visible', timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (ok) {
+        await firstAvailableDay.click();
+        await page.waitForTimeout(400);
+      } else {
+        console.warn('[fetchRates] No calendar cell visible — leaving date blank.');
+      }
+    }
+
     await pickFromCmaDropdown(
       page,
       CMA_SELECTORS.commodityDropdown,
@@ -255,6 +279,9 @@ export async function fetchCmaRates(
       ariaTreePath,
       screenshotPath,
     };
+  } catch (err) {
+    await captureFailure(page, 'CMA', (err as Error).message ?? 'unknown');
+    throw err;
   } finally {
     await page.close().catch(() => undefined);
     await close();

@@ -9,6 +9,7 @@ import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
 import { detectCaptcha } from '../../captcha/detect.js';
 import { CaptchaBlockedError } from '../../captcha/types.js';
+import { captureFailure } from '../failureCapture.js';
 
 const OUT_DIR = resolve('./samples/hlc');
 
@@ -246,6 +247,9 @@ export async function fetchHlcRates(
       ariaTreePath,
       screenshotPath,
     };
+  } catch (err) {
+    await captureFailure(page, 'HLC', (err as Error).message ?? 'unknown');
+    throw err;
   } finally {
     await page.close().catch(() => undefined);
     await close();

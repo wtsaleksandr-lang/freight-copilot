@@ -15,19 +15,27 @@ export const CMA_URLS = {
 
 export const CMA_SELECTORS = {
   originInput: 'div.o-search-port > div > div:nth-of-type(1) input',
-  /** First option in the origin autocomplete result list. */
-  originFirstOption: 'div.l-zone__main li:nth-of-type(1) div.capsule',
+  /** First option in the origin autocomplete result list (per inland recording). */
+  originFirstOption: 'li:nth-of-type(1) span.country',
   destinationInput: 'div.destination-search input',
-  destinationFirstOption: 'div.destination-search li:nth-of-type(1)',
+  /** First option under the destination dropdown's port-list section. The
+   *  parent `places-names-wrapper` holds actual port hits (vs. the
+   *  `countries-wrapper` parent which is hidden country aggregations). */
+  destinationFirstOption:
+    'div.destination-search li.places-names-wrapper li:nth-of-type(1) > div',
   /** "Add" button on each container size tile. li:nth-of-type(N) selects size N. */
   containerAddButton: (n: number) =>
     `li:nth-of-type(${n}) button.add-button`,
   /** Weight input becomes available on the active (.is-checked) container tile. */
   weightInput: 'li.is-checked input[type="text"], li.is-checked input[type="number"]',
+  /** "At the earliest" departure-date trigger that opens the calendar. */
+  departureDateTrigger: '#DepartureFrom',
+  /** Calendar day cells inside the open date picker. */
+  calendarDayCell: '.el-date-table td:not(.disabled) span',
   commodityDropdown: '#DdlCommodity',
   customerRoleDropdown: '#DdlCustomerRole',
-  /** Final submit on the SpotOn form. */
-  submitButton: 'text=Get My Quote',
+  /** Final submit on the SpotOn form (more specific than text=). */
+  submitButton: '#SearchQuote',
   /** First sailing card on the results page. */
   firstSailingCard: 'section.results li:nth-of-type(1) > button',
 };
