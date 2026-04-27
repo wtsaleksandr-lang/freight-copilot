@@ -795,3 +795,47 @@ label.check-line input[type="checkbox"] {
 .upload-state.success { color: #2ea043; }
 .upload-state.error { color: #d44a4a; }
 .upload-state.info { color: #58a6ff; }
+
+/* Artifact proof links next to each carrier badge */
+.artifact-link {
+  font-size: 11.5px;
+  color: #58a6ff;
+  text-decoration: none;
+  margin-left: 2px;
+}
+.artifact-link:hover { text-decoration: underline; }
+
+/* Per-rate breakdown collapsible */
+.rate-breakdown {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.rate-breakdown summary {
+  cursor: pointer;
+  color: #58a6ff;
+  list-style: none;
+}
+.rate-breakdown summary::-webkit-details-marker { display: none; }
+.rate-breakdown summary::before { content: '▸ '; }
+.rate-breakdown[open] summary::before { content: '▾ '; }
+.rate-breakdown .bd-section {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.02);
+  border-left: 2px solid var(--accent, #58a6ff);
+  border-radius: 2px;
+}
+.rate-breakdown .bd-section strong:first-child {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.rate-breakdown .bd-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}

@@ -1408,6 +1408,12 @@ function renderBundleResults(input, data) {
   const markup = getMarkup();
 
   title.textContent = `${data.refId}: ${input.from} → ${input.to} (${input.container})`;
+
+  // Build a per-carrier badge list with quick links to the saved artifacts.
+  // Artifacts live under /quotes-files/<refId>/rates/<code>-{screenshot.png,
+  // page.html, aria.yaml, parsed.json}. Reachable via Tailscale Funnel too —
+  // not file:// URLs that only work locally.
+  const refId = data.refId;
   const carrierBadges = data.carriers
     .map((c) => {
       const cls =
@@ -1418,13 +1424,20 @@ function renderBundleResults(input, data) {
             : c.status === 'skipped'
               ? 'muted'
               : 'error';
-      const label =
+      const baseLabel =
         c.status === 'captcha_blocked'
           ? `${esc(c.carrierName)}: captcha (${esc(c.captchaType || 'unknown')})`
           : `${esc(c.carrierName)}: ${esc(c.status)}`;
-      return `<span class="flag ${cls}">${label}</span>`;
+      const codeFs = c.carrierCode.toLowerCase();
+      const links =
+        c.status === 'ok'
+          ? ` <a class="artifact-link" href="/quotes-files/${encodeURIComponent(refId)}/rates/${codeFs}-screenshot.png" target="_blank" rel="noopener">screenshot</a>` +
+            ` · <a class="artifact-link" href="/quotes-files/${encodeURIComponent(refId)}/rates/${codeFs}-page.html" target="_blank" rel="noopener">page</a>` +
+            ` · <a class="artifact-link" href="/quotes-files/${encodeURIComponent(refId)}/rates/${codeFs}-parsed.json" target="_blank" rel="noopener">parsed JSON</a>`
+          : '';
+      return `<span class="flag ${cls}">${baseLabel}</span>${links}`;
     })
-    .join(' ');
+    .join(' &nbsp; ');
   meta.innerHTML =
     `<code>${esc(data.outputFolder)}</code><br>${carrierBadges}` +
     (markup.pct || markup.flat ? ` · Markup +${markup.pct}% +${markup.flat}` : '');
@@ -1473,6 +1486,50 @@ function renderBundleResults(input, data) {
         const currency = r.freight_currency ?? '';
         const displayPrice = showMarkup ? applyMarkup(cost, markup) : cost;
         const priceStr = `${currency} ${displayPrice.toLocaleString()}`;
+
+        // Freight charges + destination charges breakdown — shown in a
+        // collapsed-by-default <details> so the row stays clean. Empty
+        // arrays mean the carrier didn't surface a breakdown (we still
+        // log a hint instead of a silent gap).
+        const fc = Array.isArray(r.freight_charges) ? r.freight_charges : [];
+        const dc = Array.isArray(r.destination_charges)
+          ? r.destination_charges
+          : [];
+        const destTotal = r.destination_total ?? 0;
+        const destCcy = r.destination_currency ?? '';
+        const breakdownRows = [];
+        if (fc.length > 0) {
+          breakdownRows.push(
+            '<div class="bd-section"><strong>Freight charges (in total)</strong>' +
+              fc
+                .map(
+                  (c) =>
+                    `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency || '')} ${(c.total ?? 0).toLocaleString()}</span></div>`
+                )
+                .join('') +
+              '</div>'
+          );
+        }
+        if (dc.length > 0) {
+          breakdownRows.push(
+            `<div class="bd-section"><strong>Destination charges (collected separately, NOT in total)</strong>` +
+              dc
+                .map(
+                  (c) =>
+                    `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency || '')} ${(c.total ?? 0).toLocaleString()}</span></div>`
+                )
+                .join('') +
+              (destTotal
+                ? `<div class="bd-row"><strong>Subtotal</strong><strong>${esc(destCcy)} ${destTotal.toLocaleString()}</strong></div>`
+                : '') +
+              '</div>'
+          );
+        }
+        const breakdown =
+          breakdownRows.length > 0
+            ? `<details class="rate-breakdown"><summary>Breakdown</summary>${breakdownRows.join('')}</details>`
+            : '<span class="muted small">no breakdown captured</span>';
+
         return `<tr>
           <td class="rank">#${idx + 1}</td>
           <td><strong>${esc(r.carrierName)}</strong></td>
@@ -1480,7 +1537,7 @@ function renderBundleResults(input, data) {
           <td>${transit}</td>
           <td>${esc(dnd)}</td>
           <td>${esc(r.vessel_voyage ?? '—')}</td>
-          <td>${esc(r.service_name)}</td>
+          <td>${esc(r.service_name)}<br>${breakdown}</td>
           <td class="price ${showMarkup ? 'your-price' : ''}">${esc(priceStr)}</td>
           <td>${flags.join('') || '—'}</td>
         </tr>`;

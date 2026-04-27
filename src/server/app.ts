@@ -31,5 +31,11 @@ export function createApp(): express.Express {
   const publicDir = resolve(process.cwd(), 'src/server/public');
   app.use(express.static(publicDir));
 
+  // Serve bundle artifacts (screenshots, HTML proof, aria tree, parsed
+  // JSON) so the dashboard can link to them. Behind Basic auth — same
+  // middleware applies. Not user-uploadable, just read-only proof.
+  const quotesDir = resolve(process.cwd(), 'quotes');
+  app.use('/quotes-files', express.static(quotesDir));
+
   return app;
 }

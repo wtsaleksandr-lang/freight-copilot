@@ -63,6 +63,52 @@ async function fillLocation(
   await opt.click();
 }
 
+/**
+ * After Get Quote loads the offers, each card is collapsed — only the
+ * headline price is visible. To capture the full picture (surcharges +
+ * destination charges + D&D free time), we click the per-card expand
+ * chevron that the recording captured at `div.hl-pt-16 svg`.
+ *
+ * The class `hl-pt-16` is HL's padding-top utility, used as the wrapper
+ * around the per-card expand control. We click each one, wait briefly
+ * for the inline panel to slide in, then move on. Non-fatal — if the
+ * click fails on a card, we log a warning and keep going so the rest
+ * of the offers still get captured.
+ */
+async function expandAllOfferDetails(page: Page): Promise<void> {
+  // Each offer card has a Select button matching offer-card-select-button-*.
+  // Use that as the anchor to find each card, then look for the expand
+  // svg within the same offer container.
+  const selectButtons = page.locator(HLC_TESTIDS.offerSelect);
+  const offerCount = await selectButtons.count();
+  console.log(
+    `[fetchRates] Expanding price breakdown on ${offerCount} HL offer card(s)...`
+  );
+
+  for (let i = 0; i < offerCount; i++) {
+    // Walk up from the Select button to the offer container, then find
+    // the expand chevron inside it.
+    const card = selectButtons
+      .nth(i)
+      .locator('xpath=ancestor::*[contains(@class,"offer-card") or self::div][1]');
+    const expander = card.locator('div.hl-pt-16').first();
+    const visible = await expander.isVisible().catch(() => false);
+    if (!visible) continue;
+
+    try {
+      await expander.scrollIntoViewIfNeeded();
+      await expander.click();
+      await page.waitForTimeout(600); // let the panel render
+    } catch (err) {
+      console.warn(
+        `[fetchRates] HL offer #${i + 1} expand failed: ${(err as Error).message}`
+      );
+    }
+  }
+  // Let any final destination-charges async fetch settle.
+  await page.waitForTimeout(1500);
+}
+
 async function pickContainerType(page: Page, requested: string): Promise<void> {
   const target = HLC_CONTAINER_LABELS[requested] ?? requested;
   console.log(`[fetchRates] Container: "${requested}" → HL label "${target}"`);
@@ -163,6 +209,8 @@ export async function fetchHlcRates(
     }
     console.log('[fetchRates] Offers visible — letting render settle...');
     await page.waitForTimeout(3000);
+
+    await expandAllOfferDetails(page);
 
     const finalUrl = page.url();
     const sailingsHtml = await page.content();
