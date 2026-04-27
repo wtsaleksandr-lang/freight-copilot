@@ -122,6 +122,9 @@ class Autosuggest {
     this.timer = null;
     this.activeIdx = -1;
     this.items = [];
+    // Last value confirmed by either picking a suggestion OR being valid initial value.
+    // On blur, if the input doesn't match this, we revert to it (clearing partials).
+    this.lastConfirmed = inputEl.value || '';
     this.wrap();
     this.bind();
   }
@@ -165,6 +168,17 @@ class Autosuggest {
       } else if (e.key === 'Escape') {
         this.close();
       }
+    });
+    // On blur (focus leaves field), if user typed something that wasn't
+    // confirmed via picking a suggestion, revert to last confirmed value
+    // (or empty). Small delay so click-on-suggestion has a chance to fire.
+    this.input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (this.input.value !== this.lastConfirmed) {
+          this.input.value = this.lastConfirmed;
+        }
+        this.close();
+      }, 180);
     });
     document.addEventListener('click', (e) => {
       if (!this.wrapEl.contains(e.target)) this.close();
@@ -224,6 +238,8 @@ class Autosuggest {
   pick(item) {
     this.close();
     this.onPick?.(item);
+    // After onPick has set the input value to the canonical pick, lock it in.
+    this.lastConfirmed = this.input.value;
   }
   close() {
     this.panel.hidden = true;
@@ -313,42 +329,73 @@ function wirePortAutosuggest() {
   });
 }
 
-// ---- Address autosuggest via /api/data/geocode (Nominatim) ----
+// ---- Address + ZIP autosuggest via /api/data/geocode (Nominatim) ----
+async function geocodeFetch(q) {
+  const r = await fetch(`/api/data/geocode?q=${encodeURIComponent(q)}`);
+  if (!r.ok) return [];
+  const data = await r.json();
+  return (data.results || []).map((it) => ({
+    primary:
+      [it.street, it.city, it.state, it.zip].filter(Boolean).join(', ') ||
+      it.display,
+    secondary: it.country,
+    data: it,
+  }));
+}
+
+function applyGeocodePick(input, item) {
+  const it = item.data;
+  // Only set the input itself to the street if that's the address field;
+  // for ZIP fields, set the input to the ZIP and fill the rest as siblings.
+  const isZip = input.classList.contains('zip-input');
+  input.value = isZip ? (it.zip || '') : (it.street || item.primary);
+  const ep = input.closest('.endpoint-fields');
+  if (!ep) return;
+  const setIf = (suffix, val) => {
+    const el = ep.querySelector(`input[id$="-${suffix}"]`);
+    if (el && val) {
+      el.value = val;
+    }
+  };
+  if (isZip) {
+    // ZIP-driven pick: fill street/city/state/country (zip already set above)
+    const addrEl = ep.querySelector('.address-input');
+    if (addrEl && it.street) {
+      addrEl.value = it.street;
+      addrEl._asInstance && (addrEl._asInstance.lastConfirmed = addrEl.value);
+    }
+    setIf('city', it.city);
+    setIf('state', it.state);
+    setIf('country', it.countryCode || it.country);
+  } else {
+    setIf('city', it.city);
+    setIf('state', it.state);
+    setIf('zip', it.zip);
+    setIf('country', it.countryCode || it.country);
+    // Sync the ZIP field's lastConfirmed so blur doesn't clear it
+    const zipEl = ep.querySelector('.zip-input');
+    if (zipEl && zipEl._asInstance) zipEl._asInstance.lastConfirmed = zipEl.value;
+  }
+}
+
 function wireAddressAutosuggest() {
   document.querySelectorAll('.address-input').forEach((input) => {
-    new Autosuggest(
+    const inst = new Autosuggest(
       input,
-      async (q) => {
-        const r = await fetch(
-          `/api/data/geocode?q=${encodeURIComponent(q)}`
-        );
-        if (!r.ok) return [];
-        const data = await r.json();
-        return (data.results || []).map((it) => ({
-          primary:
-            [it.street, it.city, it.state, it.zip].filter(Boolean).join(', ') ||
-            it.display,
-          secondary: it.country,
-          data: it,
-        }));
-      },
-      (item) => {
-        const it = item.data;
-        input.value = it.street || item.primary;
-        // Find sibling fields in the same endpoint-fields container
-        const ep = input.closest('.endpoint-fields');
-        if (!ep) return;
-        const setIf = (suffix, val) => {
-          const el = ep.querySelector(`input[id$="-${suffix}"]`);
-          if (el && val) el.value = val;
-        };
-        setIf('city', it.city);
-        setIf('state', it.state);
-        setIf('zip', it.zip);
-        setIf('country', it.countryCode || it.country);
-      },
-      { minChars: 4, debounceMs: 350 }
+      geocodeFetch,
+      (item) => applyGeocodePick(input, item),
+      { minChars: 3, debounceMs: 350 }
     );
+    input._asInstance = inst;
+  });
+  document.querySelectorAll('.zip-input').forEach((input) => {
+    const inst = new Autosuggest(
+      input,
+      geocodeFetch,
+      (item) => applyGeocodePick(input, item),
+      { minChars: 3, debounceMs: 350 }
+    );
+    input._asInstance = inst;
   });
 }
 

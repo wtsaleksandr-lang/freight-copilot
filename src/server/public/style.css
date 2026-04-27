@@ -43,21 +43,36 @@ header h1 {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
-nav { display: flex; gap: 2px; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; }
 .tab {
   background: transparent;
-  border: 1px solid transparent;
-  color: rgba(255, 255, 255, 0.65);
-  padding: 6px 14px;
-  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 7px 16px;
+  border-radius: 7px;
   cursor: pointer;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
 }
-.tab:hover { color: white; background: rgba(255, 255, 255, 0.06); }
-.tab.active {
-  background: rgba(255, 255, 255, 0.12);
+.tab:hover {
   color: white;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.tab.active {
+  background: white;
+  border-color: white;
+  color: var(--ink);
+  font-weight: 700;
+}
+.tab.active:hover {
+  background: white;
+  color: var(--ink);
+  transform: none;
 }
 
 main {

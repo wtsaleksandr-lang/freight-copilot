@@ -121,7 +121,12 @@ export function registerApiRoutes(app: Express): void {
       const url = new URL('https://nominatim.openstreetmap.org/search');
       url.searchParams.set('format', 'json');
       url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('limit', '6');
+      url.searchParams.set('limit', '8');
+      // Restrict to US + Canada per user request. Using a free-form `q=` for
+      // all queries (including bare ZIPs) — Nominatim's `countrycodes` filter
+      // is reliably honored on `q=`, but is bypassed when using the structured
+      // `postalcode=` parameter.
+      url.searchParams.set('countrycodes', 'us,ca');
       url.searchParams.set('q', q);
       const r = await fetch(url, {
         headers: {
