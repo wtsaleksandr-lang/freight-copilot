@@ -330,8 +330,12 @@ function wirePortAutosuggest() {
 }
 
 // ---- Address + ZIP autosuggest via /api/data/geocode (Nominatim) ----
-async function geocodeFetch(q) {
-  const r = await fetch(`/api/data/geocode?q=${encodeURIComponent(q)}`);
+// `country` is read from a sibling .country-select inside the same
+// endpoint-fields card so US-vs-CA queries stay disambiguated.
+async function geocodeFetch(q, country) {
+  const params = new URLSearchParams({ q });
+  if (country) params.set('country', country.toLowerCase());
+  const r = await fetch(`/api/data/geocode?${params.toString()}`);
   if (!r.ok) return [];
   const data = await r.json();
   return (data.results || []).map((it) => ({
@@ -341,6 +345,12 @@ async function geocodeFetch(q) {
     secondary: it.country,
     data: it,
   }));
+}
+
+function getCardCountry(input) {
+  const ep = input.closest('.endpoint-fields');
+  const sel = ep?.querySelector('.country-select');
+  return sel ? sel.value : 'US';
 }
 
 function applyGeocodePick(input, item) {
@@ -379,24 +389,17 @@ function applyGeocodePick(input, item) {
 }
 
 function wireAddressAutosuggest() {
-  document.querySelectorAll('.address-input').forEach((input) => {
+  const wireOne = (input) => {
     const inst = new Autosuggest(
       input,
-      geocodeFetch,
+      (q) => geocodeFetch(q, getCardCountry(input)),
       (item) => applyGeocodePick(input, item),
       { minChars: 3, debounceMs: 350 }
     );
     input._asInstance = inst;
-  });
-  document.querySelectorAll('.zip-input').forEach((input) => {
-    const inst = new Autosuggest(
-      input,
-      geocodeFetch,
-      (item) => applyGeocodePick(input, item),
-      { minChars: 3, debounceMs: 350 }
-    );
-    input._asInstance = inst;
-  });
+  };
+  document.querySelectorAll('.address-input').forEach(wireOne);
+  document.querySelectorAll('.zip-input').forEach(wireOne);
 }
 
 // Tab switching

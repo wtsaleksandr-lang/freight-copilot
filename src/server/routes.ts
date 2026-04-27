@@ -117,16 +117,17 @@ export function registerApiRoutes(app: Express): void {
       res.json({ results: [] });
       return;
     }
+    // Caller can pin a single country (us | ca). Default both for back-compat.
+    const rawCountry = req.query.country;
+    const country = typeof rawCountry === 'string' ? rawCountry.toLowerCase() : '';
+    const allowed = ['us', 'ca'];
+    const ccFilter = allowed.includes(country) ? country : 'us,ca';
     try {
       const url = new URL('https://nominatim.openstreetmap.org/search');
       url.searchParams.set('format', 'json');
       url.searchParams.set('addressdetails', '1');
       url.searchParams.set('limit', '8');
-      // Restrict to US + Canada per user request. Using a free-form `q=` for
-      // all queries (including bare ZIPs) — Nominatim's `countrycodes` filter
-      // is reliably honored on `q=`, but is bypassed when using the structured
-      // `postalcode=` parameter.
-      url.searchParams.set('countrycodes', 'us,ca');
+      url.searchParams.set('countrycodes', ccFilter);
       url.searchParams.set('q', q);
       const r = await fetch(url, {
         headers: {
