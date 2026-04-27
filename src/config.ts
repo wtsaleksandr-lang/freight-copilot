@@ -14,6 +14,13 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  /**
+   * Optional. If both BASIC_AUTH_USER and BASIC_AUTH_PASS are set, the
+   * dashboard requires HTTP Basic auth. Strongly recommended any time you
+   * expose the server beyond localhost (--host 0.0.0.0, Tailscale, tunnels).
+   */
+  BASIC_AUTH_USER: z.string().optional(),
+  BASIC_AUTH_PASS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

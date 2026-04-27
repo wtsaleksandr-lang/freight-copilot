@@ -288,6 +288,70 @@ table.bd-mini tr.bd-total td {
   padding-top: 6px;
 }
 
+/* ---- Mobile (≤640px) ---- */
+@media (max-width: 640px) {
+  header {
+    padding: 12px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; }
+  nav {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tab { padding: 5px 10px; font-size: 12.5px; flex-shrink: 0; }
+
+  main {
+    padding: 0 12px;
+    margin: 14px auto 32px;
+    gap: 12px;
+  }
+  .card { padding: 14px 14px; }
+  .card h2 { font-size: 14px; }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .grid .full { grid-column: 1; }
+
+  .carrier-check-group {
+    grid-template-columns: 1fr;
+    padding: 8px 10px;
+    gap: 4px;
+  }
+
+  .markup-sliders { padding: 10px 10px; }
+  .slider-row { gap: 8px; }
+  .markup-num { width: 56px; font-size: 13px; }
+
+  table { font-size: 12.5px; }
+  thead th { padding: 6px 7px; }
+  tbody td { padding: 7px; }
+
+  /* Make wide tables horizontally scrollable on phones rather than overflow page */
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+
+  textarea { font-size: 13px; }
+  input, select { font-size: 14px; } /* prevent iOS zoom on focus */
+
+  button {
+    padding: 9px 14px;
+    font-size: 13.5px;
+  }
+  button.primary { width: 100%; } /* big touch target on phone */
+  .row { gap: 8px; }
+}
+
+/* ---- Small tablets (641-880px) ---- */
+@media (max-width: 880px) and (min-width: 641px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  main { padding: 0 16px; }
+}
+
 .empty {
   color: var(--muted);
   padding: 16px 10px;

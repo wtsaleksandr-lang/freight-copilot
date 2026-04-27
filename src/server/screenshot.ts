@@ -23,6 +23,11 @@ async function main() {
   await page.getByRole('button', { name: 'New quote' }).click();
   await page.waitForTimeout(300);
 
+  // Mobile viewport (iPhone-ish width)
+  await page.setViewportSize({ width: 390, height: 1100 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: './samples/dashboard-mobile.png', fullPage: true });
+
   // Fill intake with a sample request
   await page.getByPlaceholder(/Paste text here/).fill(
     'Hi Alex, please quote ocean freight Shanghai to Rotterdam, 40HC container, electronics, about 15 tons. Ready to ship next week. Thanks!'

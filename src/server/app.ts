@@ -1,15 +1,33 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { registerApiRoutes } from './routes.js';
+import { loadEnv } from '../config.js';
 
 export function createApp(): express.Express {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
+  // Optional HTTP Basic auth — enabled when BASIC_AUTH_USER + BASIC_AUTH_PASS
+  // are both set in .env. Strongly recommended when exposing past localhost.
+  const env = loadEnv();
+  if (env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS) {
+    const expected =
+      'Basic ' +
+      Buffer.from(`${env.BASIC_AUTH_USER}:${env.BASIC_AUTH_PASS}`).toString('base64');
+    app.use((req, res, next) => {
+      const got = req.header('authorization') ?? '';
+      if (got === expected) return next();
+      res
+        .status(401)
+        .set('WWW-Authenticate', 'Basic realm="freight-copilot"')
+        .send('Authentication required');
+    });
+    console.log('[app] HTTP Basic auth enabled');
+  }
+
   registerApiRoutes(app);
 
   // Serve the single-page dashboard from /public.
-  // In dev (tsx) cwd is the project root, so this works without a build step.
   const publicDir = resolve(process.cwd(), 'src/server/public');
   app.use(express.static(publicDir));
 
