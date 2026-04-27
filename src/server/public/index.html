@@ -190,6 +190,10 @@
           <button id="run-btn" class="primary">⚡ Generate full quote</button>
           <div id="run-status" class="status-inline"></div>
         </div>
+        <div id="run-progress" hidden>
+          <h3 class="bd-title">Carrier progress</h3>
+          <ul id="run-progress-list" class="bundle-progress"></ul>
+        </div>
         <p class="muted small">For each selected carrier, a Chrome window opens, Playwright drives the rate page, Claude parses + ranks, and a folder is saved with screenshots + the generated email. Inactive carriers are skipped automatically.</p>
       </div>
 
@@ -551,18 +555,19 @@
 
       <div class="card">
         <h2>Upload an existing recording <span class="muted-inline">— from another device</span></h2>
-        <p class="muted">If you recorded the workflow on a different machine (e.g. Chrome DevTools Recorder on your work laptop), drop the exported file here. Accepts <code>.json</code> (DevTools Recorder), <code>.ts</code> (Playwright Codegen), or <code>.js</code> (Puppeteer).</p>
-        <label class="full">Recording file
-          <input id="rec-upload-file" type="file" accept=".json,.ts,.js,application/json,text/plain" />
+        <p class="muted">If you recorded the workflow on a different machine (e.g. Chrome DevTools Recorder on your work laptop), drop the exported file(s) here. Accepts <code>.json</code> (DevTools Recorder), <code>.ts</code> (Playwright Codegen), or <code>.js</code> (Puppeteer). For carriers that open a new tab mid-flow (OOCL), select <strong>both</strong> recording parts at once — they're saved side-by-side and analyzed in order.</p>
+        <label class="full">Recording file(s)
+          <input id="rec-upload-file" type="file" multiple accept=".json,.ts,.js,application/json,text/plain" />
         </label>
         <div class="grid">
           <label>Save under carrier (optional)<select id="rec-upload-carrier"></select></label>
-          <label>Description (optional)<input id="rec-upload-description" placeholder="e.g. Hapag-Lloyd Spot quote" /></label>
+          <label>Description (optional)<input id="rec-upload-description" placeholder="e.g. OOCL Canada — part 1 + part 2" /></label>
         </div>
         <div class="row">
           <button id="rec-upload-btn" class="primary">Upload &amp; analyze</button>
           <div id="rec-upload-status" class="status-inline"></div>
         </div>
+        <div id="rec-upload-list"></div>
       </div>
 
       <div id="rec-analysis-card" class="card" hidden>

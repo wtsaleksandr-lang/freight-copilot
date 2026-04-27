@@ -45,6 +45,7 @@ import {
   revealCredential,
   deleteCredential,
 } from './credentialsService.js';
+import { getBundleProgress } from './bundleProgress.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -551,6 +552,7 @@ export function registerApiRoutes(app: Express): void {
       markupFlat?: number | string;
       emailTemplate?: string;
       intakeText?: string;
+      refId?: string;
     };
 
     const carriers = Array.isArray(body.carriers) ? body.carriers : [];
@@ -567,6 +569,7 @@ export function registerApiRoutes(app: Express): void {
 
     try {
       const bundle = await runQuoteBundle({
+        refId: body.refId,
         carrierCodes: carriers,
         origin: body.from,
         originRegion: body.fromRegion,
@@ -626,6 +629,26 @@ export function registerApiRoutes(app: Express): void {
       });
     }
   });
+
+  app.get(
+    '/api/bundle/:refId/progress',
+    (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId is required' });
+        return;
+      }
+      const entry = getBundleProgress(refId);
+      if (!entry) {
+        // 404 here is expected for the brief window before the bundle has
+        // been seeded; the dashboard treats it as "still warming up".
+        res.status(404).json({ error: 'Progress not found (yet)' });
+        return;
+      }
+      res.json(entry);
+    }
+  );
 
   app.get('/api/bundles', async (_req: Request, res: Response) => {
     const db = createDbClient();

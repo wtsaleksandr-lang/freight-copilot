@@ -13,6 +13,11 @@ import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import type { RankedRateOption } from '../types.js';
 import { CaptchaBlockedError, type CaptchaType } from '../captcha/types.js';
+import {
+  initBundle as initBundleProgress,
+  updateCarrier as updateCarrierProgress,
+  finalizeBundle as finalizeBundleProgress,
+} from '../server/bundleProgress.js';
 
 /**
  * Strip UI markers from a port display name so the bare value matches what
@@ -65,6 +70,12 @@ export interface RunBundleInput {
   markupFlat: number;
   emailTemplate?: string;
   intakeText?: string;
+  /**
+   * Optional client-supplied refId. Lets the dashboard start polling
+   * /api/bundle/:refId/progress immediately after submitting (the runner
+   * can take minutes; the user wants live updates per carrier).
+   */
+  refId?: string;
 }
 
 export interface CarrierResult {
@@ -102,10 +113,28 @@ function generateRefId(): string {
 export async function runQuoteBundle(
   input: RunBundleInput
 ): Promise<BundleResult> {
-  const refId = generateRefId();
+  // Validate client-supplied refId — must match Q-YYYYMMDD-XXXX or we fall back.
+  const clientRefId =
+    input.refId && /^Q-\d{8}-[A-Z0-9]{4,8}$/.test(input.refId)
+      ? input.refId
+      : null;
+  const refId = clientRefId ?? generateRefId();
   const outputFolder = resolve('./quotes', refId);
   await mkdir(outputFolder, { recursive: true });
   await mkdir(resolve(outputFolder, 'rates'), { recursive: true });
+
+  // Seed the live-progress tracker with all carriers in 'pending' state
+  // so the dashboard can render the row list immediately on first poll.
+  const progressSeeds: Array<{ code: string; name: string }> = [];
+  for (const code of input.carrierCodes) {
+    try {
+      const c = getCarrier(code);
+      progressSeeds.push({ code: c.code, name: c.name });
+    } catch {
+      progressSeeds.push({ code, name: code });
+    }
+  }
+  initBundleProgress(refId, progressSeeds);
 
   const db = createDbClient();
 
@@ -177,6 +206,11 @@ export async function runQuoteBundle(
     }
 
     if (!carrier.isActive) {
+      updateCarrierProgress(refId, code, {
+        stage: 'skipped',
+        reason: 'onboarding pending',
+        finishedAt: Date.now(),
+      });
       carrierResults.push({
         carrierCode: code,
         carrierName: carrier.name,
@@ -186,6 +220,11 @@ export async function runQuoteBundle(
       });
       continue;
     }
+
+    updateCarrierProgress(refId, code, {
+      stage: 'running',
+      startedAt: Date.now(),
+    });
 
     try {
       console.log(`[bundle ${refId}] Fetching ${carrier.name}...`);
@@ -298,6 +337,11 @@ export async function runQuoteBundle(
         },
       });
       for (const r of ranked) allRanked.push({ ...r, carrierCode: code });
+      updateCarrierProgress(refId, code, {
+        stage: 'success',
+        rateCount: ranked.length,
+        finishedAt: Date.now(),
+      });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (err instanceof CaptchaBlockedError) {
@@ -313,6 +357,11 @@ export async function runQuoteBundle(
           captchaType: err.captchaType,
           ranked: [],
         });
+        updateCarrierProgress(refId, code, {
+          stage: 'captcha_blocked',
+          reason: `captcha: ${err.captchaType}`,
+          finishedAt: Date.now(),
+        });
       } else {
         console.error(`[bundle ${refId}] ${code} failed:`, reason);
         errors.push({ carrier: code, reason });
@@ -322,6 +371,11 @@ export async function runQuoteBundle(
           status: 'failed',
           reason,
           ranked: [],
+        });
+        updateCarrierProgress(refId, code, {
+          stage: 'failed',
+          reason,
+          finishedAt: Date.now(),
         });
       }
     }
@@ -369,6 +423,8 @@ export async function runQuoteBundle(
       errors: errors.length > 0 ? errors : null,
     })
     .where(eq(quoteBundles.id, bundle.id));
+
+  finalizeBundleProgress(refId, status === 'failed' ? 'failed' : 'done');
 
   return {
     bundleId: bundle.id,

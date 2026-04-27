@@ -970,11 +970,23 @@ async function loadCarriers() {
 
     const opts = carriersResp.carriers.map((c) => {
       const s = sessionByCode[c.code];
-      let suffix = '';
-      if (!c.isActive) suffix = 'onboarding';
-      else if (s?.status === 'fresh') suffix = `${s.daysLeft}d session`;
-      else if (s?.status === 'expiring') suffix = `${s.daysLeft}d left`;
-      else suffix = 'no session';
+      let dotClass = 'status-missing';
+      let label = 'no session';
+      if (!c.isActive) {
+        dotClass = 'status-onboarding';
+        label = 'onboarding';
+      } else if (s?.status === 'fresh') {
+        dotClass = 'status-fresh';
+        label = `${s.daysLeft}d session`;
+      } else if (s?.status === 'expiring') {
+        dotClass = 'status-expiring';
+        label = `${s.daysLeft}d left`;
+      } else if (s?.status === 'expired') {
+        dotClass = 'status-expired';
+        label = 'expired — re-login';
+      }
+      const suffix =
+        `<span class="status-dot ${dotClass}"></span>${esc(label)}`;
       return {
         value: c.code,
         label: `${c.name} (${c.code})`,
@@ -1294,6 +1306,34 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     'info'
   );
 
+  // Client-generated refId so we can poll /api/bundle/:refId/progress
+  // while the POST is still in flight.
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const refId = `Q-${today}-${rand}`;
+  body.refId = refId;
+
+  // Seed UI list so the row appears immediately
+  renderBundleProgress({
+    status: 'running',
+    carriers: carriers.map((code) => ({ code, name: code, stage: 'pending' })),
+  });
+
+  let pollHandle = null;
+  const startPolling = () => {
+    pollHandle = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/bundle/${encodeURIComponent(refId)}/progress`);
+        if (!r.ok) return; // expected during startup
+        const entry = await r.json();
+        renderBundleProgress(entry);
+      } catch {
+        // network blip — keep polling
+      }
+    }, 1500);
+  };
+  startPolling();
+
   try {
     const r = await fetch('/api/bundle/run', {
       method: 'POST',
@@ -1312,9 +1352,52 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   } catch (err) {
     setStatus('run-status', err.message, 'error');
   } finally {
+    if (pollHandle) clearInterval(pollHandle);
+    // Final progress refresh so the UI reflects the terminal state.
+    try {
+      const r = await fetch(`/api/bundle/${encodeURIComponent(refId)}/progress`);
+      if (r.ok) renderBundleProgress(await r.json());
+    } catch {
+      /* noop */
+    }
     btn.disabled = false;
   }
 });
+
+function renderBundleProgress(entry) {
+  const card = document.getElementById('run-progress');
+  const list = document.getElementById('run-progress-list');
+  if (!card || !list) return;
+  card.hidden = false;
+  const STAGE_LABEL = {
+    pending: 'queued',
+    running: 'running…',
+    success: 'done',
+    failed: 'failed',
+    skipped: 'skipped',
+    captcha_blocked: 'captcha',
+  };
+  list.innerHTML = entry.carriers
+    .map((c) => {
+      const cls = c.stage || 'pending';
+      const label = STAGE_LABEL[cls] || cls;
+      const detail =
+        c.stage === 'success'
+          ? `${c.rateCount ?? 0} rate${c.rateCount === 1 ? '' : 's'}`
+          : c.stage === 'failed' || c.stage === 'captcha_blocked' || c.stage === 'skipped'
+            ? c.reason
+              ? c.reason.split('\n')[0].slice(0, 80)
+              : ''
+            : '';
+      return `<li>
+        <span class="carrier-code">${esc(c.code)}</span>
+        <span class="carrier-name">${esc(c.name)}</span>
+        ${detail ? `<span class="muted small">— ${esc(detail)}</span>` : ''}
+        <span class="stage ${cls}">${esc(label)}</span>
+      </li>`;
+    })
+    .join('');
+}
 
 function renderBundleResults(input, data) {
   const card = document.getElementById('results-card');
@@ -1738,42 +1821,98 @@ document.getElementById('rec-upload-btn').addEventListener('click', async () => 
   const description =
     document.getElementById('rec-upload-description').value.trim() || undefined;
   const btn = document.getElementById('rec-upload-btn');
+  const listEl = document.getElementById('rec-upload-list');
 
-  const file = fileInput.files && fileInput.files[0];
-  if (!file) {
-    setStatus('rec-upload-status', 'Pick a recording file first.', 'error');
+  const files = Array.from(fileInput.files || []);
+  if (files.length === 0) {
+    setStatus('rec-upload-status', 'Pick at least one recording file.', 'error');
     return;
   }
 
-  setStatus('rec-upload-status', 'Reading file…', 'info');
   btn.disabled = true;
   document.getElementById('rec-analysis-card').hidden = true;
+  listEl.innerHTML =
+    '<h3 class="bd-title">Upload progress</h3><ul class="rec-upload-progress">' +
+    files
+      .map(
+        (f, i) =>
+          `<li data-idx="${i}"><span class="cred-pw-mask">${esc(f.name)}</span> · <span class="upload-state muted">queued</span></li>`
+      )
+      .join('') +
+    '</ul>';
 
-  try {
-    const content = await file.text();
-    if (!content.trim()) throw new Error('File is empty.');
-    setStatus('rec-upload-status', 'Sending to Claude for analysis…', 'info');
-    const r = await fetch('/api/record/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content,
-        filename: file.name,
-        carrierCode: carrier,
-        description,
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Upload failed');
-    setStatus('rec-upload-status', 'Analysis complete.', 'success');
-    renderAnalysis(data.meta, data.analysis);
-    fileInput.value = '';
-    loadRecList();
-  } catch (err) {
-    setStatus('rec-upload-status', err.message, 'error');
-  } finally {
-    btn.disabled = false;
+  setStatus(
+    'rec-upload-status',
+    `Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`,
+    'info'
+  );
+
+  let lastSuccessful = null; // { meta, analysis }
+  let okCount = 0;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const stateEl = listEl.querySelector(`li[data-idx="${i}"] .upload-state`);
+    if (stateEl) {
+      stateEl.textContent = 'reading…';
+      stateEl.className = 'upload-state info';
+    }
+    try {
+      const content = await f.text();
+      if (!content.trim()) throw new Error('Empty file');
+      if (stateEl) stateEl.textContent = 'analyzing with Claude…';
+      // Tag part-N when there are multiple files so descriptions stay distinct.
+      const partDesc =
+        files.length > 1
+          ? `${description ?? f.name.replace(/\.[^.]+$/, '')} (part ${i + 1}/${files.length})`
+          : description;
+      const r = await fetch('/api/record/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          filename: f.name,
+          carrierCode: carrier,
+          description: partDesc,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Upload failed');
+      lastSuccessful = data;
+      okCount++;
+      if (stateEl) {
+        stateEl.textContent = `done — ${data.analysis.steps.length} steps, ${data.analysis.parameters.length} params`;
+        stateEl.className = 'upload-state success';
+      }
+    } catch (err) {
+      if (stateEl) {
+        stateEl.textContent = `failed — ${err.message}`;
+        stateEl.className = 'upload-state error';
+      }
+    }
   }
+
+  if (okCount === files.length) {
+    setStatus(
+      'rec-upload-status',
+      `All ${okCount} file${okCount > 1 ? 's' : ''} analyzed.`,
+      'success'
+    );
+  } else if (okCount > 0) {
+    setStatus(
+      'rec-upload-status',
+      `${okCount} of ${files.length} succeeded; see list above for failures.`,
+      'info'
+    );
+  } else {
+    setStatus('rec-upload-status', 'All uploads failed.', 'error');
+  }
+  // Show the last successful analysis (typically the most recent / final part).
+  if (lastSuccessful) {
+    renderAnalysis(lastSuccessful.meta, lastSuccessful.analysis);
+  }
+  fileInput.value = '';
+  loadRecList();
+  btn.disabled = false;
 });
 
 document.getElementById('rec-start-btn').addEventListener('click', async () => {
