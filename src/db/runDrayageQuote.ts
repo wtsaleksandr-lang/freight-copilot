@@ -4,18 +4,30 @@ import { createDbClient } from './client.js';
 import { drayageQuotes, drayageRates, type StoredCharge } from './schema.js';
 import { eq } from 'drizzle-orm';
 
-export interface RunDrayageInput {
-  direction: 'import' | 'export';
-  portCode: string;
+export type EndType = 'CY' | 'DOOR';
+export type CargoType = 'general' | 'hazmat' | 'high_value' | 'reefer';
+
+export interface DrayageEnd {
+  type: EndType;
+  /** When type === 'CY' */
+  portCode?: string;
   portName?: string;
-  addressLine1: string;
-  city: string;
+  terminal?: string;
+  /** When type === 'DOOR' */
+  addressLine1?: string;
+  city?: string;
   state?: string;
   zip?: string;
   country?: string;
+}
+
+export interface RunDrayageInput {
+  cargoType: CargoType;
   containerType: string;
   containerCount?: number;
   weightKg?: number;
+  origin: DrayageEnd;
+  destination: DrayageEnd;
   pickupDate?: string;
   deliveryDate?: string;
   specialEquipment?: string[];
@@ -24,14 +36,15 @@ export interface RunDrayageInput {
   notes?: string;
   markupPct?: number;
   markupFlat?: number;
+  intakeText?: string;
 }
 
 export interface DrayageRateRow {
   providerName: string;
   providerCode?: string;
   charges?: StoredCharge[];
-  baseRate: number; // major units (USD)
-  totalCost: number; // major units
+  baseRate: number;
+  totalCost: number;
   currency?: string;
   transitDays?: number;
   validUntil?: string;
@@ -44,8 +57,8 @@ export interface DrayageQuoteResult {
   quoteId: number;
   refId: string;
   outputFolder: string;
+  derivedDirection: 'import' | 'export' | 'mixed';
   ranked: Array<DrayageRateRow & { rank: number }>;
-  /** Empty until rate sources are wired in. */
   status: 'pending_rate_sources' | 'complete' | 'failed';
   message: string;
 }
@@ -56,12 +69,12 @@ function generateDrayageRefId(): string {
   return `D-${yyyymmdd}-${rand}`;
 }
 
-/**
- * Foundation runner: persists the drayage quote, creates an output folder,
- * and returns "no rate sources configured yet". Real provider integrations
- * (Maersk Inland, MSC inland, Schneider drayage, local trucker rate sheets,
- * marketplaces) plug in here later.
- */
+function deriveDirection(o: EndType, d: EndType): 'import' | 'export' | 'mixed' {
+  if (o === 'CY' && d === 'DOOR') return 'import';
+  if (o === 'DOOR' && d === 'CY') return 'export';
+  return 'mixed';
+}
+
 export async function runDrayageQuote(
   input: RunDrayageInput
 ): Promise<DrayageQuoteResult> {
@@ -75,17 +88,31 @@ export async function runDrayageQuote(
     .values({
       refId,
       outputFolder,
-      direction: input.direction,
-      portCode: input.portCode,
-      portName: input.portName ?? null,
-      addressLine1: input.addressLine1,
-      city: input.city,
-      state: input.state ?? null,
-      zip: input.zip ?? null,
-      country: input.country ?? 'US',
+      cargoType: input.cargoType,
       containerType: input.containerType,
       containerCount: input.containerCount ?? 1,
       weightKg: input.weightKg ?? null,
+
+      originType: input.origin.type,
+      originPortCode: input.origin.portCode ?? null,
+      originPortName: input.origin.portName ?? null,
+      originTerminal: input.origin.terminal ?? null,
+      originAddressLine1: input.origin.addressLine1 ?? null,
+      originCity: input.origin.city ?? null,
+      originState: input.origin.state ?? null,
+      originZip: input.origin.zip ?? null,
+      originCountry: input.origin.country ?? null,
+
+      destinationType: input.destination.type,
+      destinationPortCode: input.destination.portCode ?? null,
+      destinationPortName: input.destination.portName ?? null,
+      destinationTerminal: input.destination.terminal ?? null,
+      destinationAddressLine1: input.destination.addressLine1 ?? null,
+      destinationCity: input.destination.city ?? null,
+      destinationState: input.destination.state ?? null,
+      destinationZip: input.destination.zip ?? null,
+      destinationCountry: input.destination.country ?? null,
+
       pickupDate: input.pickupDate ?? null,
       deliveryDate: input.deliveryDate ?? null,
       specialEquipment: input.specialEquipment ?? null,
@@ -94,6 +121,7 @@ export async function runDrayageQuote(
       notes: input.notes ?? null,
       markupPct: input.markupPct ?? 0,
       markupFlat: input.markupFlat ?? 0,
+      intakeText: input.intakeText ?? null,
       status: 'pending_rate_sources',
     })
     .returning({ id: drayageQuotes.id });
@@ -104,22 +132,18 @@ export async function runDrayageQuote(
     JSON.stringify({ refId, input, createdAt: new Date().toISOString() }, null, 2)
   );
 
-  // V1: no rate sources are wired in yet. We persist the request with an
-  // empty result set + a clear status. When you feed in rate data later
-  // (carrier inland portals, provider rate sheets, etc.), populate
-  // drayage_rates rows here and update status to 'complete'.
   return {
     quoteId: quote.id,
     refId,
     outputFolder,
+    derivedDirection: deriveDirection(input.origin.type, input.destination.type),
     ranked: [],
     status: 'pending_rate_sources',
     message:
-      'Drayage request saved. Rate sources are not wired in yet — drop me your provider rate sheets / portal flow / API access and we will activate them.',
+      'Drayage request saved. No automation is wired in yet — drop me your provider workflow (record it via the Record tab) or rate sheets and we will activate the Run button.',
   };
 }
 
-/** Helper for once you DO have rates to insert (called from a future provider integration). */
 export async function recordDrayageRates(
   drayageQuoteId: number,
   rates: DrayageRateRow[]

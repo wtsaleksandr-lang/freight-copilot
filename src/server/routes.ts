@@ -24,6 +24,7 @@ import {
 } from '../db/schema.js';
 import { runDrayageQuote } from '../db/runDrayageQuote.js';
 import { runTruckingQuote } from '../db/runTruckingQuote.js';
+import { parseDrayageIntake } from '../llm/parseDrayageIntake.js';
 import { renderQuotePdf } from './pdf.js';
 import { runAgent } from '../agent/runAgent.js';
 import {
@@ -44,6 +45,9 @@ interface QuoteReqBody {
   container?: string;
   weight?: number | string;
   commodity?: string;
+  cargoType?: 'general' | 'hazmat' | 'high_value' | 'reefer';
+  originStruct?: import('../db/runBundle.js').BundleEnd;
+  destinationStruct?: import('../db/runBundle.js').BundleEnd;
 }
 
 function csvEscape(v: string): string {
@@ -423,6 +427,9 @@ export function registerApiRoutes(app: Express): void {
       container?: string;
       weight?: number | string;
       commodity?: string;
+      cargoType?: 'general' | 'hazmat' | 'high_value' | 'reefer';
+      originStruct?: import('../db/runBundle.js').BundleEnd;
+      destinationStruct?: import('../db/runBundle.js').BundleEnd;
       clientName?: string;
       markupPct?: number | string;
       markupFlat?: number | string;
@@ -449,6 +456,9 @@ export function registerApiRoutes(app: Express): void {
         originRegion: body.fromRegion,
         destination: body.to,
         destinationRegion: body.toRegion,
+        cargoType: body.cargoType,
+        originStruct: body.originStruct,
+        destinationStruct: body.destinationStruct,
         containerType: body.container,
         cargoWeightKg:
           typeof body.weight === 'number'
@@ -568,21 +578,11 @@ export function registerApiRoutes(app: Express): void {
 
   app.post('/api/drayage/quote', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    if (
-      !body.direction ||
-      !body.portCode ||
-      !body.addressLine1 ||
-      !body.city ||
-      !body.containerType
-    ) {
+    if (!body.cargoType || !body.containerType || !body.origin || !body.destination) {
       res.status(400).json({
         error:
-          'Missing required fields: direction, portCode, addressLine1, city, containerType',
+          'Missing required fields: cargoType, containerType, origin{type,...}, destination{type,...}',
       });
-      return;
-    }
-    if (body.direction !== 'import' && body.direction !== 'export') {
-      res.status(400).json({ error: 'direction must be "import" or "export"' });
       return;
     }
     try {
@@ -595,6 +595,68 @@ export function registerApiRoutes(app: Express): void {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  });
+
+  app.post('/api/drayage/intake', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      text?: string;
+      imageBase64?: string;
+      imageMediaType?: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    };
+    try {
+      let result;
+      if (body.text && body.text.trim().length > 0) {
+        result = await parseDrayageIntake({ text: body.text });
+      } else if (body.imageBase64 && body.imageMediaType) {
+        result = await parseDrayageIntake({
+          imageBase64: body.imageBase64,
+          imageMediaType: body.imageMediaType,
+        });
+      } else {
+        res.status(400).json({
+          error: 'Provide either `text` or `imageBase64` + `imageMediaType`.',
+        });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      console.error('[api/drayage/intake] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * Run the rate-retrieval automation for a saved drayage request.
+   *
+   * V1: stub — there are no providers wired in yet. When you record a
+   * drayage workflow (Record tab → drayage carrier portal) and we activate
+   * a replay engine, this endpoint will spawn the recorded automation
+   * with the saved request's fields as parameters.
+   */
+  app.post('/api/drayage/run/:refId', async (req: Request, res: Response) => {
+    const rawId = req.params.refId;
+    const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!refId) {
+      res.status(400).json({ error: 'Invalid refId' });
+      return;
+    }
+    const db = createDbClient();
+    const [quote] = await db
+      .select()
+      .from(drayageQuotes)
+      .where(eq(drayageQuotes.refId, refId));
+    if (!quote) {
+      res.status(404).json({ error: 'Drayage request not found' });
+      return;
+    }
+    res.status(200).json({
+      refId,
+      status: 'no_automation_configured',
+      message:
+        'No drayage provider workflows are recorded yet. Use the Record tab to capture one for a specific provider, then come back — the Run button will replay the recording with this request\'s fields.',
+    });
   });
 
   app.get('/api/drayage/quotes', async (_req: Request, res: Response) => {

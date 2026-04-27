@@ -13,52 +13,206 @@ document.querySelectorAll('.tab').forEach((btn) => {
 });
 
 // ---- Drayage tab ----
-document.getElementById('dr-submit-btn').addEventListener('click', async () => {
+
+// Toggle CY/DOOR conditional fields
+function wireCyDoorToggle(radioName, cyDivId, doorDivId) {
+  const radios = document.querySelectorAll(`input[name="${radioName}"]`);
+  const cyDiv = document.getElementById(cyDivId);
+  const doorDiv = document.getElementById(doorDivId);
+  function update() {
+    const checked = document.querySelector(`input[name="${radioName}"]:checked`);
+    const v = checked ? checked.value : 'CY';
+    cyDiv.hidden = v !== 'CY';
+    doorDiv.hidden = v !== 'DOOR';
+  }
+  radios.forEach((r) => r.addEventListener('change', update));
+  update();
+}
+wireCyDoorToggle('dr-origin-type', 'dr-origin-cy', 'dr-origin-door');
+wireCyDoorToggle('dr-destination-type', 'dr-destination-cy', 'dr-destination-door');
+
+// Drayage intake — paste text or image, AI fills the form
+let drIntakeImageDataUrl = null;
+let drIntakeImageMediaType = null;
+const drIntakeTextarea = document.getElementById('dr-intake-text');
+const drIntakePreview = document.getElementById('dr-intake-image-preview');
+const drIntakePreviewImg = document.getElementById('dr-intake-image');
+
+drIntakeTextarea.addEventListener('paste', (e) => {
+  const items = (e.clipboardData || {}).items || [];
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      e.preventDefault();
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        drIntakeImageDataUrl = String(reader.result);
+        drIntakeImageMediaType = item.type;
+        drIntakePreviewImg.src = drIntakeImageDataUrl;
+        drIntakePreview.hidden = false;
+        setStatus('dr-intake-status', 'Screenshot ready. Hit Extract.', 'info');
+      };
+      reader.readAsDataURL(blob);
+      return;
+    }
+  }
+});
+document.getElementById('dr-intake-clear-image').addEventListener('click', () => {
+  drIntakeImageDataUrl = null;
+  drIntakeImageMediaType = null;
+  drIntakePreview.hidden = true;
+  drIntakePreviewImg.src = '';
+});
+
+document.getElementById('dr-intake-btn').addEventListener('click', async () => {
+  const text = drIntakeTextarea.value.trim();
+  if (!text && !drIntakeImageDataUrl) {
+    setStatus('dr-intake-status', 'Paste text or a screenshot first.', 'error');
+    return;
+  }
+  const body = {};
+  if (drIntakeImageDataUrl) {
+    const base64 = drIntakeImageDataUrl.substring(drIntakeImageDataUrl.indexOf(',') + 1);
+    body.imageBase64 = base64;
+    body.imageMediaType = drIntakeImageMediaType || 'image/png';
+  } else {
+    body.text = text;
+  }
+  const btn = document.getElementById('dr-intake-btn');
+  btn.disabled = true;
+  setStatus('dr-intake-status', 'Extracting…', 'info');
+  try {
+    const r = await fetch('/api/drayage/intake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Intake failed');
+    applyDrayageIntake(data);
+    const cls = data.readiness.status === 'ready_to_run' ? 'success' : 'info';
+    const msg =
+      data.readiness.status === 'ready_to_run'
+        ? `Extracted — ready to run. ${data.readiness.reason}`
+        : `Extracted — review the form (${data.readiness.reason})`;
+    setStatus('dr-intake-status', msg, cls);
+  } catch (err) {
+    setStatus('dr-intake-status', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function applyDrayageIntake(d) {
+  const setVal = (id, v) => {
+    if (v != null) document.getElementById(id).value = v;
+  };
+  if (d.cargoType) document.getElementById('dr-cargo-type').value = d.cargoType;
+  setVal('dr-container', d.containerType);
+  setVal('dr-container-count', d.containerCount ?? 1);
+  setVal('dr-weight', d.weightKg ?? '');
+
+  if (d.originType) {
+    document.querySelector(`input[name="dr-origin-type"][value="${d.originType}"]`).checked = true;
+  }
+  setVal('dr-origin-port-code', d.originPortCode);
+  setVal('dr-origin-port-name', d.originPortName);
+  setVal('dr-origin-terminal', d.originTerminal);
+  setVal('dr-origin-address', d.originAddressLine1);
+  setVal('dr-origin-city', d.originCity);
+  setVal('dr-origin-state', d.originState);
+  setVal('dr-origin-zip', d.originZip);
+  setVal('dr-origin-country', d.originCountry);
+
+  if (d.destinationType) {
+    document.querySelector(`input[name="dr-destination-type"][value="${d.destinationType}"]`).checked = true;
+  }
+  setVal('dr-destination-port-code', d.destinationPortCode);
+  setVal('dr-destination-port-name', d.destinationPortName);
+  setVal('dr-destination-terminal', d.destinationTerminal);
+  setVal('dr-destination-address', d.destinationAddressLine1);
+  setVal('dr-destination-city', d.destinationCity);
+  setVal('dr-destination-state', d.destinationState);
+  setVal('dr-destination-zip', d.destinationZip);
+  setVal('dr-destination-country', d.destinationCountry);
+
+  setVal('dr-pickup-date', d.pickupDate);
+  setVal('dr-delivery-date', d.deliveryDate);
+  if (d.specialEquipment?.length) setVal('dr-special', d.specialEquipment.join(', '));
+  if (d.accessorials?.length) setVal('dr-accessorials', d.accessorials.join(', '));
+  setVal('dr-client', d.clientName);
+  setVal('dr-notes', d.notes);
+
+  // Re-render conditional fields after radio toggles
+  ['dr-origin-type', 'dr-destination-type'].forEach((name) => {
+    const checked = document.querySelector(`input[name="${name}"]:checked`);
+    if (checked) checked.dispatchEvent(new Event('change'));
+  });
+}
+
+function buildDrayageBody() {
   const splitCsv = (s) =>
-    s
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean);
-  const body = {
-    direction: document.getElementById('dr-direction').value,
-    portCode: document.getElementById('dr-port-code').value.trim(),
-    portName: document.getElementById('dr-port-name').value.trim() || undefined,
-    addressLine1: document.getElementById('dr-address').value.trim(),
-    city: document.getElementById('dr-city').value.trim(),
-    state: document.getElementById('dr-state').value.trim() || undefined,
-    zip: document.getElementById('dr-zip').value.trim() || undefined,
-    country: document.getElementById('dr-country').value.trim() || 'US',
+    s.split(',').map((x) => x.trim()).filter(Boolean);
+  const originType = document.querySelector('input[name="dr-origin-type"]:checked').value;
+  const destinationType = document.querySelector('input[name="dr-destination-type"]:checked').value;
+
+  const buildEnd = (prefix, type) => {
+    if (type === 'CY') {
+      return {
+        type,
+        portCode: document.getElementById(`${prefix}-port-code`).value.trim() || undefined,
+        portName: document.getElementById(`${prefix}-port-name`).value.trim() || undefined,
+        terminal: document.getElementById(`${prefix}-terminal`).value.trim() || undefined,
+      };
+    }
+    return {
+      type,
+      addressLine1: document.getElementById(`${prefix}-address`).value.trim() || undefined,
+      city: document.getElementById(`${prefix}-city`).value.trim() || undefined,
+      state: document.getElementById(`${prefix}-state`).value.trim() || undefined,
+      zip: document.getElementById(`${prefix}-zip`).value.trim() || undefined,
+      country: document.getElementById(`${prefix}-country`).value.trim() || 'US',
+    };
+  };
+
+  return {
+    cargoType: document.getElementById('dr-cargo-type').value,
     containerType: document.getElementById('dr-container').value.trim(),
     containerCount: parseInt(document.getElementById('dr-container-count').value, 10) || 1,
     weightKg: parseInt(document.getElementById('dr-weight').value, 10) || undefined,
+    origin: buildEnd('dr-origin', originType),
+    destination: buildEnd('dr-destination', destinationType),
     pickupDate: document.getElementById('dr-pickup-date').value || undefined,
     deliveryDate: document.getElementById('dr-delivery-date').value || undefined,
     specialEquipment: splitCsv(document.getElementById('dr-special').value),
     accessorials: splitCsv(document.getElementById('dr-accessorials').value),
     clientName: document.getElementById('dr-client').value.trim() || undefined,
     notes: document.getElementById('dr-notes').value.trim() || undefined,
+    intakeText: drIntakeTextarea.value.trim() || undefined,
   };
-  if (!body.portCode || !body.addressLine1 || !body.city || !body.containerType) {
-    setStatus('dr-status', 'Fill at least port code, address, city, container.', 'error');
-    return;
-  }
-  const btn = document.getElementById('dr-submit-btn');
+}
+
+async function saveDrayage() {
+  const body = buildDrayageBody();
+  const r = await fetch('/api/drayage/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Save failed');
+  return data;
+}
+
+document.getElementById('dr-save-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('dr-save-btn');
   btn.disabled = true;
   setStatus('dr-status', 'Saving…', 'info');
   try {
-    const r = await fetch('/api/drayage/quote', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Save failed');
+    const data = await saveDrayage();
     setStatus('dr-status', `${data.refId} saved.`, 'success');
-    document.getElementById('dr-result-card').hidden = false;
-    document.getElementById('dr-result-title').textContent = data.refId;
-    document.getElementById('dr-result-meta').innerHTML =
-      `<code>${esc(data.outputFolder)}</code>`;
-    document.getElementById('dr-result-msg').textContent = data.message;
+    showDrayageResult(data, null);
     loadDrayageList();
   } catch (err) {
     setStatus('dr-status', err.message, 'error');
@@ -66,6 +220,38 @@ document.getElementById('dr-submit-btn').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+document.getElementById('dr-run-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('dr-run-btn');
+  btn.disabled = true;
+  setStatus('dr-status', 'Saving…', 'info');
+  try {
+    const data = await saveDrayage();
+    setStatus('dr-status', `${data.refId} saved. Triggering automation…`, 'info');
+    const runR = await fetch(`/api/drayage/run/${data.refId}`, { method: 'POST' });
+    const runData = await runR.json();
+    setStatus('dr-status', runData.message || 'Run complete.', runR.ok ? 'success' : 'error');
+    showDrayageResult(data, runData);
+    loadDrayageList();
+  } catch (err) {
+    setStatus('dr-status', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function showDrayageResult(saved, runData) {
+  const card = document.getElementById('dr-result-card');
+  card.hidden = false;
+  document.getElementById('dr-result-title').textContent =
+    `${saved.refId} — ${saved.derivedDirection}`;
+  document.getElementById('dr-result-meta').innerHTML =
+    `<code>${esc(saved.outputFolder)}</code>`;
+  const msg = runData
+    ? runData.message
+    : 'Saved. Click Run to trigger the rate-retrieval automation (when configured).';
+  document.getElementById('dr-result-msg').textContent = msg;
+}
 
 document.getElementById('dr-refresh-btn').addEventListener('click', loadDrayageList);
 
@@ -79,17 +265,21 @@ async function loadDrayageList() {
       table.innerHTML = '<tbody><tr><td class="empty">No drayage requests yet.</td></tr></tbody>';
       return;
     }
-    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Direction</th><th>Port</th><th>To/From</th><th>Container</th><th>Status</th></tr></thead>';
+    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Cargo</th><th>Container</th><th>From</th><th>To</th><th>Status</th></tr></thead>';
+    const fmtEnd = (type, port, terminal, city, state) =>
+      type === 'CY'
+        ? `${esc(port || '')}${terminal ? ' / ' + esc(terminal) : ''} (CY)`
+        : `${esc(city || '')}${state ? ', ' + esc(state) : ''} (DOOR)`;
     const rows = data.quotes
       .map((q) => {
         const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
         return `<tr>
           <td><code>${esc(q.refId)}</code></td>
           <td>${created}</td>
-          <td>${esc(q.direction)}</td>
-          <td>${esc(q.portCode)} ${q.portName ? '(' + esc(q.portName) + ')' : ''}</td>
-          <td>${esc(q.city)}${q.state ? ', ' + esc(q.state) : ''}</td>
+          <td>${esc(q.cargoType || 'general')}</td>
           <td>${esc(q.containerType)} × ${q.containerCount}</td>
+          <td>${fmtEnd(q.originType, q.originPortCode, q.originTerminal, q.originCity, q.originState)}</td>
+          <td>${fmtEnd(q.destinationType, q.destinationPortCode, q.destinationTerminal, q.destinationCity, q.destinationState)}</td>
           <td><span class="status-inline ${q.status === 'complete' ? 'success' : 'info'}">${esc(q.status)}</span></td>
         </tr>`;
       })
@@ -105,6 +295,7 @@ loadDrayageList();
 document.getElementById('tr-submit-btn').addEventListener('click', async () => {
   const body = {
     mode: document.getElementById('tr-mode').value,
+    cargoType: document.getElementById('tr-cargo-type').value,
     equipmentType: document.getElementById('tr-equipment').value,
     pickupAddressLine1: document.getElementById('tr-pickup-addr').value.trim(),
     pickupCity: document.getElementById('tr-pickup-city').value.trim(),
@@ -434,6 +625,10 @@ document.getElementById('intake-clear-image').addEventListener('click', () => {
   setStatus('intake-status', '', '');
 });
 
+// Wire ocean origin/destination CY/DOOR toggles
+wireCyDoorToggle('oc-origin-type', 'oc-origin-cy', 'oc-origin-door');
+wireCyDoorToggle('oc-destination-type', 'oc-destination-cy', 'oc-destination-door');
+
 document.getElementById('intake-btn').addEventListener('click', async () => {
   const text = intakeTextarea.value.trim();
   if (!text && !pastedImageDataUrl) {
@@ -463,13 +658,55 @@ document.getElementById('intake-btn').addEventListener('click', async () => {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Intake failed');
 
-    if (data.from) document.getElementById('from').value = data.from;
-    if (data.fromRegion) document.getElementById('from-region').value = data.fromRegion;
-    if (data.to) document.getElementById('to').value = data.to;
-    if (data.toRegion) document.getElementById('to-region').value = data.toRegion;
-    if (data.container) document.getElementById('container').value = data.container;
-    if (data.weight) document.getElementById('weight').value = data.weight;
-    if (data.commodity) document.getElementById('commodity').value = data.commodity;
+    const setVal = (id, v) => {
+      if (v != null) {
+        const el = document.getElementById(id);
+        if (el) el.value = v;
+      }
+    };
+    setVal('from', data.from);
+    setVal('from-region', data.fromRegion);
+    setVal('to', data.to);
+    setVal('to-region', data.toRegion);
+    setVal('container', data.container);
+    setVal('weight', data.weight);
+    setVal('commodity', data.commodity);
+    if (data.cargoType) document.getElementById('cargo-type').value = data.cargoType;
+
+    // Structured origin/destination
+    if (data.originType) {
+      const r = document.querySelector(
+        `input[name="oc-origin-type"][value="${data.originType}"]`
+      );
+      if (r) {
+        r.checked = true;
+        r.dispatchEvent(new Event('change'));
+      }
+    }
+    setVal('oc-origin-port-code', data.originPortCode);
+    setVal('oc-origin-terminal', data.originTerminal);
+    setVal('oc-origin-address', data.originAddressLine1);
+    setVal('oc-origin-city', data.originCity);
+    setVal('oc-origin-state', data.originState);
+    setVal('oc-origin-zip', data.originZip);
+    setVal('oc-origin-country', data.originCountry);
+
+    if (data.destinationType) {
+      const r = document.querySelector(
+        `input[name="oc-destination-type"][value="${data.destinationType}"]`
+      );
+      if (r) {
+        r.checked = true;
+        r.dispatchEvent(new Event('change'));
+      }
+    }
+    setVal('oc-destination-port-code', data.destinationPortCode);
+    setVal('oc-destination-terminal', data.destinationTerminal);
+    setVal('oc-destination-address', data.destinationAddressLine1);
+    setVal('oc-destination-city', data.destinationCity);
+    setVal('oc-destination-state', data.destinationState);
+    setVal('oc-destination-zip', data.destinationZip);
+    setVal('oc-destination-country', data.destinationCountry);
 
     const confClass = `confidence-${data.confidence}`;
     const notesHtml = data.notes
@@ -505,12 +742,51 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     return;
   }
   const markup = getMarkup();
+
+  const originType = document.querySelector('input[name="oc-origin-type"]:checked').value;
+  const destinationType = document.querySelector('input[name="oc-destination-type"]:checked').value;
+  const buildOcEnd = (prefix, type) => {
+    if (type === 'CY') {
+      // Note: port name for CY lives in the legacy 'from'/'to' inputs.
+      const portNameEl = prefix === 'oc-origin' ? 'from' : 'to';
+      return {
+        type,
+        portCode: document.getElementById(`${prefix}-port-code`).value.trim() || undefined,
+        portName: document.getElementById(portNameEl).value.trim() || undefined,
+        terminal: document.getElementById(`${prefix}-terminal`).value.trim() || undefined,
+      };
+    }
+    return {
+      type,
+      addressLine1: document.getElementById(`${prefix}-address`).value.trim() || undefined,
+      city: document.getElementById(`${prefix}-city`).value.trim() || undefined,
+      state: document.getElementById(`${prefix}-state`).value.trim() || undefined,
+      zip: document.getElementById(`${prefix}-zip`).value.trim() || undefined,
+      country: document.getElementById(`${prefix}-country`).value.trim() || 'US',
+    };
+  };
+  const originStruct = buildOcEnd('oc-origin', originType);
+  const destinationStruct = buildOcEnd('oc-destination', destinationType);
+
+  // Derive legacy from/fromRegion/to/toRegion (used by Maersk autocomplete today)
+  const deriveFrom = (struct) =>
+    struct.type === 'CY'
+      ? { from: struct.portName, fromRegion: undefined }
+      : { from: struct.city, fromRegion: struct.state };
+  const fromLegacy = deriveFrom(originStruct);
+  const toLegacy = deriveFrom(destinationStruct);
+
   const body = {
     carriers,
-    from: document.getElementById('from').value.trim(),
-    fromRegion: document.getElementById('from-region').value.trim() || undefined,
-    to: document.getElementById('to').value.trim(),
-    toRegion: document.getElementById('to-region').value.trim() || undefined,
+    cargoType: document.getElementById('cargo-type').value,
+    originStruct,
+    destinationStruct,
+    from: document.getElementById('from').value.trim() || fromLegacy.from,
+    fromRegion:
+      document.getElementById('from-region').value.trim() || fromLegacy.fromRegion,
+    to: document.getElementById('to').value.trim() || toLegacy.from,
+    toRegion:
+      document.getElementById('to-region').value.trim() || toLegacy.fromRegion,
     container: document.getElementById('container').value.trim(),
     weight: parseInt(document.getElementById('weight').value, 10),
     commodity: document.getElementById('commodity').value.trim() || undefined,

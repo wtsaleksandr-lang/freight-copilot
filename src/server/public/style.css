@@ -528,3 +528,35 @@ label.check-line input[type="checkbox"] {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+.cy-door-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+.cy-door-radio {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: white;
+  transition: all 0.1s;
+}
+.cy-door-radio:has(input:checked) {
+  background: var(--info-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cy-door-radio input {
+  width: auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

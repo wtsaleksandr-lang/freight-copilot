@@ -6,6 +6,7 @@ import { truckingQuotes, truckingRates, type StoredCharge } from './schema.js';
 
 export interface RunTruckingInput {
   mode: 'ftl' | 'ltl';
+  cargoType?: 'general' | 'hazmat' | 'high_value' | 'reefer';
   pickupAddressLine1: string;
   pickupCity: string;
   pickupState?: string;
@@ -79,6 +80,7 @@ export async function runTruckingQuote(
       refId,
       outputFolder,
       mode: input.mode,
+      cargoType: input.cargoType ?? 'general',
       pickupAddressLine1: input.pickupAddressLine1,
       pickupCity: input.pickupCity,
       pickupState: input.pickupState ?? null,

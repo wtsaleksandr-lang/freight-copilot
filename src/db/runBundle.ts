@@ -14,12 +14,32 @@ import { rankRates } from '../ranker/rankRates.js';
 import type { RankedRateOption } from '../types.js';
 import { CaptchaBlockedError, type CaptchaType } from '../captcha/types.js';
 
+export type EndType = 'CY' | 'DOOR';
+export type CargoType = 'general' | 'hazmat' | 'high_value' | 'reefer';
+
+export interface BundleEnd {
+  type: EndType;
+  portCode?: string;
+  portName?: string;
+  terminal?: string;
+  addressLine1?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
+
 export interface RunBundleInput {
   carrierCodes: string[];
+  /** Legacy display fields — kept because Maersk's autocomplete uses them today. */
   origin: string;
   originRegion?: string;
   destination: string;
   destinationRegion?: string;
+  /** Structured cargo + endpoints (V1: stored, not yet driven into Maersk's "I want pickup at facility" radio). */
+  cargoType?: CargoType;
+  originStruct?: BundleEnd;
+  destinationStruct?: BundleEnd;
   containerType: string;
   cargoWeightKg: number;
   commodity?: string;
@@ -72,6 +92,8 @@ export async function runQuoteBundle(
 
   const db = createDbClient();
 
+  const o = input.originStruct;
+  const d = input.destinationStruct;
   const [bundle] = await db
     .insert(quoteBundles)
     .values({
@@ -81,6 +103,25 @@ export async function runQuoteBundle(
       intakeText: input.intakeText ?? null,
       origin: input.origin,
       destination: input.destination,
+      cargoType: input.cargoType ?? 'general',
+      originType: o?.type ?? 'CY',
+      originPortCode: o?.portCode ?? null,
+      originPortName: o?.portName ?? null,
+      originTerminal: o?.terminal ?? null,
+      originAddressLine1: o?.addressLine1 ?? null,
+      originCity: o?.city ?? null,
+      originState: o?.state ?? null,
+      originZip: o?.zip ?? null,
+      originCountry: o?.country ?? null,
+      destinationType: d?.type ?? 'CY',
+      destinationPortCode: d?.portCode ?? null,
+      destinationPortName: d?.portName ?? null,
+      destinationTerminal: d?.terminal ?? null,
+      destinationAddressLine1: d?.addressLine1 ?? null,
+      destinationCity: d?.city ?? null,
+      destinationState: d?.state ?? null,
+      destinationZip: d?.zip ?? null,
+      destinationCountry: d?.country ?? null,
       containerType: input.containerType,
       cargoWeightKg: input.cargoWeightKg,
       commodity: input.commodity ?? null,

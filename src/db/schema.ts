@@ -14,8 +14,35 @@ export const quoteBundles = sqliteTable('quote_bundles', {
   clientName: text('client_name'),
   intakeText: text('intake_text'),
   intakeImagePath: text('intake_image_path'),
+
+  /** Legacy / display fields — origin and destination as user typed (city/port name). */
   origin: text('origin').notNull(),
   destination: text('destination').notNull(),
+
+  /** New: explicit cargo type. */
+  cargoType: text('cargo_type').notNull().default('general'),
+
+  /** New: structured origin/destination — CY (port) or DOOR (address). */
+  originType: text('origin_type').notNull().default('CY'),
+  originPortCode: text('origin_port_code'),
+  originPortName: text('origin_port_name'),
+  originTerminal: text('origin_terminal'),
+  originAddressLine1: text('origin_address_line1'),
+  originCity: text('origin_city'),
+  originState: text('origin_state'),
+  originZip: text('origin_zip'),
+  originCountry: text('origin_country'),
+
+  destinationType: text('destination_type').notNull().default('CY'),
+  destinationPortCode: text('destination_port_code'),
+  destinationPortName: text('destination_port_name'),
+  destinationTerminal: text('destination_terminal'),
+  destinationAddressLine1: text('destination_address_line1'),
+  destinationCity: text('destination_city'),
+  destinationState: text('destination_state'),
+  destinationZip: text('destination_zip'),
+  destinationCountry: text('destination_country'),
+
   containerType: text('container_type').notNull(),
   cargoWeightKg: integer('cargo_weight_kg').notNull(),
   commodity: text('commodity'),
@@ -104,29 +131,45 @@ export const drayageQuotes = sqliteTable('drayage_quotes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   refId: text('ref_id').notNull().unique(),
   outputFolder: text('output_folder').notNull(),
-  /** 'import' = port → address; 'export' = address → port. */
-  direction: text('direction').notNull(),
-  portCode: text('port_code').notNull(),
-  portName: text('port_name'),
-  addressLine1: text('address_line1').notNull(),
-  city: text('city').notNull(),
-  state: text('state'),
-  zip: text('zip'),
-  country: text('country').notNull().default('US'),
+
+  /** 'general' | 'hazmat' | 'high_value' | 'reefer' (extend later) */
+  cargoType: text('cargo_type').notNull().default('general'),
   containerType: text('container_type').notNull(),
   containerCount: integer('container_count').notNull().default(1),
   weightKg: integer('weight_kg'),
+
+  /** 'CY' (container yard / port terminal) | 'DOOR' (street address) */
+  originType: text('origin_type').notNull(),
+  originPortCode: text('origin_port_code'),
+  originPortName: text('origin_port_name'),
+  originTerminal: text('origin_terminal'),
+  originAddressLine1: text('origin_address_line1'),
+  originCity: text('origin_city'),
+  originState: text('origin_state'),
+  originZip: text('origin_zip'),
+  originCountry: text('origin_country'),
+
+  destinationType: text('destination_type').notNull(),
+  destinationPortCode: text('destination_port_code'),
+  destinationPortName: text('destination_port_name'),
+  destinationTerminal: text('destination_terminal'),
+  destinationAddressLine1: text('destination_address_line1'),
+  destinationCity: text('destination_city'),
+  destinationState: text('destination_state'),
+  destinationZip: text('destination_zip'),
+  destinationCountry: text('destination_country'),
+
   pickupDate: text('pickup_date'),
   deliveryDate: text('delivery_date'),
-  /** chassis, gen-set, hazmat, overweight permit, tri-axle, etc. */
   specialEquipment: text('special_equipment', { mode: 'json' }).$type<string[]>(),
-  /** prepull, storage, detention notes. */
   accessorials: text('accessorials', { mode: 'json' }).$type<string[]>(),
   clientName: text('client_name'),
   notes: text('notes'),
   markupPct: real('markup_pct').notNull().default(0),
   markupFlat: real('markup_flat').notNull().default(0),
   status: text('status').notNull().default('pending'),
+  /** Raw text/screenshot the user pasted as intake (kept for audit). */
+  intakeText: text('intake_text'),
   createdAt: integer('created_at', { mode: 'timestamp' })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -176,6 +219,8 @@ export const truckingQuotes = sqliteTable('trucking_quotes', {
   deliveryState: text('delivery_state'),
   deliveryZip: text('delivery_zip'),
   deliveryCountry: text('delivery_country').notNull().default('US'),
+  /** 'general' | 'hazmat' | 'high_value' | 'reefer' */
+  cargoType: text('cargo_type').notNull().default('general'),
   /** dryvan, flatbed, reefer, step_deck, conestoga, hotshot, etc. */
   equipmentType: text('equipment_type').notNull(),
   weightKg: integer('weight_kg'),
