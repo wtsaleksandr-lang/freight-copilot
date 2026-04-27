@@ -902,7 +902,8 @@ function initDrayageDropdowns() {
 (async () => {
   await loadLookups();
   initDrayageDropdowns();
-  await })();
+  await loadCarriers();
+})();
 
 // Carriers as a multi-select dropdown (closed by default). All checked by default.
 let carrierDropdown = null;
