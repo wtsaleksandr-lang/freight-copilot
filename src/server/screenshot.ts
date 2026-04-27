@@ -19,8 +19,8 @@ async function main() {
   await page.waitForTimeout(500);
   await page.screenshot({ path: './samples/dashboard-record.png', fullPage: true });
 
-  // Back to new quote for more coverage
-  await page.getByRole('button', { name: 'New quote' }).click();
+  // Back to ocean tab for more coverage
+  await page.getByRole('button', { name: 'Ocean' }).click();
   await page.waitForTimeout(300);
 
   // Mobile viewport (iPhone-ish width)

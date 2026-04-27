@@ -560,3 +560,114 @@ label.check-line input[type="checkbox"] {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+/* ---- Side-by-side origin/destination endpoint cards ---- */
+.endpoint-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+@media (max-width: 880px) {
+  .endpoint-row { grid-template-columns: 1fr; }
+}
+.endpoint-card {
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: white;
+}
+.endpoint-card.origin { border-left: 4px solid #2563eb; }
+.endpoint-card.destination { border-left: 4px solid #15803d; }
+.endpoint-card h3 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--ink);
+}
+.endpoint-card.origin h3 { color: #2563eb; }
+.endpoint-card.destination h3 { color: #15803d; }
+.endpoint-card .grid { margin: 6px 0 0 0; }
+
+/* ---- Reusable multi-select dropdown ---- */
+.multi-dd {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+.multi-dd-btn {
+  width: 100%;
+  text-align: left;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.multi-dd-btn:hover { background: #f8fafc; }
+.multi-dd-btn .multi-dd-chevron {
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.multi-dd.open .multi-dd-chevron { transform: rotate(180deg); }
+
+.multi-dd-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  padding: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.multi-dd-panel .multi-dd-head {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.multi-dd-panel .multi-dd-head button {
+  flex: 1;
+  font-size: 11.5px;
+  padding: 4px 8px;
+}
+.multi-dd-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  flex-direction: row;
+  font-weight: 400;
+}
+.multi-dd-panel label:hover { background: #f1f5f9; }
+.multi-dd-panel label input { width: auto; accent-color: var(--accent); }
+.multi-dd-panel label.disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.multi-dd-panel label.disabled input { cursor: not-allowed; }
+.multi-dd-suffix {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}

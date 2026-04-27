@@ -7,6 +7,11 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- Shared datalists for autosuggest. Populated by loadLookups() at boot. -->
+  <datalist id="dl-ports"></datalist>
+  <datalist id="dl-port-codes"></datalist>
+  <datalist id="dl-addresses"></datalist>
+
   <header>
     <h1>Freight Copilot</h1>
     <nav>
@@ -39,7 +44,7 @@
       <div class="card">
         <h2>Quote details <span class="muted-inline">— pick carriers, set your margin, hit one button</span></h2>
         <label class="full" style="margin-bottom: 12px">Carriers to run
-          <div class="carrier-check-group" id="carrier-checkboxes"></div>
+          <div id="carrier-dd"></div>
         </label>
 
         <div class="grid">
@@ -51,56 +56,64 @@
               <option value="reefer">Reefer (temp controlled)</option>
             </select>
           </label>
-          <label>Container type<input id="container" value="20 Dry Standard"></label>
+          <label>Container type
+            <select id="container" class="container-select" data-current="40 Dry High"></select>
+          </label>
           <label>Weight per container (kg)<input id="weight" type="number" value="10000"></label>
           <label>Commodity<input id="commodity" value="Autoparts"></label>
-          <label>Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
+          <label class="full">Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
         </div>
 
-        <h3 class="bd-title" style="margin-top: 14px">Origin</h3>
-        <div class="cy-door-row">
-          <label class="cy-door-radio">
-            <input type="radio" name="oc-origin-type" value="CY" checked> CY — port / terminal
-          </label>
-          <label class="cy-door-radio">
-            <input type="radio" name="oc-origin-type" value="DOOR"> DOOR — street address
-          </label>
-        </div>
-        <div id="oc-origin-cy" class="grid">
-          <label>Port code (UN/LOCODE)<input id="oc-origin-port-code" placeholder="USEWR"></label>
-          <label>Port name<input id="from" placeholder="Newark"></label>
-          <label>Region hint<input id="from-region" placeholder="New Jersey / United States"></label>
-          <label>Specific terminal (optional)<input id="oc-origin-terminal" placeholder="APM Terminals Newark"></label>
-        </div>
-        <div id="oc-origin-door" class="grid" hidden>
-          <label class="full">Street<input id="oc-origin-address"></label>
-          <label>City<input id="oc-origin-city"></label>
-          <label>State<input id="oc-origin-state"></label>
-          <label>ZIP<input id="oc-origin-zip"></label>
-          <label>Country<input id="oc-origin-country" value="US"></label>
-        </div>
+        <div class="endpoint-row">
+          <div class="endpoint-card origin">
+            <h3>📍 Origin (FROM)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-origin-type" value="CY" checked> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-origin-type" value="DOOR"> DOOR — street
+              </label>
+            </div>
+            <div id="oc-origin-cy" class="grid">
+              <label>Port code<input id="oc-origin-port-code" list="dl-port-codes" placeholder="USEWR"></label>
+              <label>Port name<input id="from" list="dl-ports" placeholder="Newark"></label>
+              <label class="full">Region hint<input id="from-region" placeholder="New Jersey / United States"></label>
+              <label class="full">Specific terminal (optional)<input id="oc-origin-terminal" placeholder="APM Terminals Newark"></label>
+            </div>
+            <div id="oc-origin-door" class="grid" hidden>
+              <label class="full">Street<input id="oc-origin-address" list="dl-addresses"></label>
+              <label>City<input id="oc-origin-city"></label>
+              <label>State<input id="oc-origin-state"></label>
+              <label>ZIP<input id="oc-origin-zip"></label>
+              <label class="full">Country<input id="oc-origin-country" value="US"></label>
+            </div>
+          </div>
 
-        <h3 class="bd-title" style="margin-top: 14px">Destination</h3>
-        <div class="cy-door-row">
-          <label class="cy-door-radio">
-            <input type="radio" name="oc-destination-type" value="CY" checked> CY — port / terminal
-          </label>
-          <label class="cy-door-radio">
-            <input type="radio" name="oc-destination-type" value="DOOR"> DOOR — street address
-          </label>
-        </div>
-        <div id="oc-destination-cy" class="grid">
-          <label>Port code (UN/LOCODE)<input id="oc-destination-port-code" placeholder="BEANR"></label>
-          <label>Port name<input id="to" placeholder="Antwerp"></label>
-          <label>Region hint<input id="to-region" placeholder="Belgium"></label>
-          <label>Specific terminal (optional)<input id="oc-destination-terminal"></label>
-        </div>
-        <div id="oc-destination-door" class="grid" hidden>
-          <label class="full">Street<input id="oc-destination-address"></label>
-          <label>City<input id="oc-destination-city"></label>
-          <label>State<input id="oc-destination-state"></label>
-          <label>ZIP<input id="oc-destination-zip"></label>
-          <label>Country<input id="oc-destination-country" value="US"></label>
+          <div class="endpoint-card destination">
+            <h3>🎯 Destination (TO)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-destination-type" value="CY" checked> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-destination-type" value="DOOR"> DOOR — street
+              </label>
+            </div>
+            <div id="oc-destination-cy" class="grid">
+              <label>Port code<input id="oc-destination-port-code" list="dl-port-codes" placeholder="BEANR"></label>
+              <label>Port name<input id="to" list="dl-ports" placeholder="Antwerp"></label>
+              <label class="full">Region hint<input id="to-region" placeholder="Belgium"></label>
+              <label class="full">Specific terminal (optional)<input id="oc-destination-terminal"></label>
+            </div>
+            <div id="oc-destination-door" class="grid" hidden>
+              <label class="full">Street<input id="oc-destination-address" list="dl-addresses"></label>
+              <label>City<input id="oc-destination-city"></label>
+              <label>State<input id="oc-destination-state"></label>
+              <label>ZIP<input id="oc-destination-zip"></label>
+              <label class="full">Country<input id="oc-destination-country" value="US"></label>
+            </div>
+          </div>
         </div>
 
         <label class="full markup-label">Your margin for THIS quote
@@ -197,66 +210,75 @@
             </select>
           </label>
           <label>Container type
-            <input id="dr-container" value="40 Dry High" placeholder="20GP, 40GP, 40HC, 20RF, 40RF" />
+            <select id="dr-container" class="container-select" data-current="40 Dry High"></select>
           </label>
-          <label>Container count<input id="dr-container-count" type="number" min="1" value="1" /></label>
-          <label>Cargo weight (kg)<input id="dr-weight" type="number" placeholder="optional" /></label>
+          <label class="full">Cargo weight (kg)<input id="dr-weight" type="number" placeholder="optional" /></label>
         </div>
 
-        <!-- Origin -->
-        <h3 class="bd-title" style="margin-top: 14px">Origin (where the move starts)</h3>
-        <div class="cy-door-row">
-          <label class="cy-door-radio">
-            <input type="radio" name="dr-origin-type" value="CY" checked> CY — port / terminal
-          </label>
-          <label class="cy-door-radio">
-            <input type="radio" name="dr-origin-type" value="DOOR"> DOOR — street address
-          </label>
-        </div>
-        <div id="dr-origin-cy" class="grid">
-          <label>Port code (UN/LOCODE)<input id="dr-origin-port-code" placeholder="USEWR" /></label>
-          <label>Port name<input id="dr-origin-port-name" placeholder="Newark" /></label>
-          <label class="full">Specific terminal (optional)<input id="dr-origin-terminal" placeholder="APM Terminals Newark" /></label>
-        </div>
-        <div id="dr-origin-door" class="grid" hidden>
-          <label class="full">Street<input id="dr-origin-address" /></label>
-          <label>City<input id="dr-origin-city" /></label>
-          <label>State<input id="dr-origin-state" /></label>
-          <label>ZIP<input id="dr-origin-zip" /></label>
-          <label>Country<input id="dr-origin-country" value="US" /></label>
+        <div class="endpoint-row">
+          <div class="endpoint-card origin">
+            <h3>📍 Origin (FROM)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="dr-origin-type" value="CY" checked> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="dr-origin-type" value="DOOR"> DOOR — street
+              </label>
+            </div>
+            <div id="dr-origin-cy" class="grid">
+              <label>Port code<input id="dr-origin-port-code" list="dl-port-codes" placeholder="USEWR" /></label>
+              <label>Port name<input id="dr-origin-port-name" list="dl-ports" placeholder="Newark" /></label>
+              <label class="full">Specific terminal (optional)<input id="dr-origin-terminal" placeholder="APM Terminals Newark" /></label>
+            </div>
+            <div id="dr-origin-door" class="grid" hidden>
+              <label class="full">Street<input id="dr-origin-address" list="dl-addresses" /></label>
+              <label>City<input id="dr-origin-city" /></label>
+              <label>State<input id="dr-origin-state" /></label>
+              <label>ZIP<input id="dr-origin-zip" /></label>
+              <label class="full">Country<input id="dr-origin-country" value="US" /></label>
+            </div>
+          </div>
+
+          <div class="endpoint-card destination">
+            <h3>🎯 Destination (TO)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="dr-destination-type" value="CY"> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="dr-destination-type" value="DOOR" checked> DOOR — street
+              </label>
+            </div>
+            <div id="dr-destination-cy" class="grid" hidden>
+              <label>Port code<input id="dr-destination-port-code" list="dl-port-codes" /></label>
+              <label>Port name<input id="dr-destination-port-name" list="dl-ports" /></label>
+              <label class="full">Specific terminal (optional)<input id="dr-destination-terminal" /></label>
+            </div>
+            <div id="dr-destination-door" class="grid">
+              <label class="full">Street<input id="dr-destination-address" list="dl-addresses" placeholder="1234 Main St" /></label>
+              <label>City<input id="dr-destination-city" placeholder="Chicago" /></label>
+              <label>State<input id="dr-destination-state" placeholder="IL" /></label>
+              <label>ZIP<input id="dr-destination-zip" placeholder="60601" /></label>
+              <label class="full">Country<input id="dr-destination-country" value="US" /></label>
+            </div>
+          </div>
         </div>
 
-        <!-- Destination -->
-        <h3 class="bd-title" style="margin-top: 14px">Destination (where the move ends)</h3>
-        <div class="cy-door-row">
-          <label class="cy-door-radio">
-            <input type="radio" name="dr-destination-type" value="CY"> CY — port / terminal
-          </label>
-          <label class="cy-door-radio">
-            <input type="radio" name="dr-destination-type" value="DOOR" checked> DOOR — street address
-          </label>
-        </div>
-        <div id="dr-destination-cy" class="grid" hidden>
-          <label>Port code (UN/LOCODE)<input id="dr-destination-port-code" /></label>
-          <label>Port name<input id="dr-destination-port-name" /></label>
-          <label class="full">Specific terminal (optional)<input id="dr-destination-terminal" /></label>
-        </div>
-        <div id="dr-destination-door" class="grid">
-          <label class="full">Street<input id="dr-destination-address" placeholder="1234 Main St" /></label>
-          <label>City<input id="dr-destination-city" placeholder="Chicago" /></label>
-          <label>State<input id="dr-destination-state" placeholder="IL" /></label>
-          <label>ZIP<input id="dr-destination-zip" placeholder="60601" /></label>
-          <label>Country<input id="dr-destination-country" value="US" /></label>
-        </div>
-
-        <!-- Dates + extras -->
-        <div class="grid">
+        <div class="grid" style="margin-top: 14px">
           <label>Pickup date<input id="dr-pickup-date" type="date" /></label>
           <label>Delivery date<input id="dr-delivery-date" type="date" /></label>
-          <label>Special equipment<input id="dr-special" placeholder="tri-axle, gen-set, hazmat permit, overweight" /></label>
-          <label>Accessorials<input id="dr-accessorials" placeholder="prepull, storage, detention" /></label>
           <label>Client (optional)<input id="dr-client" placeholder="Acme Corp" /></label>
-          <label class="full">Notes<input id="dr-notes" /></label>
+          <label class="full">Notes<input id="dr-notes" placeholder="overweight permit needed, residential delivery, etc." /></label>
+        </div>
+
+        <div class="grid">
+          <label>Special equipment
+            <div id="dr-special-dd"></div>
+          </label>
+          <label>Accessorials
+            <div id="dr-accessorials-dd"></div>
+          </label>
         </div>
 
         <div class="row">

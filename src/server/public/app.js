@@ -1,3 +1,171 @@
+// ---------- Generic multi-select dropdown ----------
+// Builds a button + popover with checkboxes. Used for carriers, special
+// equipment, accessorials.
+class MultiDropdown {
+  /**
+   * @param {string} containerId  ID of the host element (must be empty on init)
+   * @param {Array<{value:string,label:string,disabled?:boolean,suffix?:string,checked?:boolean}>} options
+   * @param {{placeholderEmpty?:string, placeholderAll?:string, onChange?: () => void}} cfg
+   */
+  constructor(containerId, options, cfg = {}) {
+    this.host = document.getElementById(containerId);
+    this.options = options;
+    this.cfg = cfg;
+    this.render();
+  }
+  render() {
+    this.host.classList.add('multi-dd');
+    this.host.innerHTML = `
+      <button type="button" class="multi-dd-btn">
+        <span class="multi-dd-label"></span>
+        <span class="multi-dd-chevron">▼</span>
+      </button>
+      <div class="multi-dd-panel" hidden>
+        <div class="multi-dd-head">
+          <button type="button" data-action="all">Select all</button>
+          <button type="button" data-action="none">Clear</button>
+        </div>
+        <div class="multi-dd-options"></div>
+      </div>`;
+    const btn = this.host.querySelector('.multi-dd-btn');
+    const panel = this.host.querySelector('.multi-dd-panel');
+    const optsDiv = this.host.querySelector('.multi-dd-options');
+
+    optsDiv.innerHTML = this.options
+      .map(
+        (o) =>
+          `<label class="${o.disabled ? 'disabled' : ''}">
+        <input type="checkbox" value="${esc(o.value)}" ${o.checked ? 'checked' : ''} ${o.disabled ? 'disabled' : ''}>
+        <span>${esc(o.label)}</span>
+        ${o.suffix ? `<span class="multi-dd-suffix">${o.suffix}</span>` : ''}
+      </label>`
+      )
+      .join('');
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggle();
+    });
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    this.host.querySelector('[data-action="all"]').addEventListener('click', () => {
+      this.host
+        .querySelectorAll('.multi-dd-options input:not([disabled])')
+        .forEach((cb) => (cb.checked = true));
+      this.notify();
+    });
+    this.host.querySelector('[data-action="none"]').addEventListener('click', () => {
+      this.host
+        .querySelectorAll('.multi-dd-options input')
+        .forEach((cb) => (cb.checked = false));
+      this.notify();
+    });
+    optsDiv.addEventListener('change', () => this.notify());
+    this.notify();
+  }
+  notify() {
+    this.updateLabel();
+    this.cfg.onChange?.();
+  }
+  updateLabel() {
+    const labelEl = this.host.querySelector('.multi-dd-label');
+    const checked = this.getValues();
+    if (checked.length === 0) {
+      labelEl.textContent = this.cfg.placeholderEmpty ?? '(none selected)';
+    } else if (checked.length === this.options.filter((o) => !o.disabled).length) {
+      labelEl.textContent = this.cfg.placeholderAll ?? `All ${checked.length} selected`;
+    } else if (checked.length <= 3) {
+      labelEl.textContent = checked.join(', ');
+    } else {
+      labelEl.textContent = `${checked.length} selected`;
+    }
+  }
+  toggle(force) {
+    const panel = this.host.querySelector('.multi-dd-panel');
+    const open = force == null ? panel.hidden : !force;
+    panel.hidden = !open;
+    this.host.classList.toggle('open', open);
+  }
+  getValues() {
+    return Array.from(
+      this.host.querySelectorAll('.multi-dd-options input:checked')
+    ).map((cb) => cb.value);
+  }
+  /** Check options whose value matches (case-insensitive substring match). */
+  setCheckedByValues(values) {
+    const wanted = (values || []).map((v) => String(v).toLowerCase().trim());
+    this.host.querySelectorAll('.multi-dd-options input').forEach((cb) => {
+      const v = cb.value.toLowerCase();
+      cb.checked = wanted.some((w) => v.includes(w) || w.includes(v));
+    });
+    this.notify();
+  }
+}
+// Close any open multi-dd when clicking outside
+document.addEventListener('click', () => {
+  document.querySelectorAll('.multi-dd.open').forEach((dd) => {
+    dd.classList.remove('open');
+    const panel = dd.querySelector('.multi-dd-panel');
+    if (panel) panel.hidden = true;
+  });
+});
+
+// ---------- Lookups (containers, ports, drayage equipment, accessorials) ----------
+let LOOKUPS = null;
+
+async function loadLookups() {
+  try {
+    const r = await fetch('/api/data/lookups');
+    LOOKUPS = await r.json();
+  } catch (err) {
+    console.warn('lookups load failed:', err);
+    LOOKUPS = {
+      containerTypes: [],
+      ports: [],
+      drayageSpecialEquipment: [],
+      drayageAccessorials: [],
+      recentAddresses: [],
+    };
+  }
+
+  // Populate container <select> elements
+  const containerOpts = LOOKUPS.containerTypes
+    .map((c) => `<option value="${esc(c.label)}">${esc(c.label)}</option>`)
+    .join('');
+  document.querySelectorAll('select.container-select').forEach((sel) => {
+    const current = sel.dataset.current || sel.value || '40 Dry High';
+    sel.innerHTML = containerOpts;
+    sel.value = current;
+  });
+
+  // Populate port datalist
+  const portDl = document.getElementById('dl-ports');
+  if (portDl) {
+    portDl.innerHTML = LOOKUPS.ports
+      .map(
+        (p) =>
+          `<option value="${esc(p.name)}">${esc(p.code)} — ${esc(p.country)}</option>`
+      )
+      .join('');
+  }
+  // Port code datalist (for code-only fields)
+  const codeDl = document.getElementById('dl-port-codes');
+  if (codeDl) {
+    codeDl.innerHTML = LOOKUPS.ports
+      .map(
+        (p) =>
+          `<option value="${esc(p.code)}">${esc(p.name)}, ${esc(p.country)}</option>`
+      )
+      .join('');
+  }
+  // Recent address datalist
+  const addrDl = document.getElementById('dl-addresses');
+  if (addrDl) {
+    addrDl.innerHTML = LOOKUPS.recentAddresses
+      .map((a) => `<option value="${esc(a)}"></option>`)
+      .join('');
+  }
+}
+
 // Tab switching
 document.querySelectorAll('.tab').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -139,8 +307,12 @@ function applyDrayageIntake(d) {
 
   setVal('dr-pickup-date', d.pickupDate);
   setVal('dr-delivery-date', d.deliveryDate);
-  if (d.specialEquipment?.length) setVal('dr-special', d.specialEquipment.join(', '));
-  if (d.accessorials?.length) setVal('dr-accessorials', d.accessorials.join(', '));
+  if (d.specialEquipment?.length && drSpecialDropdown) {
+    drSpecialDropdown.setCheckedByValues(d.specialEquipment);
+  }
+  if (d.accessorials?.length && drAccessorialsDropdown) {
+    drAccessorialsDropdown.setCheckedByValues(d.accessorials);
+  }
   setVal('dr-client', d.clientName);
   setVal('dr-notes', d.notes);
 
@@ -152,8 +324,6 @@ function applyDrayageIntake(d) {
 }
 
 function buildDrayageBody() {
-  const splitCsv = (s) =>
-    s.split(',').map((x) => x.trim()).filter(Boolean);
   const originType = document.querySelector('input[name="dr-origin-type"]:checked').value;
   const destinationType = document.querySelector('input[name="dr-destination-type"]:checked').value;
 
@@ -178,15 +348,15 @@ function buildDrayageBody() {
 
   return {
     cargoType: document.getElementById('dr-cargo-type').value,
-    containerType: document.getElementById('dr-container').value.trim(),
-    containerCount: parseInt(document.getElementById('dr-container-count').value, 10) || 1,
+    containerType: document.getElementById('dr-container').value,
+    containerCount: 1,
     weightKg: parseInt(document.getElementById('dr-weight').value, 10) || undefined,
     origin: buildEnd('dr-origin', originType),
     destination: buildEnd('dr-destination', destinationType),
     pickupDate: document.getElementById('dr-pickup-date').value || undefined,
     deliveryDate: document.getElementById('dr-delivery-date').value || undefined,
-    specialEquipment: splitCsv(document.getElementById('dr-special').value),
-    accessorials: splitCsv(document.getElementById('dr-accessorials').value),
+    specialEquipment: drSpecialDropdown ? drSpecialDropdown.getValues() : [],
+    accessorials: drAccessorialsDropdown ? drAccessorialsDropdown.getValues() : [],
     clientName: document.getElementById('dr-client').value.trim() || undefined,
     notes: document.getElementById('dr-notes').value.trim() || undefined,
     intakeText: drIntakeTextarea.value.trim() || undefined,
@@ -486,9 +656,49 @@ async function loadBundleDetail(refId) {
 
 document.getElementById('bundles-refresh-btn').addEventListener('click', loadBundles);
 
-// Populate carrier checkboxes with inline session status
+// Drayage multi-dropdowns
+let drSpecialDropdown = null;
+let drAccessorialsDropdown = null;
+
+function initDrayageDropdowns() {
+  if (!LOOKUPS) return;
+  drSpecialDropdown = new MultiDropdown(
+    'dr-special-dd',
+    LOOKUPS.drayageSpecialEquipment.map((v) => ({
+      value: v,
+      label: v,
+      checked: false,
+    })),
+    {
+      placeholderEmpty: '(none)',
+      placeholderAll: `All ${LOOKUPS.drayageSpecialEquipment.length}`,
+    }
+  );
+  drAccessorialsDropdown = new MultiDropdown(
+    'dr-accessorials-dd',
+    LOOKUPS.drayageAccessorials.map((v) => ({
+      value: v,
+      label: v,
+      checked: false,
+    })),
+    {
+      placeholderEmpty: '(none)',
+      placeholderAll: `All ${LOOKUPS.drayageAccessorials.length}`,
+    }
+  );
+}
+
+// Bootstrap: load lookups first so container selects + datalists + drayage
+// dropdowns are populated, then load carrier dropdown.
+(async () => {
+  await loadLookups();
+  initDrayageDropdowns();
+  await })();
+
+// Carriers as a multi-select dropdown (closed by default). All checked by default.
+let carrierDropdown = null;
+
 async function loadCarriers() {
-  const div = document.getElementById('carrier-checkboxes');
   try {
     const [carriersResp, sessionsResp] = await Promise.all([
       fetch('/api/carriers').then((r) => r.json()),
@@ -498,39 +708,36 @@ async function loadCarriers() {
       (sessionsResp.sessions || []).map((s) => [s.carrierCode, s])
     );
 
-    div.innerHTML = carriersResp.carriers
-      .map((c) => {
-        const s = sessionByCode[c.code];
-        let suffix = '';
-        if (!c.isActive) {
-          suffix = ' <span class="muted small">— onboarding</span>';
-        } else if (s) {
-          if (s.status === 'fresh')
-            suffix = ` <span class="confidence-high">${s.daysLeft}d session</span>`;
-          else if (s.status === 'expiring')
-            suffix = ` <span class="confidence-medium">${s.daysLeft}d left</span>`;
-          else
-            suffix = ` <span class="confidence-low">no session</span>`;
-        }
-        const disabled = c.isActive ? '' : 'disabled';
-        const cls = c.isActive ? 'carrier-check' : 'carrier-check disabled';
-        return `<label class="${cls}">
-          <input type="checkbox" value="${c.code}" ${disabled} ${c.isActive ? 'checked' : ''}>
-          ${esc(c.name)} (${c.code})${suffix}
-        </label>`;
-      })
-      .join('');
+    const opts = carriersResp.carriers.map((c) => {
+      const s = sessionByCode[c.code];
+      let suffix = '';
+      if (!c.isActive) suffix = 'onboarding';
+      else if (s?.status === 'fresh') suffix = `${s.daysLeft}d session`;
+      else if (s?.status === 'expiring') suffix = `${s.daysLeft}d left`;
+      else suffix = 'no session';
+      return {
+        value: c.code,
+        label: `${c.name} (${c.code})`,
+        suffix,
+        // User asked: default ALL selected. Keep inactive ones checked too —
+        // bundle runner skips them cleanly with status 'skipped'.
+        checked: true,
+        disabled: false,
+      };
+    });
+
+    carrierDropdown = new MultiDropdown('carrier-dd', opts, {
+      placeholderEmpty: '(no carriers selected)',
+      placeholderAll: `All ${opts.length} carriers selected`,
+    });
   } catch (err) {
-    div.innerHTML = `<span class="muted">Error loading carriers: ${esc(err.message)}</span>`;
+    document.getElementById('carrier-dd').innerHTML =
+      `<span class="muted">Error loading carriers: ${esc(err.message)}</span>`;
   }
 }
-loadCarriers();
 
 function getSelectedCarriers() {
-  const checkboxes = document.querySelectorAll(
-    '#carrier-checkboxes input[type="checkbox"]:checked'
-  );
-  return Array.from(checkboxes).map((cb) => cb.value);
+  return carrierDropdown ? carrierDropdown.getValues() : [];
 }
 
 // ---- Markup sliders (synced with number inputs, persisted in localStorage) ----

@@ -25,6 +25,9 @@ import {
 import { runDrayageQuote } from '../db/runDrayageQuote.js';
 import { runTruckingQuote } from '../db/runTruckingQuote.js';
 import { parseDrayageIntake } from '../llm/parseDrayageIntake.js';
+import { CONTAINER_TYPES } from '../data/containerTypes.js';
+import { MAJOR_PORTS } from '../data/ports.js';
+import { SPECIAL_EQUIPMENT, ACCESSORIALS } from '../data/drayageOptions.js';
 import { renderQuotePdf } from './pdf.js';
 import { runAgent } from '../agent/runAgent.js';
 import {
@@ -58,6 +61,47 @@ function csvEscape(v: string): string {
 }
 
 export function registerApiRoutes(app: Express): void {
+  /**
+   * Lookup data for the dashboard form selectors.
+   * Called once on dashboard load.
+   */
+  app.get('/api/data/lookups', async (_req: Request, res: Response) => {
+    const db = createDbClient();
+
+    // Recent unique addresses from past drayage + trucking + ocean quotes
+    // for the address auto-suggest datalist.
+    const dr = await db
+      .select({
+        a1: drayageQuotes.originAddressLine1,
+        a2: drayageQuotes.destinationAddressLine1,
+      })
+      .from(drayageQuotes)
+      .orderBy(desc(drayageQuotes.createdAt))
+      .limit(50);
+    const tr = await db
+      .select({
+        a1: truckingQuotes.pickupAddressLine1,
+        a2: truckingQuotes.deliveryAddressLine1,
+      })
+      .from(truckingQuotes)
+      .orderBy(desc(truckingQuotes.createdAt))
+      .limit(50);
+
+    const addressSet = new Set<string>();
+    for (const r of [...dr, ...tr]) {
+      if (r.a1) addressSet.add(r.a1);
+      if (r.a2) addressSet.add(r.a2);
+    }
+
+    res.json({
+      containerTypes: CONTAINER_TYPES,
+      ports: MAJOR_PORTS,
+      drayageSpecialEquipment: SPECIAL_EQUIPMENT,
+      drayageAccessorials: ACCESSORIALS,
+      recentAddresses: Array.from(addressSet).slice(0, 100),
+    });
+  });
+
   app.get('/api/carriers', async (_req: Request, res: Response) => {
     // Source of truth is the registry (code/name/isActive live with the adapters).
     const rows = listCarriers().map((c) => ({
