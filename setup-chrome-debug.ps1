@@ -4,14 +4,14 @@
 # Why: when USE_REAL_CHROME=true, the freight-copilot scripts attach to this
 # Chrome instance over CDP. Using your real Chrome (instead of Playwright's
 # bundled Chromium) bypasses bot-detection on hostile carrier portals
-# (Hapag-Lloyd, CMA CGM, etc.) — they see a normal user, not a "headless
+# (Hapag-Lloyd, CMA CGM, etc.) -- they see a normal user, not a "headless
 # automated" browser.
 #
 # Re-run this script any time to recreate the shortcut.
 
 $ErrorActionPreference = 'Stop'
 
-# Locate Chrome.exe — try the common install paths.
+# Locate Chrome.exe -- try the common install paths.
 $chromePaths = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
@@ -51,6 +51,6 @@ Write-Host "  1. Set USE_REAL_CHROME=true in .env"
 Write-Host "  2. Double-click 'Chrome (Freight Copilot)' on your Desktop."
 Write-Host "  3. Log into the carrier portals you use (Maersk, Hapag, etc.) ONCE."
 Write-Host "     Cookies persist in this Chrome's profile across sessions."
-Write-Host "  4. Run quotes/agent/record commands as usual — they'll attach to this Chrome."
+Write-Host "  4. Run quotes/agent/record commands as usual; they will attach to this Chrome."
 Write-Host ""
 Write-Host "To revert to bundled Chromium: set USE_REAL_CHROME=false in .env."
