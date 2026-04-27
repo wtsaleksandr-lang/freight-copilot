@@ -2,6 +2,7 @@ import express from 'express';
 import { resolve } from 'node:path';
 import { registerApiRoutes } from './routes.js';
 import { loadEnv } from '../config.js';
+import { startKeepAlivePinger } from './sessionProbe.js';
 
 export function createApp(): express.Express {
   const app = express();
@@ -36,6 +37,19 @@ export function createApp(): express.Express {
   // middleware applies. Not user-uploadable, just read-only proof.
   const quotesDir = resolve(process.cwd(), 'quotes');
   app.use('/quotes-files', express.static(quotesDir));
+
+  // Real Chrome mode: start the keep-alive pinger that probes each
+  // carrier's quote URL every 10 min. Two effects:
+  //  - Navigation alone counts as portal activity → idle timer resets,
+  //    so the user stays logged in much longer than the carrier's
+  //    typical 20–60 min idle expiry.
+  //  - Each probe records logged-in / logged-out state, served at
+  //    /api/sessions/probe so the dashboard's per-carrier badges
+  //    reflect live reality (not just the stored expires_at).
+  // No tokens, no LLM — pure Playwright nav + selector check.
+  if (env.USE_REAL_CHROME) {
+    startKeepAlivePinger();
+  }
 
   return app;
 }

@@ -960,21 +960,40 @@ let carrierDropdown = null;
 
 async function loadCarriers() {
   try {
-    const [carriersResp, sessionsResp] = await Promise.all([
+    const [carriersResp, sessionsResp, probesResp] = await Promise.all([
       fetch('/api/carriers').then((r) => r.json()),
       fetch('/api/sessions').then((r) => r.json()),
+      fetch('/api/sessions/probe')
+        .then((r) => r.json())
+        .catch(() => ({ probes: [] })),
     ]);
     const sessionByCode = Object.fromEntries(
       (sessionsResp.sessions || []).map((s) => [s.carrierCode, s])
     );
+    const probeByCode = Object.fromEntries(
+      (probesResp.probes || []).map((p) => [p.carrierCode, p])
+    );
 
     const opts = carriersResp.carriers.map((c) => {
       const s = sessionByCode[c.code];
+      const probe = probeByCode[c.code];
       let dotClass = 'status-missing';
       let label = 'no session';
       if (!c.isActive) {
         dotClass = 'status-onboarding';
         label = 'onboarding';
+      } else if (probe) {
+        // Real Chrome mode: live probe wins.
+        if (probe.loggedIn) {
+          const ageMin = Math.round(
+            (Date.now() - new Date(probe.checkedAt).getTime()) / 60000
+          );
+          dotClass = 'status-fresh';
+          label = `live · ${ageMin}m ago`;
+        } else {
+          dotClass = 'status-expired';
+          label = 'logged out — re-login';
+        }
       } else if (s?.status === 'fresh') {
         dotClass = 'status-fresh';
         label = `${s.daysLeft}d session`;
@@ -1010,6 +1029,37 @@ async function loadCarriers() {
 
 function getSelectedCarriers() {
   return carrierDropdown ? carrierDropdown.getValues() : [];
+}
+
+// "Re-check sessions now" — fires an on-demand probe of every carrier.
+// Useful right after the user logs into a portal in Chrome (Freight
+// Copilot); they don't have to wait the 10-min cycle to see green dots.
+const recheckBtn = document.getElementById('recheck-sessions-btn');
+if (recheckBtn) {
+  recheckBtn.addEventListener('click', async () => {
+    const status = document.getElementById('recheck-status');
+    recheckBtn.disabled = true;
+    if (status) status.textContent = 'probing all carriers (~20s)…';
+    try {
+      const r = await fetch('/api/sessions/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'probe failed');
+      const okCount = (data.probes || []).filter((p) => p.loggedIn).length;
+      if (status) {
+        status.textContent = `${okCount}/${data.probes.length} logged in`;
+      }
+      // Refresh dropdown so badges update.
+      await loadCarriers();
+    } catch (err) {
+      if (status) status.textContent = `error: ${err.message}`;
+    } finally {
+      recheckBtn.disabled = false;
+    }
+  });
 }
 
 // ---- Markup sliders (synced with number inputs, persisted in localStorage) ----
@@ -1296,6 +1346,34 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   if (!body.from || !body.to || !body.container || !body.weight) {
     setStatus('run-status', 'Fill at least From, To, Container, Weight.', 'error');
     return;
+  }
+
+  // Pre-bundle gate: if we have probe data, warn about carriers that are
+  // logged out before the user spends 5 minutes waiting for them to time
+  // out. Skipped if /api/sessions/probe has no data yet (e.g. just-started
+  // server, bundled-Chromium mode).
+  try {
+    const probeResp = await fetch('/api/sessions/probe');
+    if (probeResp.ok) {
+      const { probes } = await probeResp.json();
+      const probeByCode = Object.fromEntries(
+        (probes || []).map((p) => [p.carrierCode, p])
+      );
+      const loggedOut = carriers.filter((c) => {
+        const p = probeByCode[c];
+        return p && !p.loggedIn;
+      });
+      if (loggedOut.length > 0) {
+        const proceed = confirm(
+          `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
+            loggedOut.map((c) => `  • ${c}`).join('\n') +
+            `\n\nThese carriers will fail. Log in to them in your "Chrome (Freight Copilot)" window first, then click "Re-check sessions now".\n\nProceed anyway?`
+        );
+        if (!proceed) return;
+      }
+    }
+  } catch {
+    // probe unavailable — proceed without the gate
   }
 
   const btn = document.getElementById('run-btn');

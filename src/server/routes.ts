@@ -46,6 +46,11 @@ import {
   deleteCredential,
 } from './credentialsService.js';
 import { getBundleProgress } from './bundleProgress.js';
+import {
+  getCachedProbeResults,
+  probeCarrierSession,
+  probeAllCarriers,
+} from './sessionProbe.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -184,6 +189,38 @@ export function registerApiRoutes(app: Express): void {
       isActive: c.isActive,
     }));
     res.json({ carriers: rows });
+  });
+
+  /**
+   * Live session probe results from the keep-alive pinger. Each carrier
+   * here has been visited recently in Real Chrome mode; the loggedIn
+   * field reflects what the page actually showed (form vs. login redirect).
+   * Use these in the dashboard's per-carrier badges when USE_REAL_CHROME=true.
+   */
+  app.get('/api/sessions/probe', (_req: Request, res: Response) => {
+    res.json({ probes: getCachedProbeResults() });
+  });
+
+  /**
+   * Trigger an on-demand probe (one carrier or all). Useful right after
+   * the user logs in to a portal — they hit "Re-check" instead of waiting
+   * for the next 10-min cycle.
+   */
+  app.post('/api/sessions/probe', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { carrierCode?: string };
+    try {
+      if (body.carrierCode) {
+        const r = await probeCarrierSession(body.carrierCode);
+        res.json({ probes: [r] });
+      } else {
+        const r = await probeAllCarriers();
+        res.json({ probes: r });
+      }
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   app.get('/api/sessions', async (_req: Request, res: Response) => {
