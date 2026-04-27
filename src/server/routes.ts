@@ -12,8 +12,10 @@ import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
 import { parseIntake, type IntakeInput } from '../llm/parseIntake.js';
-import { generateClientReply } from '../llm/generateReply.js';
+import { generateClientReply, generateBundleReply } from '../llm/generateReply.js';
 import type { RankedRateOption } from '../types.js';
+import { runQuoteBundle, saveGeneratedEmail } from '../db/runBundle.js';
+import { quoteBundles } from '../db/schema.js';
 import { renderQuotePdf } from './pdf.js';
 import { runAgent } from '../agent/runAgent.js';
 import {
@@ -399,6 +401,159 @@ export function registerApiRoutes(app: Express): void {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  });
+
+  // ---- Quote bundles (one-click multi-carrier flow) ----
+
+  app.post('/api/bundle/run', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      carriers?: string[];
+      from?: string;
+      fromRegion?: string;
+      to?: string;
+      toRegion?: string;
+      container?: string;
+      weight?: number | string;
+      commodity?: string;
+      clientName?: string;
+      markupPct?: number | string;
+      markupFlat?: number | string;
+      emailTemplate?: string;
+      intakeText?: string;
+    };
+
+    const carriers = Array.isArray(body.carriers) ? body.carriers : [];
+    if (carriers.length === 0) {
+      res.status(400).json({ error: 'Pick at least one carrier.' });
+      return;
+    }
+    if (!body.from || !body.to || !body.container || body.weight == null) {
+      res.status(400).json({
+        error: 'Missing required fields: from, to, container, weight',
+      });
+      return;
+    }
+
+    try {
+      const bundle = await runQuoteBundle({
+        carrierCodes: carriers,
+        origin: body.from,
+        originRegion: body.fromRegion,
+        destination: body.to,
+        destinationRegion: body.toRegion,
+        containerType: body.container,
+        cargoWeightKg:
+          typeof body.weight === 'number'
+            ? body.weight
+            : parseInt(String(body.weight), 10),
+        commodity: body.commodity,
+        clientName: body.clientName,
+        markupPct: Number(body.markupPct ?? 0),
+        markupFlat: Number(body.markupFlat ?? 0),
+        emailTemplate: body.emailTemplate,
+        intakeText: body.intakeText,
+      });
+
+      // Generate email if any carrier returned rates
+      let generatedEmail = '';
+      if (bundle.carriers.some((c) => c.status === 'ok' && c.ranked.length > 0)) {
+        try {
+          generatedEmail = await generateBundleReply({
+            clientName: body.clientName,
+            origin: body.from,
+            destination: body.to,
+            containerType: body.container,
+            cargoWeightKg:
+              typeof body.weight === 'number'
+                ? body.weight
+                : parseInt(String(body.weight), 10),
+            commodity: body.commodity,
+            markupPct: Number(body.markupPct ?? 0),
+            markupFlat: Number(body.markupFlat ?? 0),
+            emailTemplate: body.emailTemplate,
+            carriers: bundle.carriers,
+          });
+          await saveGeneratedEmail(
+            bundle.bundleId,
+            bundle.refId,
+            bundle.outputFolder,
+            generatedEmail
+          );
+        } catch (err) {
+          console.error('[api/bundle/run] email gen failed:', err);
+        }
+      }
+
+      res.json({ ...bundle, generatedEmail });
+    } catch (err) {
+      console.error('[api/bundle/run] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/bundles', async (_req: Request, res: Response) => {
+    const db = createDbClient();
+    const rows = await db
+      .select()
+      .from(quoteBundles)
+      .orderBy(desc(quoteBundles.createdAt))
+      .limit(50);
+    res.json({ bundles: rows });
+  });
+
+  app.get('/api/bundles/:refId', async (req: Request, res: Response) => {
+    const db = createDbClient();
+    const rawRefId = req.params.refId;
+    const refId = Array.isArray(rawRefId) ? rawRefId[0] : rawRefId;
+    if (!refId) {
+      res.status(400).json({ error: 'Invalid refId' });
+      return;
+    }
+    const [bundle] = await db
+      .select()
+      .from(quoteBundles)
+      .where(eq(quoteBundles.refId, refId));
+    if (!bundle) {
+      res.status(404).json({ error: 'Bundle not found' });
+      return;
+    }
+    // Fetch all rate snapshots across all child quotes of this bundle
+    const childQuotes = await db
+      .select()
+      .from(quotes)
+      .where(eq(quotes.bundleId, bundle.id));
+    const snaps =
+      childQuotes.length > 0
+        ? await db
+            .select({
+              quoteId: rateSnapshots.quoteId,
+              rank: rateSnapshots.rank,
+              serviceName: rateSnapshots.serviceName,
+              sailingDate: rateSnapshots.sailingDate,
+              vesselVoyage: rateSnapshots.vesselVoyage,
+              transitDays: rateSnapshots.transitDays,
+              detentionFreetimeDays: rateSnapshots.detentionFreetimeDays,
+              demurrageFreetimeDays: rateSnapshots.demurrageFreetimeDays,
+              rollable: rateSnapshots.rollable,
+              currency: rateSnapshots.currency,
+              totalCostCents: rateSnapshots.totalCostCents,
+              charges: rateSnapshots.charges,
+              destinationCharges: rateSnapshots.destinationCharges,
+              destinationTotal: rateSnapshots.destinationTotal,
+              destinationCurrency: rateSnapshots.destinationCurrency,
+              carrierCode: carriersTable.code,
+              carrierName: carriersTable.name,
+            })
+            .from(rateSnapshots)
+            .leftJoin(
+              carriersTable,
+              eq(carriersTable.id, rateSnapshots.carrierId)
+            )
+            .where(eq(rateSnapshots.quoteId, childQuotes[0]!.id)) // simplified for V1
+        : [];
+    res.json({ bundle, rateSnapshots: snaps });
   });
 
   // ---- Recording (one-click in-dashboard workflow capture) ----

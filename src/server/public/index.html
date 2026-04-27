@@ -11,6 +11,7 @@
     <h1>Freight Copilot</h1>
     <nav>
       <button class="tab active" data-tab="new">New quote</button>
+      <button class="tab" data-tab="bundles">Bundles</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="agent">Agent</button>
       <button class="tab" data-tab="record">Record</button>
@@ -34,15 +35,12 @@
       </div>
 
       <div class="card">
-        <h2>Quote details</h2>
+        <h2>Quote details <span class="muted-inline">— pick carriers, set your margin, hit one button</span></h2>
+        <label class="full" style="margin-bottom: 12px">Carriers to run
+          <div class="carrier-check-group" id="carrier-checkboxes"></div>
+        </label>
+
         <div class="grid">
-          <label class="full">
-            Carrier
-            <div class="carrier-row">
-              <select id="carrier"></select>
-              <span id="session-badge" class="session-badge"></span>
-            </div>
-          </label>
           <label>From (city/port)<input id="from" placeholder="Newark"></label>
           <label>From region<input id="from-region" placeholder="New Jersey"></label>
           <label>To (city/port)<input id="to" placeholder="Antwerp"></label>
@@ -50,21 +48,36 @@
           <label>Container type<input id="container" value="20 Dry Standard"></label>
           <label>Weight per container (kg)<input id="weight" type="number" value="10000"></label>
           <label>Commodity<input id="commodity" value="Autoparts"></label>
-          <label class="markup-label">Your markup
-            <span class="markup-inputs">
-              <input id="markup-pct" type="number" step="0.5" value="0" placeholder="%" title="Percentage on top of carrier cost">
-              <span class="markup-sep">%</span>
-              <span class="markup-sep">+</span>
-              <input id="markup-flat" type="number" step="5" value="0" placeholder="flat" title="Fixed amount added on top (USD)">
-              <span class="markup-sep">USD</span>
-            </span>
-          </label>
+          <label>Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
         </div>
+
+        <label class="full markup-label">Your margin for THIS quote
+          <div class="markup-sliders">
+            <div class="slider-row">
+              <span class="slider-icon">%</span>
+              <input type="range" id="markup-pct-slider" min="0" max="30" step="0.5" value="0">
+              <input type="number" id="markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
+              <span class="muted">%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-icon">+</span>
+              <input type="range" id="markup-flat-slider" min="0" max="1000" step="5" value="0">
+              <input type="number" id="markup-flat" min="0" step="5" value="0" class="markup-num">
+              <span class="muted">USD flat</span>
+            </div>
+          </div>
+        </label>
+
+        <details class="template-details">
+          <summary>Email template (optional — Claude follows your format)</summary>
+          <textarea id="email-template" rows="7" placeholder="Paste your typical client reply structure here. Claude will substitute the lane and rates while keeping your tone, salutation, sign-off, layout. Saved locally — only set once."></textarea>
+        </details>
+
         <div class="row">
-          <button id="run-btn" class="primary">Get rates</button>
+          <button id="run-btn" class="primary">⚡ Generate full quote</button>
           <div id="run-status" class="status-inline"></div>
         </div>
-        <p class="muted small">A Chrome window opens briefly while Playwright drives Maersk. If a captcha appears, solve it in that window — the script waits.</p>
+        <p class="muted small">For each selected carrier, a Chrome window opens, Playwright drives the rate page, Claude parses + ranks, and a folder is saved with screenshots + the generated email. Inactive carriers are skipped automatically.</p>
       </div>
 
       <div id="results-card" class="card" hidden>
@@ -73,13 +86,12 @@
         <div class="table-wrap">
           <table id="results-table"></table>
         </div>
+        <h3 class="bd-title">Client email (auto-generated)</h3>
+        <textarea id="reply-text" rows="12" hidden placeholder="Generated client reply will appear here after the quote runs…"></textarea>
         <div class="row">
-          <button id="reply-btn">Generate client reply</button>
-          <a id="pdf-btn" class="btn-sm" hidden>Download PDF</a>
           <button id="reply-copy-btn" class="link-btn" hidden>Copy to clipboard</button>
           <div id="reply-status" class="status-inline"></div>
         </div>
-        <textarea id="reply-text" rows="10" hidden placeholder="Generated client reply will appear here…"></textarea>
       </div>
     </section>
 
@@ -100,6 +112,31 @@
         <h2 id="agent-transcript-title">Transcript</h2>
         <div id="agent-transcript-meta" class="muted"></div>
         <ol id="agent-transcript"></ol>
+      </div>
+    </section>
+
+    <section id="tab-bundles" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <h2>Quote bundles</h2>
+          <button id="bundles-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <p class="muted">Each "Generate full quote" run is saved here as a bundle with a reference ID. Click any row to see the rates + email + folder path.</p>
+        <div class="table-wrap">
+          <table id="bundles-table"></table>
+        </div>
+      </div>
+      <div id="bundle-detail-card" class="card" hidden>
+        <div class="card-header">
+          <h2 id="bundle-detail-title"></h2>
+          <span id="bundle-detail-status" class="muted"></span>
+        </div>
+        <div id="bundle-detail-meta" class="muted"></div>
+        <div class="table-wrap">
+          <table id="bundle-detail-table"></table>
+        </div>
+        <h3 class="bd-title">Generated client email</h3>
+        <textarea id="bundle-detail-email" rows="12" readonly></textarea>
       </div>
     </section>
 

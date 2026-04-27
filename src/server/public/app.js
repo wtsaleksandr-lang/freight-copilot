@@ -6,84 +6,206 @@ document.querySelectorAll('.tab').forEach((btn) => {
     btn.classList.add('active');
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'history') loadHistory();
+    if (btn.dataset.tab === 'bundles') loadBundles();
   });
 });
 
-// Populate carrier dropdown + session health badges
-let sessionStatusByCode = {};
+// ---- Bundles tab ----
+async function loadBundles() {
+  const table = document.getElementById('bundles-table');
+  table.innerHTML = '<tbody><tr><td class="empty">Loading…</td></tr></tbody>';
+  try {
+    const r = await fetch('/api/bundles');
+    const data = await r.json();
+    if (!data.bundles || data.bundles.length === 0) {
+      table.innerHTML =
+        '<tbody><tr><td class="empty">No bundles yet. Run a quote from the "New quote" tab.</td></tr></tbody>';
+      return;
+    }
+    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Lane</th><th>Container</th><th>Carriers</th><th>Status</th><th>Client</th></tr></thead>';
+    const rows = data.bundles
+      .map((b) => {
+        const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+        const statusCls =
+          b.status === 'complete' ? 'success' : b.status === 'partial' ? 'info' : 'error';
+        const carriers = Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : '';
+        return `<tr class="clickable" data-refid="${b.refId}">
+          <td><code>${esc(b.refId)}</code></td>
+          <td>${created}</td>
+          <td>${esc(b.origin)} → ${esc(b.destination)}</td>
+          <td>${esc(b.containerType)}</td>
+          <td>${esc(carriers)}</td>
+          <td><span class="status-inline ${statusCls}">${esc(b.status)}</span></td>
+          <td>${esc(b.clientName || '—')}</td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+    table.querySelectorAll('tr.clickable').forEach((row) => {
+      row.addEventListener('click', () => loadBundleDetail(row.dataset.refid));
+    });
+  } catch (err) {
+    table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+  }
+}
 
+async function loadBundleDetail(refId) {
+  const card = document.getElementById('bundle-detail-card');
+  const title = document.getElementById('bundle-detail-title');
+  const status = document.getElementById('bundle-detail-status');
+  const meta = document.getElementById('bundle-detail-meta');
+  const table = document.getElementById('bundle-detail-table');
+  const emailEl = document.getElementById('bundle-detail-email');
+  card.hidden = false;
+  meta.textContent = 'Loading…';
+  try {
+    const r = await fetch(`/api/bundles/${refId}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to load');
+    const b = data.bundle;
+    title.textContent = `${b.refId} — ${b.origin} → ${b.destination}`;
+    status.textContent = b.status;
+    status.className = 'muted';
+    const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+    meta.innerHTML =
+      `${esc(b.containerType)} · ${b.cargoWeightKg}kg · ${esc(b.commodity || '—')} · ` +
+      `markup +${b.markupPct}% +${b.markupFlat} · ${created}<br>` +
+      `<code>${esc(b.outputFolder)}</code>`;
+    emailEl.value = b.generatedEmail || '(no email generated)';
+
+    const snaps = data.rateSnapshots || [];
+    if (snaps.length === 0) {
+      table.innerHTML = '<tbody><tr><td class="empty">No rates saved.</td></tr></tbody>';
+    } else {
+      const thead = '<thead><tr><th>Carrier</th><th>Rank</th><th>Sailing</th><th>Vessel</th><th>Transit</th><th>Det/Dem</th><th>Cost</th></tr></thead>';
+      const rows = snaps
+        .map((s) => {
+          const price = (s.totalCostCents / 100).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+          const dnd =
+            s.detentionFreetimeDays != null || s.demurrageFreetimeDays != null
+              ? `${s.detentionFreetimeDays ?? '?'}d / ${s.demurrageFreetimeDays ?? '?'}d`
+              : '—';
+          return `<tr>
+            <td><strong>${esc(s.carrierName || '—')}</strong></td>
+            <td class="rank">#${s.rank ?? '—'}</td>
+            <td>${esc(s.sailingDate ?? '—')}</td>
+            <td>${esc(s.vesselVoyage ?? '—')}</td>
+            <td>${s.transitDays != null ? s.transitDays + 'd' : '—'}</td>
+            <td>${esc(dnd)}</td>
+            <td class="price">${esc(s.currency || '')} ${price}</td>
+          </tr>`;
+        })
+        .join('');
+      table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+    }
+    card.scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    meta.textContent = 'Error: ' + err.message;
+    table.innerHTML = '';
+    emailEl.value = '';
+  }
+}
+
+document.getElementById('bundles-refresh-btn').addEventListener('click', loadBundles);
+
+// Populate carrier checkboxes with inline session status
 async function loadCarriers() {
-  const sel = document.getElementById('carrier');
+  const div = document.getElementById('carrier-checkboxes');
   try {
     const [carriersResp, sessionsResp] = await Promise.all([
       fetch('/api/carriers').then((r) => r.json()),
       fetch('/api/sessions').then((r) => r.json()),
     ]);
-    sessionStatusByCode = Object.fromEntries(
+    const sessionByCode = Object.fromEntries(
       (sessionsResp.sessions || []).map((s) => [s.carrierCode, s])
     );
 
-    sel.innerHTML = carriersResp.carriers
-      .map(
-        (c) =>
-          `<option value="${c.code}"${c.isActive ? '' : ' disabled'}>` +
-          esc(c.name) +
-          ` (${c.code})${c.isActive ? '' : ' — onboarding pending'}</option>`
-      )
+    div.innerHTML = carriersResp.carriers
+      .map((c) => {
+        const s = sessionByCode[c.code];
+        let suffix = '';
+        if (!c.isActive) {
+          suffix = ' <span class="muted small">— onboarding</span>';
+        } else if (s) {
+          if (s.status === 'fresh')
+            suffix = ` <span class="confidence-high">${s.daysLeft}d session</span>`;
+          else if (s.status === 'expiring')
+            suffix = ` <span class="confidence-medium">${s.daysLeft}d left</span>`;
+          else
+            suffix = ` <span class="confidence-low">no session</span>`;
+        }
+        const disabled = c.isActive ? '' : 'disabled';
+        const cls = c.isActive ? 'carrier-check' : 'carrier-check disabled';
+        return `<label class="${cls}">
+          <input type="checkbox" value="${c.code}" ${disabled} ${c.isActive ? 'checked' : ''}>
+          ${esc(c.name)} (${c.code})${suffix}
+        </label>`;
+      })
       .join('');
-
-    const firstActive = carriersResp.carriers.find((c) => c.isActive);
-    if (firstActive) sel.value = firstActive.code;
-
-    updateSessionBadge();
   } catch (err) {
-    sel.innerHTML = '<option>Error loading carriers</option>';
+    div.innerHTML = `<span class="muted">Error loading carriers: ${esc(err.message)}</span>`;
   }
 }
-
-function updateSessionBadge() {
-  const sel = document.getElementById('carrier');
-  const badge = document.getElementById('session-badge');
-  const code = sel.value;
-  const s = sessionStatusByCode[code];
-  if (!s) {
-    badge.className = 'session-badge';
-    badge.textContent = '';
-    return;
-  }
-  let label;
-  if (s.status === 'fresh') label = `Session: ${s.daysLeft}d remaining`;
-  else if (s.status === 'expiring') label = `Session: ${s.daysLeft}d left (refresh soon)`;
-  else if (s.status === 'expired') label = 'Session expired — re-login';
-  else label = 'No session — run `carrier login ' + code + '`';
-  badge.className = 'session-badge ' + s.status;
-  badge.textContent = label;
-}
-
-document.getElementById('carrier').addEventListener('change', updateSessionBadge);
 loadCarriers();
 
-// ---- Markup (client-side, persisted in localStorage) ----
+function getSelectedCarriers() {
+  const checkboxes = document.querySelectorAll(
+    '#carrier-checkboxes input[type="checkbox"]:checked'
+  );
+  return Array.from(checkboxes).map((cb) => cb.value);
+}
+
+// ---- Markup sliders (synced with number inputs, persisted in localStorage) ----
 const MARKUP_PCT_KEY = 'freight.markup.pct';
 const MARKUP_FLAT_KEY = 'freight.markup.flat';
+const EMAIL_TEMPLATE_KEY = 'freight.email.template';
 
-(function restoreMarkup() {
+const pctSlider = document.getElementById('markup-pct-slider');
+const pctNum = document.getElementById('markup-pct');
+const flatSlider = document.getElementById('markup-flat-slider');
+const flatNum = document.getElementById('markup-flat');
+const tplArea = document.getElementById('email-template');
+
+(function restoreSettings() {
   const pct = localStorage.getItem(MARKUP_PCT_KEY);
   const flat = localStorage.getItem(MARKUP_FLAT_KEY);
-  if (pct != null) document.getElementById('markup-pct').value = pct;
-  if (flat != null) document.getElementById('markup-flat').value = flat;
+  const tpl = localStorage.getItem(EMAIL_TEMPLATE_KEY);
+  if (pct != null) {
+    pctNum.value = pct;
+    pctSlider.value = Math.min(parseFloat(pct), parseFloat(pctSlider.max));
+  }
+  if (flat != null) {
+    flatNum.value = flat;
+    flatSlider.value = Math.min(parseFloat(flat), parseFloat(flatSlider.max));
+  }
+  if (tpl) tplArea.value = tpl;
 })();
-document.getElementById('markup-pct').addEventListener('change', (e) => {
-  localStorage.setItem(MARKUP_PCT_KEY, e.target.value);
-});
-document.getElementById('markup-flat').addEventListener('change', (e) => {
-  localStorage.setItem(MARKUP_FLAT_KEY, e.target.value);
+
+function syncSliderToNum(slider, num, key) {
+  slider.addEventListener('input', () => {
+    num.value = slider.value;
+    localStorage.setItem(key, slider.value);
+  });
+  num.addEventListener('change', () => {
+    const v = parseFloat(num.value) || 0;
+    slider.value = Math.min(v, parseFloat(slider.max));
+    localStorage.setItem(key, num.value);
+  });
+}
+syncSliderToNum(pctSlider, pctNum, MARKUP_PCT_KEY);
+syncSliderToNum(flatSlider, flatNum, MARKUP_FLAT_KEY);
+
+tplArea.addEventListener('change', () => {
+  localStorage.setItem(EMAIL_TEMPLATE_KEY, tplArea.value);
 });
 
 function getMarkup() {
   return {
-    pct: parseFloat(document.getElementById('markup-pct').value) || 0,
-    flat: parseFloat(document.getElementById('markup-flat').value) || 0,
+    pct: parseFloat(pctNum.value) || 0,
+    flat: parseFloat(flatNum.value) || 0,
   };
 }
 
@@ -180,44 +302,6 @@ document.getElementById('intake-btn').addEventListener('click', async () => {
   }
 });
 
-// Track last successful quote for reply generation
-let lastQuote = null;
-
-// Generate client reply from last quote's ranked rates
-document.getElementById('reply-btn').addEventListener('click', async () => {
-  if (!lastQuote) {
-    setStatus('reply-status', 'Run a quote first.', 'error');
-    return;
-  }
-  const btn = document.getElementById('reply-btn');
-  const ta = document.getElementById('reply-text');
-  const copyBtn = document.getElementById('reply-copy-btn');
-  btn.disabled = true;
-  setStatus('reply-status', 'Composing…', 'info');
-  try {
-    const r = await fetch('/api/reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        origin: lastQuote.input.from,
-        destination: lastQuote.input.to,
-        containerType: lastQuote.input.container,
-        ranked: lastQuote.ranked,
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Reply generation failed');
-    ta.value = data.text;
-    ta.hidden = false;
-    copyBtn.hidden = false;
-    setStatus('reply-status', 'Reply ready. Edit as needed and copy.', 'success');
-  } catch (err) {
-    setStatus('reply-status', err.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
-});
-
 document.getElementById('reply-copy-btn').addEventListener('click', async () => {
   const ta = document.getElementById('reply-text');
   try {
@@ -229,10 +313,16 @@ document.getElementById('reply-copy-btn').addEventListener('click', async () => 
   }
 });
 
-// Run quote
+// Run full quote bundle (one-click multi-carrier)
 document.getElementById('run-btn').addEventListener('click', async () => {
+  const carriers = getSelectedCarriers();
+  if (carriers.length === 0) {
+    setStatus('run-status', 'Pick at least one carrier (checkbox above).', 'error');
+    return;
+  }
+  const markup = getMarkup();
   const body = {
-    carrier: document.getElementById('carrier').value,
+    carriers,
     from: document.getElementById('from').value.trim(),
     fromRegion: document.getElementById('from-region').value.trim() || undefined,
     to: document.getElementById('to').value.trim(),
@@ -240,6 +330,11 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     container: document.getElementById('container').value.trim(),
     weight: parseInt(document.getElementById('weight').value, 10),
     commodity: document.getElementById('commodity').value.trim() || undefined,
+    clientName: document.getElementById('client-name').value.trim() || undefined,
+    markupPct: markup.pct,
+    markupFlat: markup.flat,
+    emailTemplate: tplArea.value.trim() || undefined,
+    intakeText: document.getElementById('intake-text').value.trim() || undefined,
   };
   if (!body.from || !body.to || !body.container || !body.weight) {
     setStatus('run-status', 'Fill at least From, To, Container, Weight.', 'error');
@@ -250,38 +345,119 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   btn.disabled = true;
   setStatus(
     'run-status',
-    'Opening Chrome & driving Maersk — this takes 30–90s…',
+    `Running ${carriers.length} carrier(s) — Chrome will open per carrier. This takes ~${carriers.length * 60}s…`,
     'info'
   );
 
   try {
-    const r = await fetch('/api/quote', {
+    const r = await fetch('/api/bundle/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Quote failed');
+    if (!r.ok) throw new Error(data.error || 'Bundle failed');
+    const okCount = data.carriers.filter((c) => c.status === 'ok').length;
     setStatus(
       'run-status',
-      `Done. ${data.ranked.length} option(s) parsed. Saved as quote #${data.quoteId}.`,
-      'success'
+      `${data.refId} — ${okCount}/${data.carriers.length} carriers returned rates. Saved to ${data.outputFolder}.`,
+      data.status === 'failed' ? 'error' : 'success'
     );
-    lastQuote = { input: body, ranked: data.ranked, quoteId: data.quoteId };
-    renderResults(body, data);
-
-    // Wire up the PDF download for this quote
-    const markup = getMarkup();
-    const pdfBtn = document.getElementById('pdf-btn');
-    pdfBtn.href = `/api/quotes/${data.quoteId}/pdf?pct=${markup.pct}&flat=${markup.flat}`;
-    pdfBtn.setAttribute('download', `quote-${data.quoteId}.pdf`);
-    pdfBtn.hidden = false;
+    renderBundleResults(body, data);
   } catch (err) {
     setStatus('run-status', err.message, 'error');
   } finally {
     btn.disabled = false;
   }
 });
+
+function renderBundleResults(input, data) {
+  const card = document.getElementById('results-card');
+  const title = document.getElementById('results-title');
+  const meta = document.getElementById('results-meta');
+  const table = document.getElementById('results-table');
+  card.hidden = false;
+  const markup = getMarkup();
+
+  title.textContent = `${data.refId}: ${input.from} → ${input.to} (${input.container})`;
+  const carrierStatuses = data.carriers
+    .map((c) => `${esc(c.carrierName)} (${c.status})`)
+    .join(' · ');
+  meta.innerHTML =
+    `<code>${esc(data.outputFolder)}</code><br>${esc(carrierStatuses)}` +
+    (markup.pct || markup.flat ? ` · Markup +${markup.pct}% +${markup.flat}` : '');
+
+  // Combine all ranked rates across carriers, re-sort by freight_total
+  const all = [];
+  for (const c of data.carriers) {
+    if (c.status !== 'ok') continue;
+    for (const r of c.ranked) {
+      all.push({ ...r, carrierName: c.carrierName, carrierCode: c.carrierCode });
+    }
+  }
+  all.sort((a, b) => a.freight_total - b.freight_total);
+
+  if (all.length === 0) {
+    table.innerHTML =
+      '<tbody><tr><td class="empty">No rates returned. Check carrier sessions or try again.</td></tr></tbody>';
+  } else {
+    const showMarkup = markup.pct !== 0 || markup.flat !== 0;
+    const thead = `<thead><tr>
+      <th>Rank</th>
+      <th>Carrier</th>
+      <th>Sailing</th>
+      <th>Transit</th>
+      <th>Det/Dem free</th>
+      <th>Vessel/voyage</th>
+      <th>Service</th>
+      ${showMarkup ? '<th>Your price</th>' : '<th>Cost</th>'}
+      <th>Flags</th>
+    </tr></thead>`;
+    const lowest = all[0].freight_total;
+    const rows = all
+      .map((r, idx) => {
+        const flags = [];
+        if (r.rollable) flags.push('<span class="flag rollable">Rollable</span>');
+        if (idx > 0) {
+          const pct = ((r.freight_total - lowest) / lowest) * 100;
+          if (pct <= 3) flags.push('<span class="flag close">≈ lowest</span>');
+        }
+        const transit = r.transit_days != null ? `${r.transit_days}d` : '—';
+        const dnd =
+          r.detention_freetime_days != null || r.demurrage_freetime_days != null
+            ? `${r.detention_freetime_days ?? '?'}d / ${r.demurrage_freetime_days ?? '?'}d`
+            : '—';
+        const cost = r.freight_total;
+        const currency = r.freight_currency ?? '';
+        const displayPrice = showMarkup ? applyMarkup(cost, markup) : cost;
+        const priceStr = `${currency} ${displayPrice.toLocaleString()}`;
+        return `<tr>
+          <td class="rank">#${idx + 1}</td>
+          <td><strong>${esc(r.carrierName)}</strong></td>
+          <td>${esc(r.sailing_date ?? '—')}</td>
+          <td>${transit}</td>
+          <td>${esc(dnd)}</td>
+          <td>${esc(r.vessel_voyage ?? '—')}</td>
+          <td>${esc(r.service_name)}</td>
+          <td class="price ${showMarkup ? 'your-price' : ''}">${esc(priceStr)}</td>
+          <td>${flags.join('') || '—'}</td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+  }
+
+  // Email
+  const emailTextarea = document.getElementById('reply-text');
+  if (data.generatedEmail) {
+    emailTextarea.value = data.generatedEmail;
+    emailTextarea.hidden = false;
+    document.getElementById('reply-copy-btn').hidden = false;
+  } else {
+    emailTextarea.value = '';
+    emailTextarea.hidden = true;
+  }
+}
 
 function renderResults(input, data) {
   const card = document.getElementById('results-card');

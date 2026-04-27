@@ -1,10 +1,38 @@
-import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, integer, text, real } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export const carriers = sqliteTable('carriers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
+});
+
+export const quoteBundles = sqliteTable('quote_bundles', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refId: text('ref_id').notNull().unique(),
+  outputFolder: text('output_folder').notNull(),
+  clientName: text('client_name'),
+  intakeText: text('intake_text'),
+  intakeImagePath: text('intake_image_path'),
+  origin: text('origin').notNull(),
+  destination: text('destination').notNull(),
+  containerType: text('container_type').notNull(),
+  cargoWeightKg: integer('cargo_weight_kg').notNull(),
+  commodity: text('commodity'),
+  carrierCodes: text('carrier_codes', { mode: 'json' })
+    .$type<string[]>()
+    .notNull(),
+  markupPct: real('markup_pct').notNull().default(0),
+  markupFlat: real('markup_flat').notNull().default(0),
+  emailTemplate: text('email_template'),
+  generatedEmail: text('generated_email'),
+  status: text('status').notNull().default('pending'),
+  errors: text('errors', { mode: 'json' }).$type<
+    Array<{ carrier: string; reason: string }>
+  >(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
 });
 
 export const quotes = sqliteTable('quotes', {
@@ -17,6 +45,9 @@ export const quotes = sqliteTable('quotes', {
     .notNull()
     .default(sql`(unixepoch())`),
   notes: text('notes'),
+  bundleId: integer('bundle_id').references(() => quoteBundles.id, {
+    onDelete: 'set null',
+  }),
 });
 
 /** Stored shape of one charge row. Note: total is in MAJOR units (e.g. dollars, not cents)

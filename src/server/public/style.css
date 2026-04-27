@@ -366,17 +366,84 @@ table.bd-mini tr.bd-total td {
   color: var(--error);
 }
 
-.markup-label { grid-column: 1 / -1; }
-.markup-inputs {
+.markup-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 8px 0;
+}
+.markup-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.slider-row {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+.slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.slider-icon {
+  color: var(--muted);
+  width: 16px;
+  text-align: center;
+  font-weight: 600;
+}
+.markup-num {
+  width: 70px;
+  text-align: right;
+}
+
+.carrier-check-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 6px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
   margin-top: 4px;
 }
-.markup-inputs input {
-  width: 80px;
+.carrier-check-group label.carrier-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 500;
 }
-.markup-sep {
+.carrier-check-group label.carrier-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.carrier-check-group label.carrier-check.disabled {
   color: var(--muted);
+  cursor: not-allowed;
+}
+.carrier-check-group label.carrier-check.disabled input { cursor: not-allowed; }
+
+.template-details {
+  margin: 10px 0;
+}
+.template-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 0;
+}
+.template-details textarea {
+  margin-top: 6px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
 }
