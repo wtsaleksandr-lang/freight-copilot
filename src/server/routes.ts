@@ -15,7 +15,15 @@ import { parseIntake, type IntakeInput } from '../llm/parseIntake.js';
 import { generateClientReply, generateBundleReply } from '../llm/generateReply.js';
 import type { RankedRateOption } from '../types.js';
 import { runQuoteBundle, saveGeneratedEmail } from '../db/runBundle.js';
-import { quoteBundles } from '../db/schema.js';
+import {
+  quoteBundles,
+  drayageQuotes,
+  drayageRates,
+  truckingQuotes,
+  truckingRates,
+} from '../db/schema.js';
+import { runDrayageQuote } from '../db/runDrayageQuote.js';
+import { runTruckingQuote } from '../db/runTruckingQuote.js';
 import { renderQuotePdf } from './pdf.js';
 import { runAgent } from '../agent/runAgent.js';
 import {
@@ -554,6 +562,136 @@ export function registerApiRoutes(app: Express): void {
             .where(eq(rateSnapshots.quoteId, childQuotes[0]!.id)) // simplified for V1
         : [];
     res.json({ bundle, rateSnapshots: snaps });
+  });
+
+  // ---- Drayage (port ↔ address container moves) ----
+
+  app.post('/api/drayage/quote', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (
+      !body.direction ||
+      !body.portCode ||
+      !body.addressLine1 ||
+      !body.city ||
+      !body.containerType
+    ) {
+      res.status(400).json({
+        error:
+          'Missing required fields: direction, portCode, addressLine1, city, containerType',
+      });
+      return;
+    }
+    if (body.direction !== 'import' && body.direction !== 'export') {
+      res.status(400).json({ error: 'direction must be "import" or "export"' });
+      return;
+    }
+    try {
+      const result = await runDrayageQuote(
+        body as unknown as Parameters<typeof runDrayageQuote>[0]
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/drayage/quotes', async (_req: Request, res: Response) => {
+    const db = createDbClient();
+    const rows = await db
+      .select()
+      .from(drayageQuotes)
+      .orderBy(desc(drayageQuotes.createdAt))
+      .limit(50);
+    res.json({ quotes: rows });
+  });
+
+  app.get('/api/drayage/quotes/:refId', async (req: Request, res: Response) => {
+    const db = createDbClient();
+    const rawId = req.params.refId;
+    const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!refId) {
+      res.status(400).json({ error: 'Invalid refId' });
+      return;
+    }
+    const [quote] = await db
+      .select()
+      .from(drayageQuotes)
+      .where(eq(drayageQuotes.refId, refId));
+    if (!quote) {
+      res.status(404).json({ error: 'Quote not found' });
+      return;
+    }
+    const rates = await db
+      .select()
+      .from(drayageRates)
+      .where(eq(drayageRates.drayageQuoteId, quote.id))
+      .orderBy(drayageRates.rank);
+    res.json({ quote, rates });
+  });
+
+  // ---- Trucking (FTL/LTL dryvan, flatbed, reefer, etc.) ----
+
+  app.post('/api/trucking/quote', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (
+      !body.pickupAddressLine1 ||
+      !body.pickupCity ||
+      !body.deliveryAddressLine1 ||
+      !body.deliveryCity ||
+      !body.equipmentType
+    ) {
+      res.status(400).json({
+        error:
+          'Missing required fields: pickup address+city, delivery address+city, equipmentType',
+      });
+      return;
+    }
+    try {
+      const result = await runTruckingQuote(
+        body as unknown as Parameters<typeof runTruckingQuote>[0]
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/trucking/quotes', async (_req: Request, res: Response) => {
+    const db = createDbClient();
+    const rows = await db
+      .select()
+      .from(truckingQuotes)
+      .orderBy(desc(truckingQuotes.createdAt))
+      .limit(50);
+    res.json({ quotes: rows });
+  });
+
+  app.get('/api/trucking/quotes/:refId', async (req: Request, res: Response) => {
+    const db = createDbClient();
+    const rawId = req.params.refId;
+    const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!refId) {
+      res.status(400).json({ error: 'Invalid refId' });
+      return;
+    }
+    const [quote] = await db
+      .select()
+      .from(truckingQuotes)
+      .where(eq(truckingQuotes.refId, refId));
+    if (!quote) {
+      res.status(404).json({ error: 'Quote not found' });
+      return;
+    }
+    const rates = await db
+      .select()
+      .from(truckingRates)
+      .where(eq(truckingRates.truckingQuoteId, quote.id))
+      .orderBy(truckingRates.rank);
+    res.json({ quote, rates });
   });
 
   // ---- Recording (one-click in-dashboard workflow capture) ----

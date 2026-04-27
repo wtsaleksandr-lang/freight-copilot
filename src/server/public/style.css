@@ -255,6 +255,10 @@ tbody tr.clickable:hover { background: #f8fafc; }
 .flag.rollable { background: var(--warn-bg); color: var(--warn); }
 .flag.close { background: var(--success-bg); color: var(--success); }
 .flag.mismatch { background: var(--error-bg); color: var(--error); }
+.flag.success { background: var(--success-bg); color: var(--success); }
+.flag.warn    { background: var(--warn-bg);    color: var(--warn); }
+.flag.error   { background: var(--error-bg);   color: var(--error); }
+.flag.muted   { background: #f1f5f9;           color: var(--muted); }
 
 .breakdown-row td {
   background: #f8fafc;
@@ -510,4 +514,17 @@ table.bd-mini tr.bd-total td {
   margin-top: 6px;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
+}
+
+label.check-line {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+label.check-line input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
+  cursor: pointer;
 }

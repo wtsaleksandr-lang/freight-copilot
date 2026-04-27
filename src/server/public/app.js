@@ -7,8 +7,192 @@ document.querySelectorAll('.tab').forEach((btn) => {
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'history') loadHistory();
     if (btn.dataset.tab === 'bundles') loadBundles();
+    if (btn.dataset.tab === 'drayage') loadDrayageList();
+    if (btn.dataset.tab === 'trucking') loadTruckingList();
   });
 });
+
+// ---- Drayage tab ----
+document.getElementById('dr-submit-btn').addEventListener('click', async () => {
+  const splitCsv = (s) =>
+    s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const body = {
+    direction: document.getElementById('dr-direction').value,
+    portCode: document.getElementById('dr-port-code').value.trim(),
+    portName: document.getElementById('dr-port-name').value.trim() || undefined,
+    addressLine1: document.getElementById('dr-address').value.trim(),
+    city: document.getElementById('dr-city').value.trim(),
+    state: document.getElementById('dr-state').value.trim() || undefined,
+    zip: document.getElementById('dr-zip').value.trim() || undefined,
+    country: document.getElementById('dr-country').value.trim() || 'US',
+    containerType: document.getElementById('dr-container').value.trim(),
+    containerCount: parseInt(document.getElementById('dr-container-count').value, 10) || 1,
+    weightKg: parseInt(document.getElementById('dr-weight').value, 10) || undefined,
+    pickupDate: document.getElementById('dr-pickup-date').value || undefined,
+    deliveryDate: document.getElementById('dr-delivery-date').value || undefined,
+    specialEquipment: splitCsv(document.getElementById('dr-special').value),
+    accessorials: splitCsv(document.getElementById('dr-accessorials').value),
+    clientName: document.getElementById('dr-client').value.trim() || undefined,
+    notes: document.getElementById('dr-notes').value.trim() || undefined,
+  };
+  if (!body.portCode || !body.addressLine1 || !body.city || !body.containerType) {
+    setStatus('dr-status', 'Fill at least port code, address, city, container.', 'error');
+    return;
+  }
+  const btn = document.getElementById('dr-submit-btn');
+  btn.disabled = true;
+  setStatus('dr-status', 'Saving…', 'info');
+  try {
+    const r = await fetch('/api/drayage/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Save failed');
+    setStatus('dr-status', `${data.refId} saved.`, 'success');
+    document.getElementById('dr-result-card').hidden = false;
+    document.getElementById('dr-result-title').textContent = data.refId;
+    document.getElementById('dr-result-meta').innerHTML =
+      `<code>${esc(data.outputFolder)}</code>`;
+    document.getElementById('dr-result-msg').textContent = data.message;
+    loadDrayageList();
+  } catch (err) {
+    setStatus('dr-status', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('dr-refresh-btn').addEventListener('click', loadDrayageList);
+
+async function loadDrayageList() {
+  const table = document.getElementById('dr-list-table');
+  table.innerHTML = '<tbody><tr><td class="empty">Loading…</td></tr></tbody>';
+  try {
+    const r = await fetch('/api/drayage/quotes');
+    const data = await r.json();
+    if (!data.quotes || data.quotes.length === 0) {
+      table.innerHTML = '<tbody><tr><td class="empty">No drayage requests yet.</td></tr></tbody>';
+      return;
+    }
+    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Direction</th><th>Port</th><th>To/From</th><th>Container</th><th>Status</th></tr></thead>';
+    const rows = data.quotes
+      .map((q) => {
+        const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+        return `<tr>
+          <td><code>${esc(q.refId)}</code></td>
+          <td>${created}</td>
+          <td>${esc(q.direction)}</td>
+          <td>${esc(q.portCode)} ${q.portName ? '(' + esc(q.portName) + ')' : ''}</td>
+          <td>${esc(q.city)}${q.state ? ', ' + esc(q.state) : ''}</td>
+          <td>${esc(q.containerType)} × ${q.containerCount}</td>
+          <td><span class="status-inline ${q.status === 'complete' ? 'success' : 'info'}">${esc(q.status)}</span></td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+  } catch (err) {
+    table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+  }
+}
+loadDrayageList();
+
+// ---- Trucking tab ----
+document.getElementById('tr-submit-btn').addEventListener('click', async () => {
+  const body = {
+    mode: document.getElementById('tr-mode').value,
+    equipmentType: document.getElementById('tr-equipment').value,
+    pickupAddressLine1: document.getElementById('tr-pickup-addr').value.trim(),
+    pickupCity: document.getElementById('tr-pickup-city').value.trim(),
+    pickupState: document.getElementById('tr-pickup-state').value.trim() || undefined,
+    pickupZip: document.getElementById('tr-pickup-zip').value.trim() || undefined,
+    pickupCountry: document.getElementById('tr-pickup-country').value.trim() || 'US',
+    deliveryAddressLine1: document.getElementById('tr-delivery-addr').value.trim(),
+    deliveryCity: document.getElementById('tr-delivery-city').value.trim(),
+    deliveryState: document.getElementById('tr-delivery-state').value.trim() || undefined,
+    deliveryZip: document.getElementById('tr-delivery-zip').value.trim() || undefined,
+    deliveryCountry: document.getElementById('tr-delivery-country').value.trim() || 'US',
+    weightKg: parseInt(document.getElementById('tr-weight').value, 10) || undefined,
+    pieces: parseInt(document.getElementById('tr-pieces').value, 10) || undefined,
+    lengthFt: parseFloat(document.getElementById('tr-length').value) || undefined,
+    widthFt: parseFloat(document.getElementById('tr-width').value) || undefined,
+    heightFt: parseFloat(document.getElementById('tr-height').value) || undefined,
+    commodity: document.getElementById('tr-commodity').value.trim() || undefined,
+    hazmat: document.getElementById('tr-hazmat').checked,
+    tempControlled: document.getElementById('tr-temp').checked,
+    tempMinF: parseFloat(document.getElementById('tr-temp-min').value) || undefined,
+    tempMaxF: parseFloat(document.getElementById('tr-temp-max').value) || undefined,
+    pickupDate: document.getElementById('tr-pickup-date').value || undefined,
+    deliveryDate: document.getElementById('tr-delivery-date').value || undefined,
+    clientName: document.getElementById('tr-client').value.trim() || undefined,
+    notes: document.getElementById('tr-notes').value.trim() || undefined,
+  };
+  if (!body.pickupAddressLine1 || !body.pickupCity || !body.deliveryAddressLine1 || !body.deliveryCity) {
+    setStatus('tr-status', 'Fill at least pickup + delivery address & city.', 'error');
+    return;
+  }
+  const btn = document.getElementById('tr-submit-btn');
+  btn.disabled = true;
+  setStatus('tr-status', 'Saving…', 'info');
+  try {
+    const r = await fetch('/api/trucking/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Save failed');
+    setStatus('tr-status', `${data.refId} saved.`, 'success');
+    document.getElementById('tr-result-card').hidden = false;
+    document.getElementById('tr-result-title').textContent = data.refId;
+    document.getElementById('tr-result-meta').innerHTML =
+      `<code>${esc(data.outputFolder)}</code>`;
+    document.getElementById('tr-result-msg').textContent = data.message;
+    loadTruckingList();
+  } catch (err) {
+    setStatus('tr-status', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('tr-refresh-btn').addEventListener('click', loadTruckingList);
+
+async function loadTruckingList() {
+  const table = document.getElementById('tr-list-table');
+  table.innerHTML = '<tbody><tr><td class="empty">Loading…</td></tr></tbody>';
+  try {
+    const r = await fetch('/api/trucking/quotes');
+    const data = await r.json();
+    if (!data.quotes || data.quotes.length === 0) {
+      table.innerHTML = '<tbody><tr><td class="empty">No trucking requests yet.</td></tr></tbody>';
+      return;
+    }
+    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Mode</th><th>Equipment</th><th>Pickup</th><th>Delivery</th><th>Status</th></tr></thead>';
+    const rows = data.quotes
+      .map((q) => {
+        const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+        return `<tr>
+          <td><code>${esc(q.refId)}</code></td>
+          <td>${created}</td>
+          <td>${esc(q.mode)}</td>
+          <td>${esc(q.equipmentType)}</td>
+          <td>${esc(q.pickupCity)}${q.pickupState ? ', ' + esc(q.pickupState) : ''}</td>
+          <td>${esc(q.deliveryCity)}${q.deliveryState ? ', ' + esc(q.deliveryState) : ''}</td>
+          <td><span class="status-inline ${q.status === 'complete' ? 'success' : 'info'}">${esc(q.status)}</span></td>
+        </tr>`;
+      })
+      .join('');
+    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
+  } catch (err) {
+    table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+  }
+}
+loadTruckingList();
 
 // ---- Bundles tab ----
 async function loadBundles() {
@@ -380,11 +564,25 @@ function renderBundleResults(input, data) {
   const markup = getMarkup();
 
   title.textContent = `${data.refId}: ${input.from} → ${input.to} (${input.container})`;
-  const carrierStatuses = data.carriers
-    .map((c) => `${esc(c.carrierName)} (${c.status})`)
-    .join(' · ');
+  const carrierBadges = data.carriers
+    .map((c) => {
+      const cls =
+        c.status === 'ok'
+          ? 'success'
+          : c.status === 'captcha_blocked'
+            ? 'warn'
+            : c.status === 'skipped'
+              ? 'muted'
+              : 'error';
+      const label =
+        c.status === 'captcha_blocked'
+          ? `${esc(c.carrierName)}: captcha (${esc(c.captchaType || 'unknown')})`
+          : `${esc(c.carrierName)}: ${esc(c.status)}`;
+      return `<span class="flag ${cls}">${label}</span>`;
+    })
+    .join(' ');
   meta.innerHTML =
-    `<code>${esc(data.outputFolder)}</code><br>${esc(carrierStatuses)}` +
+    `<code>${esc(data.outputFolder)}</code><br>${carrierBadges}` +
     (markup.pct || markup.flat ? ` · Markup +${markup.pct}% +${markup.flat}` : '');
 
   // Combine all ranked rates across carriers, re-sort by freight_total

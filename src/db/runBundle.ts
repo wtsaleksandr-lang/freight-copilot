@@ -12,6 +12,7 @@ import { getCarrier } from '../carriers/registry.js';
 import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import type { RankedRateOption } from '../types.js';
+import { CaptchaBlockedError, type CaptchaType } from '../captcha/types.js';
 
 export interface RunBundleInput {
   carrierCodes: string[];
@@ -32,8 +33,10 @@ export interface RunBundleInput {
 export interface CarrierResult {
   carrierCode: string;
   carrierName: string;
-  status: 'ok' | 'skipped' | 'failed';
+  status: 'ok' | 'skipped' | 'failed' | 'captcha_blocked';
   reason?: string;
+  /** When status === 'captcha_blocked', the type of captcha we detected. */
+  captchaType?: CaptchaType;
   ranked: RankedRateOption[];
   artifacts?: { screenshot: string; html: string; ariaTree: string };
 }
@@ -232,15 +235,30 @@ export async function runQuoteBundle(
       for (const r of ranked) allRanked.push({ ...r, carrierCode: code });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      console.error(`[bundle ${refId}] ${code} failed:`, reason);
-      errors.push({ carrier: code, reason });
-      carrierResults.push({
-        carrierCode: code,
-        carrierName: carrier.name,
-        status: 'failed',
-        reason,
-        ranked: [],
-      });
+      if (err instanceof CaptchaBlockedError) {
+        console.warn(
+          `[bundle ${refId}] ${code} captcha-blocked (${err.captchaType}); skipping & continuing.`
+        );
+        errors.push({ carrier: code, reason: `captcha: ${err.captchaType}` });
+        carrierResults.push({
+          carrierCode: code,
+          carrierName: carrier.name,
+          status: 'captcha_blocked',
+          reason: `${err.captchaType} — solve manually next time, or configure a captcha solver`,
+          captchaType: err.captchaType,
+          ranked: [],
+        });
+      } else {
+        console.error(`[bundle ${refId}] ${code} failed:`, reason);
+        errors.push({ carrier: code, reason });
+        carrierResults.push({
+          carrierCode: code,
+          carrierName: carrier.name,
+          status: 'failed',
+          reason,
+          ranked: [],
+        });
+      }
     }
   }
 

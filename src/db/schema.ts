@@ -94,6 +94,135 @@ export const rateSnapshots = sqliteTable('rate_snapshots', {
   rank: integer('rank'),
 });
 
+/**
+ * Drayage = port ↔ address container truck moves.
+ * Foundation table — rate sources (provider rate sheets, APIs, marketplaces)
+ * are wired in later. The schema is broad enough to cover both
+ * import drayage (port → consignee) and export drayage (shipper → port).
+ */
+export const drayageQuotes = sqliteTable('drayage_quotes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refId: text('ref_id').notNull().unique(),
+  outputFolder: text('output_folder').notNull(),
+  /** 'import' = port → address; 'export' = address → port. */
+  direction: text('direction').notNull(),
+  portCode: text('port_code').notNull(),
+  portName: text('port_name'),
+  addressLine1: text('address_line1').notNull(),
+  city: text('city').notNull(),
+  state: text('state'),
+  zip: text('zip'),
+  country: text('country').notNull().default('US'),
+  containerType: text('container_type').notNull(),
+  containerCount: integer('container_count').notNull().default(1),
+  weightKg: integer('weight_kg'),
+  pickupDate: text('pickup_date'),
+  deliveryDate: text('delivery_date'),
+  /** chassis, gen-set, hazmat, overweight permit, tri-axle, etc. */
+  specialEquipment: text('special_equipment', { mode: 'json' }).$type<string[]>(),
+  /** prepull, storage, detention notes. */
+  accessorials: text('accessorials', { mode: 'json' }).$type<string[]>(),
+  clientName: text('client_name'),
+  notes: text('notes'),
+  markupPct: real('markup_pct').notNull().default(0),
+  markupFlat: real('markup_flat').notNull().default(0),
+  status: text('status').notNull().default('pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const drayageRates = sqliteTable('drayage_rates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  drayageQuoteId: integer('drayage_quote_id')
+    .notNull()
+    .references(() => drayageQuotes.id, { onDelete: 'cascade' }),
+  providerName: text('provider_name').notNull(),
+  providerCode: text('provider_code'),
+  /** Itemized charges (line haul, fuel surcharge, chassis, etc.). */
+  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  baseRateCents: integer('base_rate_cents').notNull(),
+  totalCostCents: integer('total_cost_cents').notNull(),
+  currency: text('currency').notNull().default('USD'),
+  transitDays: integer('transit_days'),
+  validUntil: text('valid_until'),
+  freeTimeDays: integer('free_time_days'),
+  /** Path to PDF / screenshot / sheet that backs this rate. */
+  rawSourcePath: text('raw_source_path'),
+  notes: text('notes'),
+  rank: integer('rank'),
+  parsedAt: integer('parsed_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/**
+ * Trucking = ground freight without an ocean container (dryvan, flatbed, reefer,
+ * step deck, etc.). Both FTL and LTL.
+ */
+export const truckingQuotes = sqliteTable('trucking_quotes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refId: text('ref_id').notNull().unique(),
+  outputFolder: text('output_folder').notNull(),
+  /** 'ftl' or 'ltl'. */
+  mode: text('mode').notNull().default('ftl'),
+  pickupAddressLine1: text('pickup_address_line1').notNull(),
+  pickupCity: text('pickup_city').notNull(),
+  pickupState: text('pickup_state'),
+  pickupZip: text('pickup_zip'),
+  pickupCountry: text('pickup_country').notNull().default('US'),
+  deliveryAddressLine1: text('delivery_address_line1').notNull(),
+  deliveryCity: text('delivery_city').notNull(),
+  deliveryState: text('delivery_state'),
+  deliveryZip: text('delivery_zip'),
+  deliveryCountry: text('delivery_country').notNull().default('US'),
+  /** dryvan, flatbed, reefer, step_deck, conestoga, hotshot, etc. */
+  equipmentType: text('equipment_type').notNull(),
+  weightKg: integer('weight_kg'),
+  lengthFt: real('length_ft'),
+  widthFt: real('width_ft'),
+  heightFt: real('height_ft'),
+  pieces: integer('pieces'),
+  hazmat: integer('hazmat', { mode: 'boolean' }).default(false),
+  tempControlled: integer('temp_controlled', { mode: 'boolean' }).default(false),
+  tempMinF: real('temp_min_f'),
+  tempMaxF: real('temp_max_f'),
+  pickupDate: text('pickup_date'),
+  deliveryDate: text('delivery_date'),
+  commodity: text('commodity'),
+  clientName: text('client_name'),
+  notes: text('notes'),
+  markupPct: real('markup_pct').notNull().default(0),
+  markupFlat: real('markup_flat').notNull().default(0),
+  status: text('status').notNull().default('pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const truckingRates = sqliteTable('trucking_rates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  truckingQuoteId: integer('trucking_quote_id')
+    .notNull()
+    .references(() => truckingQuotes.id, { onDelete: 'cascade' }),
+  providerName: text('provider_name').notNull(),
+  providerCode: text('provider_code'),
+  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  baseRateCents: integer('base_rate_cents').notNull(),
+  totalCostCents: integer('total_cost_cents').notNull(),
+  currency: text('currency').notNull().default('USD'),
+  transitDays: integer('transit_days'),
+  ratePerMile: real('rate_per_mile'),
+  totalMiles: integer('total_miles'),
+  validUntil: text('valid_until'),
+  rawSourcePath: text('raw_source_path'),
+  notes: text('notes'),
+  rank: integer('rank'),
+  parsedAt: integer('parsed_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const sessions = sqliteTable('sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   carrierId: integer('carrier_id')

@@ -7,6 +7,7 @@ logs/
 drizzle/
 data/
 samples/
+quotes/
 *.log
 .DS_Store
 .secrets/

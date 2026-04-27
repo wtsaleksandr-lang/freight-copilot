@@ -7,6 +7,9 @@ import { carriers, sessions } from '../../db/schema.js';
 import { MAERSK_URLS, MAERSK_LABELS } from './selectors.js';
 import type { QuoteInput, FetchRatesResult } from '../types.js';
 import { createBrowserContext } from '../browserContext.js';
+import { detectCaptcha } from '../../captcha/detect.js';
+import { CaptchaBlockedError } from '../../captcha/types.js';
+import { getSolver } from '../../captcha/solver.js';
 
 export type { QuoteInput, FetchRatesResult };
 
@@ -276,24 +279,38 @@ export async function fetchMaerskRates(
     await continueBtn.click();
 
     console.log('[fetchRates] Waiting for /book/sailings navigation...');
-    // Poll for URL change. Maersk sometimes shows a captcha ("click the thing
-    // capable of being folded" etc.) when it thinks we're automated. Since the
-    // browser is headed and visible, the user can solve it by hand — we just
-    // keep waiting (up to 5 minutes) for the URL to change.
+    // Poll for URL change. If a captcha is detected during the wait, we give up
+    // cleanly so the bundle runner can mark this carrier as captcha_blocked
+    // and continue with the others — instead of stalling 5 minutes.
     const navStart = Date.now();
-    const NAV_MAX_MS = 5 * 60_000;
-    let navPrompted = false;
+    const NAV_MAX_MS = 90_000; // 1.5 min — plenty for a fast site, short enough not to block other carriers
+    const CAPTCHA_GRACE_MS = 12_000; // give the page time to render before we look for captcha
     while (Date.now() - navStart < NAV_MAX_MS) {
       if (MAERSK_URLS.sailingsPattern.test(page.url())) break;
-      if (Date.now() - navStart > 15_000 && !navPrompted) {
-        console.log('');
-        console.log('─────────────────────────────────────────────────────────────');
-        console.log(' WAITING — Maersk may be showing a bot-check / captcha.');
-        console.log(' Look at the Chrome window that opened and solve it by hand.');
-        console.log(' As soon as you pass, the script will continue automatically.');
-        console.log('─────────────────────────────────────────────────────────────');
-        console.log('');
-        navPrompted = true;
+
+      if (Date.now() - navStart > CAPTCHA_GRACE_MS) {
+        const sig = await detectCaptcha(page);
+        if (sig) {
+          console.warn(
+            `[fetchRates] Captcha detected: ${sig.type} (${sig.evidence})`
+          );
+          const solver = getSolver();
+          if (solver) {
+            // Future: solver.solve(...) + solver.applyToken(...).
+            console.warn(
+              `[fetchRates] Solver provider "${solver.name}" configured but auto-solve not yet implemented — failing over.`
+            );
+          }
+          await mkdir(OUT_DIR, { recursive: true });
+          const failTs = new Date().toISOString().replace(/[:.]/g, '-');
+          const failShot = resolve(OUT_DIR, `captcha-${failTs}.png`);
+          await page.screenshot({ path: failShot, fullPage: true }).catch(() => {});
+          throw new CaptchaBlockedError(
+            sig.type,
+            page.url(),
+            `Maersk served a ${sig.type} challenge. Diagnostic: ${failShot}`
+          );
+        }
       }
       await page.waitForTimeout(2000);
     }
@@ -305,7 +322,7 @@ export async function fetchMaerskRates(
       console.error(`[fetchRates] Submit never navigated. URL still: ${page.url()}`);
       console.error(`[fetchRates] Diagnostic screenshot -> ${failShot}`);
       throw new Error(
-        'Maersk navigation did not complete within 5 minutes (captcha not solved or other block).'
+        `Maersk navigation did not complete within ${NAV_MAX_MS / 1000}s and no captcha was detected (other block).`
       );
     }
     console.log('[fetchRates] Navigation succeeded.');
