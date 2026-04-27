@@ -154,16 +154,16 @@ export async function fetchHlcRates(
     await fillLocation(
       page,
       HLC_TESTIDS.startInput,
-      input.originPortCode || input.origin,
+      input.origin,
       'Origin',
-      input.originPortCode ? undefined : input.originRegion
+      input.originRegion
     );
     await fillLocation(
       page,
       HLC_TESTIDS.endInput,
-      input.destinationPortCode || input.destination,
+      input.destination,
       'Destination',
-      input.destinationPortCode ? undefined : input.destinationRegion
+      input.destinationRegion
     );
     await pickContainerType(page, input.containerType);
 

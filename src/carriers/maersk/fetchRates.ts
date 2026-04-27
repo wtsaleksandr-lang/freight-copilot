@@ -203,36 +203,35 @@ export async function fetchMaerskRates(
     // Prefer the UN/LOCODE if the user picked a known port — it's a 5-char
     // unambiguous match in Maersk's combobox. Falls back to typing the
     // city name (with region hint) if no code was provided.
-    const fromPrimary = input.originPortCode || input.origin;
-    const fromFallback = input.originPortCode ? input.origin : undefined;
+    // Type the city name as primary — Maersk indexes city names, not
+    // LOCODEs. Typing a 5-char LOCODE often matches an unrelated city
+    // starting with the same letters (e.g. "DEHAM" → "Dehamcha, Algeria"
+    // instead of "Hamburg, Germany"). LOCODE is the FALLBACK if the city
+    // name produces zero matches.
     console.log(
-      `[fetchRates] From: ${fromPrimary}` +
-        (input.originPortCode ? ` (LOCODE; fallback "${input.origin}")` : '') +
-        (input.originRegion ? ` region: ${input.originRegion}` : '')
+      `[fetchRates] From: ${input.origin}` +
+        (input.originRegion ? ` region: ${input.originRegion}` : '') +
+        (input.originPortCode ? ` (LOCODE fallback: ${input.originPortCode})` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.fromCombobox,
-      fromPrimary,
+      input.origin,
       input.originRegion,
-      fromFallback
+      input.originPortCode
     );
 
-    const toPrimary = input.destinationPortCode || input.destination;
-    const toFallback = input.destinationPortCode
-      ? input.destination
-      : undefined;
     console.log(
-      `[fetchRates] To: ${toPrimary}` +
-        (input.destinationPortCode ? ` (LOCODE; fallback "${input.destination}")` : '') +
-        (input.destinationRegion ? ` region: ${input.destinationRegion}` : '')
+      `[fetchRates] To: ${input.destination}` +
+        (input.destinationRegion ? ` region: ${input.destinationRegion}` : '') +
+        (input.destinationPortCode ? ` (LOCODE fallback: ${input.destinationPortCode})` : '')
     );
     await pickFromAutocomplete(
       page,
       MAERSK_LABELS.toCombobox,
-      toPrimary,
+      input.destination,
       input.destinationRegion,
-      toFallback
+      input.destinationPortCode
     );
 
     // --- Commodity (autocomplete too) ---

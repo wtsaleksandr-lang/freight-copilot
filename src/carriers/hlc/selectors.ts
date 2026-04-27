@@ -29,10 +29,17 @@ export const HLC_TESTIDS = {
  * If the requested label isn't in this table, we pass it through unchanged
  * so the adapter degrades gracefully if HL adds a new size.
  */
+/**
+ * HL relabeled all standard sizes "General Purpose" as the prefix; high
+ * cubes are now "General Purpose High Cube". Match the *current* portal
+ * text exactly — these strings are passed to page.getByText() so a substring
+ * match would also catch "General Purpose" when we want "General Purpose
+ * High Cube". Use exact-ish phrases.
+ */
 export const HLC_CONTAINER_LABELS: Record<string, string> = {
   '20 Dry Standard': "20' General Purpose",
   '40 Dry Standard': "40' General Purpose",
-  '40 Dry High': "40' High Cube",
+  '40 Dry High': "40' General Purpose High Cube",
   '20 Reefer': "20' Reefer",
   '40 Reefer': "40' Reefer",
   '40 Reefer High Cube': "40' Reefer High Cube",

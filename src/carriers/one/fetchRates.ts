@@ -159,16 +159,16 @@ export async function fetchOneRates(
     await fillPortByIndex(
       page,
       0,
-      input.originPortCode || input.origin,
+      input.origin,
       'Origin',
-      input.originPortCode ? input.origin : undefined
+      input.originPortCode
     );
     await fillPortByIndex(
       page,
       1,
-      input.destinationPortCode || input.destination,
+      input.destination,
       'Destination',
-      input.destinationPortCode ? input.destination : undefined
+      input.destinationPortCode
     );
 
     // Cargo Owner radio is the user's "price owner" choice (vs. NVOCC).

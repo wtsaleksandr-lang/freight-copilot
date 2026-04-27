@@ -48,7 +48,11 @@ export function createApp(): express.Express {
   //    reflect live reality (not just the stored expires_at).
   // No tokens, no LLM — pure Playwright nav + selector check.
   if (env.USE_REAL_CHROME) {
-    startKeepAlivePinger();
+    // 5-min cadence — ONE Line's idle timeout is shorter than 10 min in
+    // practice (we observed it logged out between 10-min probes). At 5
+    // min the probe still completes in ~30s for 6 carriers, well under
+    // the cycle, and keeps even aggressive portals alive.
+    startKeepAlivePinger(5 * 60 * 1000);
   }
 
   return app;

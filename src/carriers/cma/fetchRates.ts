@@ -135,21 +135,24 @@ export async function fetchCmaRates(
       );
     }
 
+    // City name primary — CMA's autocomplete matches city names, not
+    // LOCODEs. Typing "USCHI" (Chicago) matched an Italian city in
+    // testing; LOCODE is now the fallback only.
     await pickPort(
       page,
       CMA_SELECTORS.originInput,
       CMA_SELECTORS.originFirstOption,
-      input.originPortCode || input.origin,
+      input.origin,
       'Origin',
-      input.originPortCode ? input.origin : undefined
+      input.originPortCode
     );
     await pickPort(
       page,
       CMA_SELECTORS.destinationInput,
       CMA_SELECTORS.destinationFirstOption,
-      input.destinationPortCode || input.destination,
+      input.destination,
       'Destination',
-      input.destinationPortCode ? input.destination : undefined
+      input.destinationPortCode
     );
 
     // Container — pick the size tile by mapped index, then click "Add".

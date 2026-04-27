@@ -133,18 +133,18 @@ export async function fetchOoclRates(
     await pickPort(
       page,
       OOCL_SELECTORS.originInput,
-      input.originPortCode || input.origin,
+      input.origin,
       'Origin',
       input.originRegion,
-      input.originPortCode ? input.origin : undefined
+      input.originPortCode
     );
     await pickPort(
       page,
       OOCL_SELECTORS.destinationInput,
-      input.destinationPortCode || input.destination,
+      input.destination,
       'Destination',
       input.destinationRegion,
-      input.destinationPortCode ? input.destination : undefined
+      input.destinationPortCode
     );
     await pickContainerType(page, input.containerType);
 

@@ -42,62 +42,60 @@ async function selectOnlyContainer(
   page: Page,
   containerType: string
 ): Promise<void> {
-  // Build a list of patterns that MSC's checkbox label might match for our
-  // requested container. Falls back to literal-string match for unknown
-  // container types.
-  const patterns = MSC_CONTAINER_PATTERNS[containerType] ?? [
-    new RegExp('^' + containerType.replace(/[^a-z0-9]/gi, '\\s*') + '\\b', 'i'),
-  ];
+  // MSC's current portal labels size checkboxes 20DV / 40DV / 40HC etc.
+  // The historical [data-test-id^="equipment-sizetype-input-"] is gone;
+  // we now match by accessible name. The old MSC_CONTAINER_PATTERNS map
+  // produces a shortlist of names per Maersk-style internal label, and
+  // we click the first one that getByRole finds.
+  const patterns = MSC_CONTAINER_PATTERNS[containerType] ?? [];
   console.log(
-    `[fetchRates] Filtering containers to "${containerType}" only ` +
-      `(patterns: ${patterns.map((p) => p.source).join(', ')})`
+    `[fetchRates] Selecting MSC equipment for "${containerType}" ` +
+      `(${patterns.length} pattern(s))`
   );
 
-  const checkboxes = page.locator(MSC_SELECTORS.equipmentInputPrefix);
-  const count = await checkboxes.count();
-  if (count === 0) {
-    throw new Error(
-      `No equipment-sizetype checkboxes found. Selector "${MSC_SELECTORS.equipmentInputPrefix}" may be stale.`
-    );
-  }
-
-  let kept = 0;
-  for (let i = 0; i < count; i++) {
-    const cb = checkboxes.nth(i);
-    const ariaLabel = (await cb.getAttribute('aria-label').catch(() => null)) ?? '';
-    const value = (await cb.getAttribute('value').catch(() => null)) ?? '';
-    const label = (ariaLabel || value).trim();
-    const isMatch = patterns.some((p) => p.test(label));
+  // Try each pattern as a name regex on a checkbox role.
+  const tried: string[] = [];
+  for (const pat of patterns) {
+    const cb = page.getByRole('checkbox', { name: pat }).first();
+    const visible = await cb.isVisible({ timeout: 2_000 }).catch(() => false);
+    if (!visible) {
+      tried.push(pat.source);
+      continue;
+    }
     const checked = await cb.isChecked().catch(() => false);
-
-    if (isMatch && !checked) {
+    if (!checked) {
       await cb.click();
-      kept++;
-      console.log(`[fetchRates]   + selected ${label}`);
-    } else if (isMatch && checked) {
-      kept++;
-      console.log(`[fetchRates]   = kept ${label}`);
-    } else if (!isMatch && checked) {
-      await cb.click();
-      console.log(`[fetchRates]   - deselected ${label}`);
+      console.log(`[fetchRates]   + checked (matched ${pat.source})`);
+    } else {
+      console.log(`[fetchRates]   = already checked (matched ${pat.source})`);
     }
+    return;
   }
 
-  if (kept === 0) {
-    // Help future debugging: dump what we did see.
-    const seen: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const cb = checkboxes.nth(i);
-      const a = (await cb.getAttribute('aria-label').catch(() => null)) ?? '';
-      const v = (await cb.getAttribute('value').catch(() => null)) ?? '';
-      seen.push((a || v).trim());
-    }
-    throw new Error(
-      `No MSC checkbox matched "${containerType}". ` +
-        `MSC offered: [${seen.filter(Boolean).join(', ')}]. ` +
-        'Add a pattern to MSC_CONTAINER_PATTERNS in selectors.ts.'
-    );
+  // Diagnostic: dump every checkbox we can see so the next pattern
+  // addition is mechanical rather than guesswork.
+  const allCheckboxes = page.getByRole('checkbox');
+  const total = await allCheckboxes.count();
+  const seen: string[] = [];
+  for (let i = 0; i < total; i++) {
+    const name =
+      (await allCheckboxes
+        .nth(i)
+        .getAttribute('aria-label')
+        .catch(() => null)) ??
+      (await allCheckboxes
+        .nth(i)
+        .innerText()
+        .catch(() => '')) ??
+      '';
+    if (name.trim()) seen.push(name.trim());
   }
+  throw new Error(
+    `No MSC checkbox matched "${containerType}". ` +
+      `Patterns tried: [${tried.join(', ')}]. ` +
+      `Visible checkbox names: [${seen.join(', ')}]. ` +
+      'Add a pattern to MSC_CONTAINER_PATTERNS in selectors.ts.'
+  );
 }
 
 async function pickPort(
@@ -159,7 +157,7 @@ export async function fetchMscRates(
       MSC_SELECTORS.originDropdownTrigger,
       MSC_SELECTORS.originInput,
       MSC_SELECTORS.originFirstOption,
-      input.originPortCode || input.origin,
+      input.origin,
       'Origin'
     );
 
@@ -168,7 +166,7 @@ export async function fetchMscRates(
       MSC_SELECTORS.destinationDropdownTrigger,
       MSC_SELECTORS.destinationInput,
       MSC_SELECTORS.destinationFirstOption,
-      input.destinationPortCode || input.destination,
+      input.destination,
       'Destination'
     );
 
