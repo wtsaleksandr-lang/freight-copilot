@@ -2449,6 +2449,49 @@ async function loadCredList() {
     ingestFiles(e.dataTransfer?.files);
   });
 
+  // Ctrl+V paste support: intercept only when the Sheets tab is active
+  // AND the paste target isn't a typing input (so we don't break paste
+  // into the credentials/search/etc. fields elsewhere). Synthesizes a
+  // filename from the clipboard mime type since clipboard images have no
+  // intrinsic name.
+  document.addEventListener('paste', (e) => {
+    const sheetsActive = document
+      .getElementById('tab-sheets')
+      ?.classList.contains('active');
+    if (!sheetsActive) return;
+    const target = e.target;
+    const isTypingInput =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (isTypingInput) return;
+
+    const items = (e.clipboardData || {}).items || [];
+    const pastedFiles = [];
+    for (const item of items) {
+      if (!item.type || !item.type.startsWith('image/')) continue;
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      const ext = item.type.split('/')[1] || 'png';
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const named = new File(
+        [blob],
+        `pasted-${ts}.${ext}`,
+        { type: item.type }
+      );
+      pastedFiles.push(named);
+    }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      ingestFiles(pastedFiles);
+      setStatus(
+        'sheet-status',
+        `Pasted ${pastedFiles.length} image${pastedFiles.length > 1 ? 's' : ''} from clipboard.`,
+        'info'
+      );
+    }
+  });
+
   async function fileToBase64(file) {
     const buf = await file.arrayBuffer();
     let binary = '';
