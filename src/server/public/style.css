@@ -930,6 +930,142 @@ label.check-line input[type="checkbox"] {
   font-size: 11px;
 }
 
+/* Footer with Tools links (Record / Agent / Bundles / Secrets) */
+.tools-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px;
+  margin-top: 32px;
+  border-top: 1px solid var(--card-border, #2a2a2a);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.footer-tab-link {
+  color: var(--muted, #888);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.1s, background 0.1s;
+}
+.footer-tab-link:hover {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.08);
+}
+
+/* Advanced (live-portal) collapsible section inside the Ocean tab */
+.advanced-section {
+  margin-top: 24px;
+  border: 1px dashed var(--card-border, #2a2a2a);
+  border-radius: 6px;
+  padding: 0 12px;
+}
+.advanced-section > summary {
+  cursor: pointer;
+  padding: 12px 4px;
+  font-size: 13.5px;
+  color: var(--muted);
+  list-style: none;
+}
+.advanced-section > summary::-webkit-details-marker { display: none; }
+.advanced-section > summary::before { content: '▸ '; }
+.advanced-section[open] > summary::before { content: '▾ '; }
+.advanced-section[open] {
+  padding-bottom: 16px;
+}
+
+/* Optional-surcharge fieldset (compact list of toggles) */
+.surcharge-fieldset {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.surcharge-fieldset legend {
+  padding: 0 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.surcharge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.surcharge-row input[type="checkbox"] {
+  accent-color: var(--accent, #58a6ff);
+  cursor: pointer;
+  margin: 0;
+}
+.surcharge-row .surch-name {
+  font-weight: 500;
+  min-width: 160px;
+}
+.surcharge-row input[type="number"] {
+  width: 60px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.surcharge-row.is-auto-applied .surch-name::after {
+  content: ' (auto-applied)';
+  color: #2ea043;
+  font-size: 11px;
+}
+
+/* Email template picker (3 radio choices) */
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.template-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.template-choice:hover {
+  background: rgba(88, 166, 255, 0.04);
+}
+.template-choice input[type="radio"] {
+  accent-color: var(--accent, #58a6ff);
+  margin: 0;
+}
+.template-choice .tpl-name {
+  font-weight: 500;
+}
+
+/* Per-file upload queue: delete (X) button */
+.rec-upload-progress li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rec-upload-progress .upload-state { flex: 1; }
+.rec-upload-progress .upload-delete {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.rec-upload-progress .upload-delete:hover {
+  color: #d44a4a;
+  background: rgba(212, 74, 74, 0.1);
+}
+
 /* Image preview modal (Sheets tab source thumbnails) */
 .image-modal {
   position: fixed;

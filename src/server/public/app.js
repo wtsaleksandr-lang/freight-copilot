@@ -402,17 +402,28 @@ function wireAddressAutosuggest() {
   document.querySelectorAll('.zip-input').forEach(wireOne);
 }
 
-// Tab switching
-document.querySelectorAll('.tab').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'history') loadHistory();
-    if (btn.dataset.tab === 'bundles') loadBundles();
-    if (btn.dataset.tab === 'drayage') loadDrayageList();
-    if (btn.dataset.tab === 'trucking') loadTruckingList();
+// Tab switching — accepts both nav .tab buttons AND .footer-tab-link <a>
+// elements so Tools (Record / Agent / Bundles / Secrets) can be reached
+// from the footer without taking up nav real estate.
+function activateTabBy(name) {
+  document
+    .querySelectorAll('.tab')
+    .forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  document
+    .querySelectorAll('.tab-pane')
+    .forEach((p) => p.classList.toggle('active', p.id === `tab-${name}`));
+  if (name === 'history') loadHistory();
+  if (name === 'bundles') loadBundles();
+  if (name === 'drayage') loadDrayageList();
+  if (name === 'trucking') loadTruckingList();
+  // Scroll to the top of the active pane so the user lands at the start
+  // of the new content (esp. relevant when triggered from the footer).
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+document.querySelectorAll('[data-tab]').forEach((el) => {
+  el.addEventListener('click', (e) => {
+    if (el.tagName === 'A') e.preventDefault();
+    activateTabBy(el.dataset.tab);
   });
 });
 
@@ -2401,12 +2412,25 @@ async function loadCredList() {
       selectedFiles
         .map(
           (f, i) =>
-            `<li data-idx="${i}"><span>${esc(f.name)}</span> <span class="muted small">(${Math.round(f.size / 1024)} KB)</span> <span class="upload-state muted">queued</span></li>`
+            `<li data-idx="${i}"><span>${esc(f.name)}</span> <span class="muted small">(${Math.round(f.size / 1024)} KB)</span> <span class="upload-state muted">queued</span><button class="upload-delete" data-remove="${i}" title="Remove from queue">✕</button></li>`
         )
         .join('') +
       '</ul>';
     parseBtn.disabled = false;
     parseBtn.textContent = `Parse ${selectedFiles.length} sheet${selectedFiles.length > 1 ? 's' : ''}`;
+
+    // Wire per-file delete buttons. Removing while parsing is allowed but
+    // only affects the next click of "Parse" — files already submitted to
+    // Claude will continue.
+    progress.querySelectorAll('.upload-delete').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.getAttribute('data-remove'));
+        if (!Number.isFinite(idx)) return;
+        selectedFiles = selectedFiles.filter((_, i) => i !== idx);
+        renderQueue();
+      });
+    });
   }
 
   function setItemState(i, msg, cls) {
@@ -2653,6 +2677,28 @@ function renderSheetResults(data) {
   lastSheetRows = rows;
   lastSheetRefId = data.refId || null;
 
+  // Auto-suggest the overweight surcharge: if the user gave a weight on
+  // the lane and any container exceeds the carrier-typical limits, tick
+  // the box and add a green "(auto-applied)" hint. They can untick if
+  // it's wrong; we don't enforce.
+  // Limits: 17.7 t for 20', 19.8 t for 40'.
+  const overweightTarget = lastSheetRows.find((r) => {
+    const t = String(r.containerType || '').toUpperCase();
+    if (t.startsWith('20') && (r.weightKg || 0) > 17_700) return true;
+    if ((t.startsWith('40') || t.startsWith('45')) && (r.weightKg || 0) > 19_800) return true;
+    return false;
+  });
+  const owToggle = document.getElementById('surch-overweight');
+  const owRow = owToggle?.closest('.surcharge-row');
+  if (owToggle && owRow) {
+    if (overweightTarget) {
+      owToggle.checked = true;
+      owRow.classList.add('is-auto-applied');
+    } else {
+      owRow.classList.remove('is-auto-applied');
+    }
+  }
+
   title.textContent = `${data.refId}: ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
   meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code>`;
 
@@ -2822,17 +2868,63 @@ function renderSheetResults(data) {
   };
 })();
 
-// ---- Sheets margin sliders + Generate Email ----
-const SHEET_EMAIL_TEMPLATE_KEY = 'freight.sheet.email.template';
-const SHEET_EMAIL_TEMPLATE_DEFAULT = `Dear ___,
+// ---- Sheets: margin sliders + surcharges + email templates ----
+
+// Three named templates the user can pick from. Each is editable and
+// persisted independently (localStorage key per template id), so the user
+// can tweak the "Concise" one without disturbing the others.
+const EMAIL_TEMPLATES = {
+  concise: {
+    label: 'Concise',
+    default: `Dear ___,
 
 Pls find below our quote-
 POL <POL CITY/PORT>
 POD <POD CITY/COUNTRY>
-$<20GP price>/20'GP ; $<40HQ price>/40'HQ  , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
-$<20GP price>/20'GP ; $<40HQ price>/40'HQ  , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
-Export declaration: $65
-All origin charges (ocean carrier/terminal) included.`;
+$<20GP price>/20'GP ; $<40HQ price>/40'HQ , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
+$<20GP price>/20'GP ; $<40HQ price>/40'HQ , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
+<applicable surcharges as separate lines, one each>
+All origin charges (ocean carrier/terminal) included.`,
+  },
+  structured: {
+    label: 'Structured',
+    default: `Hi ___,
+
+Thanks for your enquiry. Below is our quote:
+
+Routing: <POL> -> <POD>
+Container(s): <list>
+Validity: <dates if known>
+
+<per-carrier block>
+- 20'GP: $<price>
+- 40'HQ: $<price>
+- Carrier: <name>, transit <X>d
+- Destination charges (on collect, paid by consignee): $<dest>/cntr
+
+<applicable surcharges as a list>
+
+All origin charges (ocean carrier and terminal) are included.
+Please confirm and we will proceed with booking.`,
+  },
+  conversational: {
+    label: 'Conversational',
+    default: `Hello ___,
+
+Pleased to share our spot rates as follows.
+
+We can move <POL> to <POD> with the following options:
+<for each carrier, one short paragraph: price per container, transit, what's included>
+
+Destination charges are paid on collect at <POD>: <amount>/cntr.
+<if surcharges apply: one short note per surcharge>
+
+All origin handling (ocean carrier and terminal) is on us.
+Let me know how you'd like to proceed.`,
+  },
+};
+const SHEET_TEMPLATE_KEY = (id) => `freight.sheet.email.template.${id}`;
+const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 
 (function wireSheetEmailControls() {
   const pctSlider = document.getElementById('sheet-markup-pct-slider');
@@ -2844,15 +2936,41 @@ All origin charges (ocean carrier/terminal) included.`;
   const row = document.getElementById('sheet-email-row');
   const copyBtn = document.getElementById('sheet-email-copy-btn');
   const templateTa = document.getElementById('sheet-email-template');
+  const templateRadios = document.querySelectorAll('input[name="email-template"]');
   if (!btn) return;
 
-  // Load template from localStorage; if none stored, prefill with the
-  // user's preferred default. They can edit it; their edits persist.
+  // Template picker — load whichever was last selected, prefill its
+  // textarea with the saved (or default) body. Switching radios swaps
+  // the textarea content; edits autosave to that template's slot.
+  let currentTemplateId =
+    localStorage.getItem(SHEET_TEMPLATE_SELECTED_KEY) || 'concise';
+
+  function loadTemplateBody(id) {
+    if (!templateTa || !EMAIL_TEMPLATES[id]) return;
+    const stored = localStorage.getItem(SHEET_TEMPLATE_KEY(id));
+    templateTa.value =
+      stored != null ? stored : EMAIL_TEMPLATES[id].default;
+  }
+  function selectTemplate(id) {
+    if (!EMAIL_TEMPLATES[id]) return;
+    currentTemplateId = id;
+    localStorage.setItem(SHEET_TEMPLATE_SELECTED_KEY, id);
+    const radio = document.getElementById(`tpl-${id}`);
+    if (radio) radio.checked = true;
+    loadTemplateBody(id);
+  }
+  selectTemplate(currentTemplateId);
+  templateRadios.forEach((r) => {
+    r.addEventListener('change', () => {
+      if (r.checked) selectTemplate(r.value);
+    });
+  });
   if (templateTa) {
-    const stored = localStorage.getItem(SHEET_EMAIL_TEMPLATE_KEY);
-    templateTa.value = stored != null ? stored : SHEET_EMAIL_TEMPLATE_DEFAULT;
     templateTa.addEventListener('input', () => {
-      localStorage.setItem(SHEET_EMAIL_TEMPLATE_KEY, templateTa.value);
+      localStorage.setItem(
+        SHEET_TEMPLATE_KEY(currentTemplateId),
+        templateTa.value
+      );
     });
   }
 
@@ -2870,16 +2988,55 @@ All origin charges (ocean carrier/terminal) included.`;
     }
     const markupPct = Number(pctNum.value) || 0;
     const markupFlat = Number(flatNum.value) || 0;
-    const exportDeclToggle = document.getElementById('sheet-export-decl-toggle');
-    const exportDeclFeeInput = document.getElementById('sheet-export-decl-fee');
-    const addExportDeclaration = !!exportDeclToggle?.checked;
-    const exportDeclarationFee = Number(exportDeclFeeInput?.value) || 0;
-    // Sheets-specific template, persisted to localStorage. Falls back to
-    // the Ocean tab's shared template if for some reason this one is empty.
+
+    // Surcharge picker — three optional clauses. Each toggle is read
+    // here; the values are sent to the backend so the prompt can include
+    // them as separate lines in the email when checked.
+    const exportDeclChecked = document.getElementById('surch-export-decl')?.checked;
+    const exportDeclFee = Number(
+      document.getElementById('surch-export-decl-fee')?.value
+    ) || 0;
+    const overweightChecked = document.getElementById('surch-overweight')?.checked;
+    const overweightFee = Number(
+      document.getElementById('surch-overweight-fee')?.value
+    ) || 0;
+    const waitingChecked = document.getElementById('surch-waiting')?.checked;
+    const waitingHourlyRate = Number(
+      document.getElementById('surch-waiting-fee')?.value
+    ) || 0;
+
+    const surcharges = [];
+    if (exportDeclChecked && exportDeclFee > 0) {
+      surcharges.push({
+        kind: 'export_declaration',
+        label: 'Export declaration',
+        amount: exportDeclFee,
+        currency: 'USD',
+        basis: 'per shipment',
+      });
+    }
+    if (overweightChecked && overweightFee > 0) {
+      surcharges.push({
+        kind: 'overweight',
+        label: 'Overweight surcharge',
+        amount: overweightFee,
+        currency: 'USD',
+        basis:
+          'per container that exceeds 17.7t (20\') / 19.8t (40\') gross',
+      });
+    }
+    if (waitingChecked && waitingHourlyRate > 0) {
+      surcharges.push({
+        kind: 'waiting_time',
+        label: 'Loading wait time',
+        amount: waitingHourlyRate,
+        currency: 'USD',
+        basis: '1 hour free, then $/hr thereafter',
+      });
+    }
+
     const sheetTpl = document.getElementById('sheet-email-template');
-    const oceanTpl = document.getElementById('email-template');
-    const emailTemplate =
-      (sheetTpl?.value.trim() || oceanTpl?.value.trim()) || undefined;
+    const emailTemplate = sheetTpl?.value.trim() || undefined;
     const clientName =
       document.getElementById('client-name')?.value.trim() || undefined;
 
@@ -2921,8 +3078,7 @@ All origin charges (ocean carrier/terminal) included.`;
           })),
           markupPct,
           markupFlat,
-          addExportDeclaration,
-          exportDeclarationFee,
+          surcharges,
           clientName,
           emailTemplate,
           refId: lastSheetRefId,

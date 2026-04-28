@@ -1294,6 +1294,15 @@ export function registerApiRoutes(app: Express): void {
       rows?: SheetReplyRow[];
       markupPct?: number | string;
       markupFlat?: number | string;
+      /** New structured form — an array of toggled surcharge clauses. */
+      surcharges?: Array<{
+        kind: string;
+        label: string;
+        amount: number;
+        currency?: string;
+        basis?: string;
+      }>;
+      /** Legacy single-toggle fields (still accepted for backward compat). */
       addExportDeclaration?: boolean;
       exportDeclarationFee?: number | string;
       clientName?: string;
@@ -1308,16 +1317,26 @@ export function registerApiRoutes(app: Express): void {
     try {
       const markupPct = Number(body.markupPct ?? 0);
       const markupFlat = Number(body.markupFlat ?? 0);
-      const exportDeclarationFee =
-        body.exportDeclarationFee != null
-          ? Number(body.exportDeclarationFee)
-          : 65;
+      // Normalize surcharges. Legacy callers (the old export-decl-only
+      // toggle) get auto-translated into one item.
+      const surcharges = Array.isArray(body.surcharges)
+        ? body.surcharges
+        : body.addExportDeclaration
+          ? [
+              {
+                kind: 'export_declaration',
+                label: 'Export declaration',
+                amount: Number(body.exportDeclarationFee ?? 65),
+                currency: 'USD',
+                basis: 'per shipment',
+              },
+            ]
+          : [];
       const text = await generateSheetReply({
         rows: body.rows,
         markupPct,
         markupFlat,
-        addExportDeclaration: !!body.addExportDeclaration,
-        exportDeclarationFee,
+        surcharges,
         clientName: body.clientName,
         emailTemplate: body.emailTemplate,
       });
@@ -1327,8 +1346,12 @@ export function registerApiRoutes(app: Express): void {
           generatedEmail: text,
           markupPct,
           markupFlat,
-          addExportDeclaration: !!body.addExportDeclaration,
-          exportDeclarationFee,
+          // Backward-compat persisted fields. Will become a JSON column later.
+          addExportDeclaration: surcharges.some(
+            (s) => s.kind === 'export_declaration'
+          ),
+          exportDeclarationFee:
+            surcharges.find((s) => s.kind === 'export_declaration')?.amount ?? 0,
         }).catch((err) =>
           console.error('[api/sheets/reply] persist error:', err)
         );

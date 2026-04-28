@@ -21,17 +21,129 @@
       <button class="tab active" data-tab="new">Ocean</button>
       <button class="tab" data-tab="drayage">Drayage</button>
       <button class="tab" data-tab="trucking">Trucking</button>
-      <button class="tab" data-tab="bundles">Bundles</button>
       <button class="tab" data-tab="history">History</button>
-      <button class="tab" data-tab="agent">Agent</button>
-      <button class="tab" data-tab="record">Record</button>
-      <button class="tab" data-tab="sheets">Sheets</button>
-      <button class="tab" data-tab="secrets">Secrets</button>
     </nav>
   </header>
 
   <main>
     <section id="tab-new" class="tab-pane active">
+      <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
+      <div class="card">
+        <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
+        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG) or paste a screenshot with Ctrl+V. Claude reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate.</p>
+
+        <div id="sheet-dropzone" class="sheet-dropzone">
+          <div class="sheet-drop-prompt">
+            <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
+            <span class="muted small">PDF · PNG · JPG · WEBP — multiple at once</span>
+          </div>
+          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
+        </div>
+
+        <div class="row">
+          <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+          <div id="sheet-status" class="status-inline"></div>
+        </div>
+
+        <div id="sheet-progress-list" class="rec-upload-progress"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Past quotes</h2>
+          <button id="sheet-history-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <p class="muted small">Search by POL or POD (e.g. "charleston", "USCHS", "ROCND", "constanta"). Empty search shows the most recent quotes. Click a row to reload the rates + email without spending any tokens.</p>
+        <input id="sheet-history-search" type="search" placeholder="Filter by POL/POD..." class="full" />
+        <div id="sheet-history-list" class="sheet-history-list"></div>
+      </div>
+
+      <div id="sheet-results-card" class="card" hidden>
+        <div class="card-header">
+          <h2 id="sheet-results-title">Parsed rates</h2>
+          <span id="sheet-results-meta" class="muted"></span>
+        </div>
+
+        <div class="sheet-actions">
+          <button id="sheet-email-btn" class="primary">📧 Generate quote email</button>
+          <label class="sheet-markup-label">Margin add-on
+            <span class="slider-row">
+              <span class="slider-icon">%</span>
+              <input type="range" id="sheet-markup-pct-slider" min="0" max="30" step="0.5" value="0">
+              <input type="number" id="sheet-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
+              <span class="muted">%</span>
+            </span>
+            <span class="slider-row">
+              <span class="slider-icon">+</span>
+              <input type="range" id="sheet-markup-flat-slider" min="0" max="1000" step="5" value="0">
+              <input type="number" id="sheet-markup-flat" min="0" step="5" value="0" class="markup-num">
+              <span class="muted">USD flat</span>
+            </span>
+          </label>
+          <span id="sheet-email-status" class="status-inline"></span>
+        </div>
+
+        <fieldset class="surcharge-fieldset">
+          <legend>Optional surcharges <span class="muted small">— include in the email when checked</span></legend>
+          <label class="surcharge-row">
+            <input type="checkbox" id="surch-export-decl" />
+            <span class="surch-name">Export declaration</span>
+            <span class="muted small">$</span>
+            <input type="number" id="surch-export-decl-fee" min="0" step="1" value="65" class="markup-num" />
+          </label>
+          <label class="surcharge-row">
+            <input type="checkbox" id="surch-overweight" />
+            <span class="surch-name">Overweight surcharge</span>
+            <span class="muted small">$</span>
+            <input type="number" id="surch-overweight-fee" min="0" step="1" value="275" class="markup-num" />
+            <span class="muted small">if &gt; 17.7t (20') / 19.8t (40')</span>
+          </label>
+          <label class="surcharge-row">
+            <input type="checkbox" id="surch-waiting" />
+            <span class="surch-name">Loading wait time</span>
+            <span class="muted small">1h free, then $</span>
+            <input type="number" id="surch-waiting-fee" min="0" step="5" value="100" class="markup-num" />
+            <span class="muted small">/hr</span>
+          </label>
+        </fieldset>
+
+        <details class="template-details">
+          <summary>Email template <span class="muted small">— Claude follows the selected template</span></summary>
+          <div class="template-picker">
+            <label class="template-choice">
+              <input type="radio" name="email-template" value="concise" id="tpl-concise" checked />
+              <span class="tpl-name">Concise</span>
+              <span class="muted small">— minimal list format</span>
+            </label>
+            <label class="template-choice">
+              <input type="radio" name="email-template" value="structured" id="tpl-structured" />
+              <span class="tpl-name">Structured</span>
+              <span class="muted small">— sections + breakdown</span>
+            </label>
+            <label class="template-choice">
+              <input type="radio" name="email-template" value="conversational" id="tpl-conversational" />
+              <span class="tpl-name">Conversational</span>
+              <span class="muted small">— warm, prose-forward</span>
+            </label>
+          </div>
+          <textarea id="sheet-email-template" rows="10" placeholder="Selected template loads here. Edit to customize — your edits are saved locally per template."></textarea>
+        </details>
+
+        <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>
+        <div id="sheet-email-row" class="row" hidden>
+          <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
+          <span class="muted small">Tip: edit the email above before copying — your edits are preserved.</span>
+        </div>
+
+        <div class="table-wrap">
+          <table id="sheet-results-table"></table>
+        </div>
+      </div>
+
+      <!-- ─── Advanced: live portal automation (fragile, work in progress) ─── -->
+      <details class="advanced-section">
+        <summary><strong>Advanced — live portal automation</strong> <span class="muted small">(fragile, work in progress)</span></summary>
+
       <div class="card">
         <h2>Intake <span class="muted-inline">— paste a client's quote request</span></h2>
         <p class="muted">Paste text, paste a screenshot (Ctrl+V on desktop), or tap "Upload image" on mobile. Claude extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
@@ -215,6 +327,8 @@
           <div id="reply-status" class="status-inline"></div>
         </div>
       </div>
+
+      </details><!-- /advanced-section -->
     </section>
 
     <section id="tab-agent" class="tab-pane">
@@ -592,85 +706,7 @@
       </div>
     </section>
 
-    <section id="tab-sheets" class="tab-pane">
-      <div class="card">
-        <h2>Parse rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
-        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG). Claude reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate. Same view as a live bundle — just sourced from the document instead of a portal.</p>
-
-        <div id="sheet-dropzone" class="sheet-dropzone">
-          <div class="sheet-drop-prompt">
-            <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
-            <span class="muted small">PDF · PNG · JPG · WEBP — multiple at once</span>
-          </div>
-          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
-        </div>
-
-        <div class="row">
-          <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
-          <div id="sheet-status" class="status-inline"></div>
-        </div>
-
-        <div id="sheet-progress-list" class="rec-upload-progress"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <h2>Past sheet quotes</h2>
-          <button id="sheet-history-refresh" class="btn-sm">Refresh</button>
-        </div>
-        <p class="muted small">Search by POL or POD (e.g. "charleston", "USCHS", "ROCND", "constanta"). Empty search shows the most recent quotes. Click a row to reload the rates + email without spending any tokens.</p>
-        <input id="sheet-history-search" type="search" placeholder="Filter by POL/POD..." class="full" />
-        <div id="sheet-history-list" class="sheet-history-list"></div>
-      </div>
-
-      <div id="sheet-results-card" class="card" hidden>
-        <div class="card-header">
-          <h2 id="sheet-results-title">Parsed rates</h2>
-          <span id="sheet-results-meta" class="muted"></span>
-        </div>
-
-        <div class="sheet-actions">
-          <button id="sheet-email-btn" class="primary">📧 Generate quote email</button>
-          <label class="sheet-markup-label">Margin add-on
-            <span class="slider-row">
-              <span class="slider-icon">%</span>
-              <input type="range" id="sheet-markup-pct-slider" min="0" max="30" step="0.5" value="0">
-              <input type="number" id="sheet-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
-              <span class="muted">%</span>
-            </span>
-            <span class="slider-row">
-              <span class="slider-icon">+</span>
-              <input type="range" id="sheet-markup-flat-slider" min="0" max="1000" step="5" value="0">
-              <input type="number" id="sheet-markup-flat" min="0" step="5" value="0" class="markup-num">
-              <span class="muted">USD flat</span>
-            </span>
-          </label>
-          <label class="sheet-export-decl">
-            <input type="checkbox" id="sheet-export-decl-toggle" />
-            <span>+Export decl. $</span>
-            <input type="number" id="sheet-export-decl-fee" min="0" step="1" value="65" class="markup-num" />
-          </label>
-          <span id="sheet-email-status" class="status-inline"></span>
-        </div>
-
-        <details class="template-details">
-          <summary>Email template (Claude follows this format — edit once, reused for every quote)</summary>
-          <textarea id="sheet-email-template" rows="10" placeholder="Paste your typical client reply structure here. Saved locally in your browser."></textarea>
-        </details>
-
-        <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>
-        <div id="sheet-email-row" class="row" hidden>
-          <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
-          <span class="muted small">Tip: edit the email above before copying — your edits are preserved.</span>
-        </div>
-
-        <div class="table-wrap">
-          <table id="sheet-results-table"></table>
-        </div>
-      </div>
-    </section>
-
-    <!-- Image preview modal (used by Sheets tab "Source" links) -->
+    <!-- Image preview modal (used by the Ocean tab's source thumbnails) -->
     <div id="image-modal" class="image-modal" hidden>
       <div class="image-modal-backdrop"></div>
       <div class="image-modal-frame">
@@ -741,6 +777,17 @@
       </div>
     </section>
   </main>
+
+  <footer class="tools-footer">
+    <span class="muted small">Tools:</span>
+    <a href="#" data-tab="record" class="footer-tab-link">Record workflow</a>
+    <span class="muted small">·</span>
+    <a href="#" data-tab="agent" class="footer-tab-link">Web agent</a>
+    <span class="muted small">·</span>
+    <a href="#" data-tab="bundles" class="footer-tab-link">Past bundles</a>
+    <span class="muted small">·</span>
+    <a href="#" data-tab="secrets" class="footer-tab-link">Carrier secrets</a>
+  </footer>
 
   <script src="/app.js"></script>
 </body>

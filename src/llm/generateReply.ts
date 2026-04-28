@@ -249,12 +249,25 @@ export interface GenerateSheetReplyInput {
   rows: SheetReplyRow[];
   markupPct: number;
   markupFlat: number;
-  /** When true, the email lists an additional export-declaration line
-   *  (per shipment, USD) on top of the freight totals. Destination
-   *  charges remain untouched. */
-  addExportDeclaration?: boolean;
-  /** Amount in USD. Defaults to 65 if omitted. */
-  exportDeclarationFee?: number;
+  /**
+   * Optional surcharge clauses to include in the email. Each entry
+   * becomes one line in the body. Examples:
+   *   { kind:'export_declaration', label:'Export declaration', amount:65,
+   *     currency:'USD', basis:'per shipment' }
+   *   { kind:'overweight', label:'Overweight surcharge', amount:275,
+   *     currency:'USD', basis:'per container exceeding 17.7t (20\') / 19.8t (40\') gross' }
+   *   { kind:'waiting_time', label:'Loading wait time', amount:100,
+   *     currency:'USD', basis:'1 hour free, then $/hr thereafter' }
+   * None of these are subject to markup, none belong in destination
+   * charges — they're separate informational lines on the quote.
+   */
+  surcharges?: Array<{
+    kind: string;
+    label: string;
+    amount: number;
+    currency?: string;
+    basis?: string;
+  }>;
   clientName?: string;
   emailTemplate?: string;
 }
@@ -317,19 +330,26 @@ export async function generateSheetReply(
     blocks.push(lines.join('\n'));
   }
 
-  const exportDeclLine =
-    input.addExportDeclaration && (input.exportDeclarationFee ?? 0) > 0
-      ? `Export declaration: USD ${input.exportDeclarationFee} per shipment — INCLUDE this as a separate line in the email (label "Export declaration" or "Export customs declaration"). Apply once per shipment, not per container. NOT subject to markup. NOT a destination charge.\n`
-      : '';
+  // Surcharges: render one prompt-line per checked clause.
+  const surchargeLines = (input.surcharges ?? [])
+    .filter((s) => s && s.amount > 0)
+    .map(
+      (s) =>
+        `- ${s.label}: ${s.currency ?? 'USD'} ${s.amount}${s.basis ? ` (${s.basis})` : ''}`
+    )
+    .join('\n');
+  const surchargesBlock = surchargeLines
+    ? `\nApplicable surcharges (INCLUDE each as its own line in the email — keep them separate from the freight total and the destination charges, NOT subject to markup):\n${surchargeLines}\n`
+    : '';
 
   const userText =
     (input.clientName ? `Client name: ${input.clientName}\n` : '') +
     `Markup applied: +${input.markupPct}% and +${input.markupFlat} USD flat\n` +
-    exportDeclLine +
-    `Source: parsed rate sheets (no live carrier query)\n\n` +
-    `Lanes & rates:\n\n${blocks.join('\n\n')}\n\n` +
+    `Source: parsed rate sheets (no live carrier query)\n` +
+    surchargesBlock +
+    `\nLanes & rates:\n\n${blocks.join('\n\n')}\n\n` +
     (input.emailTemplate
-      ? `EMAIL TEMPLATE TO FOLLOW EXACTLY (substitute in the lanes & prices above):\n\n---BEGIN TEMPLATE---\n${input.emailTemplate}\n---END TEMPLATE---\n\nWrite the reply.`
+      ? `EMAIL TEMPLATE TO FOLLOW EXACTLY (substitute in the lanes, prices, and any applicable surcharges above):\n\n---BEGIN TEMPLATE---\n${input.emailTemplate}\n---END TEMPLATE---\n\nWrite the reply.`
       : 'Write a clean, professional default reply. Include each lane and each container type. Show "Your price" amounts only — never the carrier cost. Always show destination charges on a separate line clearly labeled as on-collect / not included.');
 
   console.log(
