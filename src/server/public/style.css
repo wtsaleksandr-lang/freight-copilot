@@ -846,6 +846,7 @@ label.check-line input[type="checkbox"] {
 
 .sheet-export-decl {
   display: inline-flex;
+  flex-direction: row; /* override label{flex-direction:column} */
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
@@ -990,7 +991,12 @@ label.check-line input[type="checkbox"] {
 }
 .surcharge-row {
   display: flex;
+  /* Override label{flex-direction:column} cascade so the items lay out on
+     one line (checkbox · name · $ · amount · hint). Without this, every
+     item stacks vertically. */
+  flex-direction: row;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 4px 0;
   font-size: 13px;
@@ -1025,6 +1031,7 @@ label.check-line input[type="checkbox"] {
 }
 .template-choice {
   display: flex;
+  flex-direction: row; /* override label{flex-direction:column} */
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -1159,6 +1166,7 @@ label.check-line input[type="checkbox"] {
 
 .ship-ephemeral-toggle {
   display: inline-flex;
+  flex-direction: row; /* override label{flex-direction:column} */
   align-items: center;
   gap: 6px;
   font-size: 12px;
@@ -1335,6 +1343,7 @@ label.check-line input[type="checkbox"] {
 }
 .calc-rate-row {
   display: flex;
+  flex-direction: row; /* override label{flex-direction:column} */
   align-items: center;
   gap: 6px;
   font-size: 12px;
@@ -1344,6 +1353,8 @@ label.check-line input[type="checkbox"] {
 .calc-rate-row input { width: 80px; }
 .calc-row {
   display: flex;
+  flex-direction: row; /* override label{flex-direction:column} when the
+                           container happens to be a <label> ancestor */
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
