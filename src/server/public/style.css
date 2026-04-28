@@ -133,6 +133,17 @@ input, textarea, select {
   font-size: 13.5px;
   width: 100%;
 }
+/* The 100%-width default above is for text inputs. Checkboxes and
+   radio buttons should keep their natural sizing — otherwise they
+   stretch to fill their flex parent and push everything else onto a
+   new line (e.g. the surcharge picker rows). */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
 select:disabled option:disabled { color: var(--muted); }
 input:focus, textarea:focus, select:focus {
   outline: none;
