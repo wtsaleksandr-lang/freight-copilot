@@ -1172,6 +1172,59 @@ label.check-line input[type="checkbox"] {
   margin: 0;
 }
 
+/* Clarification modal */
+.clarify-frame {
+  width: min(560px, 92vw);
+  height: auto;
+  max-height: 92vh;
+}
+.clarify-body {
+  padding: 18px 22px 16px;
+  display: block;
+  overflow-y: auto;
+}
+.clarify-q {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 6px;
+}
+.clarify-q .clarify-q-text {
+  font-size: 13.5px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.clarify-q .clarify-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.clarify-option {
+  padding: 5px 10px;
+  background: transparent;
+  color: white;
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.clarify-option:hover {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.08);
+}
+.clarify-option.is-picked {
+  background: #2ea043;
+  border-color: #2ea043;
+}
+.clarify-other {
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
 /* Floating calculators panel */
 .calc-toggle {
   position: fixed;

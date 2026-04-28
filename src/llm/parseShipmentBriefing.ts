@@ -26,6 +26,19 @@ Target fields (all optional — leave null if not stated):
 - carrier_preference: which ocean carrier was preferred or selected (Maersk, MSC, CMA CGM, Hapag-Lloyd, ONE, OOCL, ZIM, COSCO, etc.). Use the carrier's full name or 3-letter code (MSK/MSC/CMA/HLC/ONE/OOC/ZIM/COS).
 - notes: anything else worth keeping — secondary rates, ready dates, reefer temp, special instructions, document references. Keep concise (2-3 sentences max).
 
+- questions: when the document contains MULTIPLE plausible candidates for a field that you cannot disambiguate yourself, populate this array instead of guessing. The dashboard will surface each question to the user with clickable answer buttons, then re-call you with the user's answers as authoritative.
+
+  Use questions for:
+  - Multiple booking / reference / contract numbers in a thread (which one is THIS shipment's ref?)
+  - Multiple parties named with overlapping roles (which is the shipper vs. the receiver vs. the customer?)
+  - Multiple POL or POD candidates
+  - Ambiguous container counts ("we'll take 2-3 x 40HC" — which?)
+  - Conflicting rate quotes within the same thread (which is the agreed rate?)
+
+  Each question is { text: clear sentence ending in '?', options: 2-6 short candidate strings to pick from }. Add an empty-string option ONLY if the user might want to type a free-text answer.
+
+  Don't ask trivial questions — if only one candidate is plausible, just extract it. Don't ask more than 3 questions per call; pick the most ambiguous fields.
+
 Rules:
 - Be conservative. Null beats a guess.
 - If multiple pages or images describe ONE shipment, merge into a single record.
@@ -33,6 +46,11 @@ Rules:
 - Do not invent ports, addresses, or carrier names.
 
 Return through the extract_shipment_briefing tool.`;
+
+const QuestionSchema = z.object({
+  text: z.string(),
+  options: z.array(z.string()).default([]),
+});
 
 const ShipmentSchema = z.object({
   shipper_name: z.string().nullable().optional(),
@@ -50,6 +68,7 @@ const ShipmentSchema = z.object({
   sold_currency: z.string().nullable().optional(),
   carrier_preference: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  questions: z.array(QuestionSchema).default([]).optional(),
 });
 
 export type ShipmentBriefing = z.infer<typeof ShipmentSchema>;
@@ -72,6 +91,22 @@ const TOOL_SCHEMA = {
     sold_currency: { type: ['string', 'null'] },
     carrier_preference: { type: ['string', 'null'] },
     notes: { type: ['string', 'null'] },
+    questions: {
+      type: 'array',
+      description:
+        'Clarification questions to surface to the user when the document contains multiple plausible candidates for a field. Empty array if no ambiguity.',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['text'],
+      },
+    },
   },
   required: [],
 } as const;
@@ -122,13 +157,28 @@ const TEXT_TYPES = new Set<BriefingMediaType>([
 ]);
 
 /**
+ * Optional user-provided clarifications, keyed by question text.
+ * When the previous extraction returned questions[], the dashboard
+ * collects answers from the user and re-calls with them populated.
+ */
+export interface ClarificationAnswer {
+  question: string;
+  answer: string;
+}
+
+/**
  * Extract one shipment record from a set of email screenshots / PDFs.
  * All files are sent to Claude in a single call — they describe the
  * same shipment together (e.g. one booking thread split across multiple
  * screenshots).
+ *
+ * If userAnswers is non-empty, the prompt includes them as authoritative
+ * clarifications. Claude should NOT re-ask the same question and should
+ * fill the relevant fields per the user's answer.
  */
 export async function parseShipmentBriefing(
-  files: BriefingFile[]
+  files: BriefingFile[],
+  userAnswers: ClarificationAnswer[] = []
 ): Promise<ShipmentBriefing> {
   const env = loadEnv();
   if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
@@ -162,6 +212,14 @@ export async function parseShipmentBriefing(
   const content: Array<{ type: string; [k: string]: unknown }> = [
     { type: 'text', text: intro },
   ];
+  if (userAnswers.length > 0) {
+    const answersBlock =
+      'USER CLARIFICATIONS (authoritative — do NOT re-ask, do NOT contradict, populate the relevant fields accordingly):\n' +
+      userAnswers
+        .map((a, i) => `  ${i + 1}. Q: ${a.question}\n     A: ${a.answer}`)
+        .join('\n');
+    content.push({ type: 'text', text: answersBlock });
+  }
   for (const f of files) {
     if (f.mediaType === 'application/pdf') {
       if (!f.fileBase64) throw new Error('PDF missing fileBase64');

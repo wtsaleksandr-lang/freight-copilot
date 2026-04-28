@@ -1464,6 +1464,9 @@ export function registerApiRoutes(app: Express): void {
       /** If true, original files are NOT saved to disk — extract only.
        *  Use for confidential email content. Default false (keep). */
       ephemeral?: boolean;
+      /** When the previous call returned questions[], the dashboard
+       *  resends the same files plus the user's answers here. */
+      userAnswers?: Array<{ question: string; answer: string }>;
     };
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
@@ -1471,6 +1474,7 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     const ephemeral = !!body.ephemeral;
+    const userAnswers = Array.isArray(body.userAnswers) ? body.userAnswers : [];
     try {
       // Resolve media type per file. If the client supplied one, use it;
       // otherwise infer from filename. Then route text vs vision.
@@ -1504,7 +1508,17 @@ export function registerApiRoutes(app: Express): void {
       });
 
       // Run extraction first so we know whether to create the row at all.
-      const briefing = await parseShipmentBriefing(briefingFiles);
+      const briefing = await parseShipmentBriefing(briefingFiles, userAnswers);
+
+      // Two-step clarification: if Claude returned questions AND the
+      // user hasn't already answered them, return WITHOUT creating a
+      // row. Frontend pops a modal, collects answers, re-POSTs the
+      // same files with userAnswers populated.
+      const questions = briefing.questions ?? [];
+      if (questions.length > 0 && userAnswers.length === 0) {
+        res.json({ pendingClarification: true, questions });
+        return;
+      }
 
       // Create the row with extracted fields. Ref id is auto-allocated.
       const row = await createShipment({

@@ -3355,30 +3355,61 @@ const SHIP_COLS = [
     return btoa(bin);
   }
 
+  async function buildPayload() {
+    const out = [];
+    for (const f of pendingFiles) {
+      out.push({
+        filename: f.name,
+        contentBase64: await fileToBase64(f),
+        mediaType:
+          f.type && f.type !== 'application/octet-stream' ? f.type : undefined,
+      });
+    }
+    return out;
+  }
+
+  async function callParse(payload, ephemeral, userAnswers) {
+    const r = await fetch('/api/shipments/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: payload, ephemeral, userAnswers }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'parse failed');
+    return data;
+  }
+
   parseBtn.addEventListener('click', async () => {
     if (pendingFiles.length === 0) return;
     parseBtn.disabled = true;
     setStatus('ship-status', 'Reading files & calling Claude…', 'info');
     try {
       const ephemeral = !!document.getElementById('ship-ephemeral')?.checked;
-      const payload = [];
-      for (const f of pendingFiles) {
-        // Send mediaType when the browser provided one; otherwise let the
-        // server infer from the filename extension (handles .eml which
-        // Chrome often labels as application/octet-stream).
-        payload.push({
-          filename: f.name,
-          contentBase64: await fileToBase64(f),
-          mediaType: f.type && f.type !== 'application/octet-stream' ? f.type : undefined,
-        });
+      const payload = await buildPayload();
+
+      // First-pass extraction
+      let data = await callParse(payload, ephemeral);
+
+      // If Claude wants clarification, pop the modal and wait for answers.
+      if (data.pendingClarification && Array.isArray(data.questions)) {
+        setStatus(
+          'ship-status',
+          `${data.questions.length} clarification${data.questions.length === 1 ? '' : 's'} needed…`,
+          'info'
+        );
+        const answers = await openClarificationModal(data.questions);
+        if (!answers) {
+          setStatus('ship-status', 'Cancelled. Files still queued.', 'info');
+          parseBtn.disabled = pendingFiles.length === 0;
+          return;
+        }
+        setStatus('ship-status', 'Re-running extraction with your answers…', 'info');
+        data = await callParse(payload, ephemeral, answers);
       }
-      const r = await fetch('/api/shipments/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: payload, ephemeral }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'parse failed');
+
+      if (!data.shipment) {
+        throw new Error('No shipment returned by server.');
+      }
       setStatus(
         'ship-status',
         `Created ${data.shipment.refId} — review & edit cells as needed.`,
@@ -3387,7 +3418,6 @@ const SHIP_COLS = [
       pendingFiles = [];
       refreshDropState();
       await loadList();
-      // Scroll the new row into view.
       const newRow = table.querySelector(
         `tr[data-ref="${CSS.escape(data.shipment.refId)}"]`
       );
@@ -3576,6 +3606,106 @@ const SHIP_COLS = [
     .querySelector('[data-tab="shipments"]')
     ?.addEventListener('click', () => loadList());
 })();
+
+// ---- Clarification modal (used by Shipments AI parse) ----
+function openClarificationModal(questions) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('clarify-modal');
+    const list = document.getElementById('clarify-questions');
+    const submitBtn = document.getElementById('clarify-submit');
+    const cancelBtn = document.getElementById('clarify-cancel');
+    const cancelBtn2 = document.getElementById('clarify-cancel-btn');
+    if (!modal || !list || !submitBtn) {
+      resolve(null);
+      return;
+    }
+    // Each question has its own picked-answer state.
+    const picks = questions.map(() => '');
+
+    function render() {
+      list.innerHTML = questions
+        .map((q, qi) => {
+          const opts = (q.options || [])
+            .map(
+              (opt, oi) =>
+                `<button type="button" class="clarify-option ${picks[qi] === opt ? 'is-picked' : ''}" data-q="${qi}" data-opt="${oi}">${esc(opt)}</button>`
+            )
+            .join('');
+          return `<div class="clarify-q" data-q="${qi}">
+            <div class="clarify-q-text">${esc(q.text)}</div>
+            <div class="clarify-options">${opts}</div>
+            <input type="text" class="clarify-other" placeholder="…or type your own answer" data-q-other="${qi}" value="${esc(picks[qi] && !(q.options || []).includes(picks[qi]) ? picks[qi] : '')}" />
+          </div>`;
+        })
+        .join('');
+      // Wire option buttons
+      list.querySelectorAll('.clarify-option').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const qi = Number(btn.getAttribute('data-q'));
+          const oi = Number(btn.getAttribute('data-opt'));
+          picks[qi] = questions[qi].options[oi];
+          render();
+          updateSubmit();
+        });
+      });
+      // Wire free-text inputs
+      list.querySelectorAll('input.clarify-other').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const qi = Number(inp.getAttribute('data-q-other'));
+          picks[qi] = inp.value.trim();
+          // Don't re-render (it'd lose focus); just refresh button state
+          list
+            .querySelectorAll(`.clarify-option[data-q="${qi}"]`)
+            .forEach((b) => b.classList.remove('is-picked'));
+          updateSubmit();
+        });
+      });
+    }
+
+    function updateSubmit() {
+      const allAnswered = picks.every((p) => p && p.length > 0);
+      submitBtn.disabled = !allAnswered;
+    }
+
+    function cleanup() {
+      modal.hidden = true;
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn?.removeEventListener('click', onCancel);
+      cancelBtn2?.removeEventListener('click', onCancel);
+      modal
+        .querySelector('.image-modal-backdrop')
+        ?.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onSubmit() {
+      const answers = questions.map((q, i) => ({
+        question: q.text,
+        answer: picks[i],
+      }));
+      cleanup();
+      resolve(answers);
+    }
+    function onCancel() {
+      cleanup();
+      resolve(null);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') onCancel();
+    }
+
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn?.addEventListener('click', onCancel);
+    cancelBtn2?.addEventListener('click', onCancel);
+    modal
+      .querySelector('.image-modal-backdrop')
+      ?.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey);
+
+    modal.hidden = false;
+    render();
+    updateSubmit();
+  });
+}
 
 // ---- Floating calculators ----
 const CALC_RATE_KEY = 'freight.calc.usdcad.rate';

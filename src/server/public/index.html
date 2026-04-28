@@ -815,6 +815,28 @@
     </section>
   </main>
 
+  <!-- Clarification modal: shown when AI extraction returns questions.
+       Modal collects the user's answers, then the parse re-fires with
+       them as authoritative context. -->
+  <div id="clarify-modal" class="image-modal" hidden>
+    <div class="image-modal-backdrop"></div>
+    <div class="image-modal-frame clarify-frame">
+      <div class="image-modal-toolbar">
+        <strong>AI needs clarification</strong>
+        <span class="image-modal-spacer"></span>
+        <button id="clarify-cancel" class="btn-sm" title="Cancel">✕</button>
+      </div>
+      <div class="image-modal-body clarify-body">
+        <p class="muted small">Claude found multiple plausible values and isn't sure which is yours. Pick one for each, or type a different answer.</p>
+        <div id="clarify-questions"></div>
+        <div class="row" style="justify-content: flex-end; margin-top: 14px;">
+          <button id="clarify-cancel-btn" class="btn-sm">Cancel</button>
+          <button id="clarify-submit" class="primary" disabled>Apply &amp; create shipment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Floating Calculators panel — opens with the bottom-right button.
        Pure local math; persists rate/state to localStorage. -->
   <button id="calc-toggle" class="calc-toggle" title="Open calculators">🧮</button>
