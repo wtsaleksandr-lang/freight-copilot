@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { resolve } from 'node:path';
 import { desc, eq } from 'drizzle-orm';
 import { createDbClient } from '../db/client.js';
 import {
@@ -51,6 +52,10 @@ import {
   probeCarrierSession,
   probeAllCarriers,
 } from './sessionProbe.js';
+import {
+  parseRateSheet,
+  type RateSheetMediaType,
+} from '../llm/parseRateSheet.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -1135,6 +1140,77 @@ export function registerApiRoutes(app: Express): void {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  });
+
+  // ---- Rate-sheet parser (offline path: AI reads PDFs/screenshots) ----
+
+  app.post('/api/rates/parse-sheet', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      files?: Array<{
+        filename?: string;
+        contentBase64: string;
+        mediaType: RateSheetMediaType;
+      }>;
+    };
+    const files = Array.isArray(body.files) ? body.files : [];
+    if (files.length === 0) {
+      res.status(400).json({ error: 'No files provided.' });
+      return;
+    }
+
+    // Group all files in this submission under one refId folder for audit.
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    const refId = `RS-${date}-${rand}`;
+    const outDir = resolve('./parsed-sheets', refId);
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(outDir, { recursive: true });
+
+    const results: Array<{
+      filename: string;
+      ok: boolean;
+      reason?: string;
+      parsed?: import('../llm/parseRateSheet.js').RateSheetResult;
+      artifacts?: { source: string; parsed: string };
+    }> = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]!;
+      const filename = f.filename ?? `sheet-${i + 1}`;
+      const safe = filename.replace(/[^a-z0-9._-]/gi, '_');
+      const ext =
+        f.mediaType === 'application/pdf'
+          ? 'pdf'
+          : f.mediaType.split('/')[1] ?? 'bin';
+      const sourcePath = resolve(outDir, `${i + 1}-${safe}`);
+      const parsedPath = resolve(outDir, `${i + 1}-${safe}.parsed.json`);
+      try {
+        await writeFile(sourcePath, Buffer.from(f.contentBase64, 'base64'));
+        const parsed = await parseRateSheet({
+          fileBase64: f.contentBase64,
+          mediaType: f.mediaType,
+          filename,
+        });
+        await writeFile(parsedPath, JSON.stringify(parsed, null, 2));
+        results.push({
+          filename,
+          ok: true,
+          parsed,
+          artifacts: {
+            source: `/parsed-sheets-files/${refId}/${i + 1}-${safe}`,
+            parsed: `/parsed-sheets-files/${refId}/${i + 1}-${safe}.parsed.json`,
+          },
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[api/rates/parse-sheet] ${filename}:`, reason);
+        results.push({ filename, ok: false, reason });
+      }
+      // Suppress unused-var warning when ext isn't read
+      void ext;
+    }
+
+    res.json({ refId, outputFolder: outDir, results });
   });
 
   // ---- Carrier credential vault ----

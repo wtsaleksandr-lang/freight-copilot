@@ -2379,6 +2379,293 @@ async function loadCredList() {
   });
 })();
 
+// ---- Rate-sheet drop / parse ----
+(function wireSheetsTab() {
+  const dropzone = document.getElementById('sheet-dropzone');
+  const fileInput = document.getElementById('sheet-files');
+  const parseBtn = document.getElementById('sheet-parse-btn');
+  const progress = document.getElementById('sheet-progress-list');
+  if (!dropzone || !fileInput || !parseBtn) return;
+
+  let selectedFiles = [];
+
+  function renderQueue() {
+    if (selectedFiles.length === 0) {
+      progress.innerHTML = '';
+      parseBtn.disabled = true;
+      parseBtn.textContent = 'Parse selected sheet(s)';
+      return;
+    }
+    progress.innerHTML =
+      '<h3 class="bd-title">Queued</h3><ul class="rec-upload-progress">' +
+      selectedFiles
+        .map(
+          (f, i) =>
+            `<li data-idx="${i}"><span>${esc(f.name)}</span> <span class="muted small">(${Math.round(f.size / 1024)} KB)</span> <span class="upload-state muted">queued</span></li>`
+        )
+        .join('') +
+      '</ul>';
+    parseBtn.disabled = false;
+    parseBtn.textContent = `Parse ${selectedFiles.length} sheet${selectedFiles.length > 1 ? 's' : ''}`;
+  }
+
+  function setItemState(i, msg, cls) {
+    const li = progress.querySelector(`li[data-idx="${i}"] .upload-state`);
+    if (li) {
+      li.textContent = msg;
+      li.className = 'upload-state ' + (cls || '');
+    }
+  }
+
+  function ingestFiles(fileList) {
+    const arr = Array.from(fileList || []);
+    const accepted = arr.filter((f) =>
+      /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i.test(f.type)
+    );
+    if (accepted.length !== arr.length) {
+      setStatus(
+        'sheet-status',
+        `Skipped ${arr.length - accepted.length} unsupported file${arr.length - accepted.length === 1 ? '' : 's'}.`,
+        'info'
+      );
+    }
+    selectedFiles = selectedFiles.concat(accepted);
+    renderQueue();
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    ingestFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('is-drag');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('is-drag'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('is-drag');
+    ingestFiles(e.dataTransfer?.files);
+  });
+
+  async function fileToBase64(file) {
+    const buf = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  parseBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) return;
+    parseBtn.disabled = true;
+    setStatus('sheet-status', 'Reading files…', 'info');
+
+    const payload = [];
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const f = selectedFiles[i];
+      setItemState(i, 'reading…', 'info');
+      try {
+        const b64 = await fileToBase64(f);
+        payload.push({
+          filename: f.name,
+          contentBase64: b64,
+          mediaType: f.type || 'application/pdf',
+        });
+        setItemState(i, 'queued for Claude…', 'info');
+      } catch (err) {
+        setItemState(i, 'read failed: ' + err.message, 'error');
+      }
+    }
+
+    setStatus('sheet-status', 'Sending to Claude…', 'info');
+    try {
+      const r = await fetch('/api/rates/parse-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: payload }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'parse failed');
+
+      data.results.forEach((res, i) => {
+        if (res.ok) {
+          const lanes = res.parsed.lanes.length;
+          const rates = res.parsed.lanes.reduce(
+            (n, l) => n + l.rates_per_container.length,
+            0
+          );
+          setItemState(
+            i,
+            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)`,
+            'success'
+          );
+        } else {
+          setItemState(i, 'failed: ' + (res.reason || 'unknown'), 'error');
+        }
+      });
+
+      const okResults = data.results.filter((r) => r.ok);
+      const totalRates = okResults.reduce(
+        (n, r) =>
+          n +
+          r.parsed.lanes.reduce(
+            (m, l) => m + l.rates_per_container.length,
+            0
+          ),
+        0
+      );
+      setStatus(
+        'sheet-status',
+        `${okResults.length}/${data.results.length} parsed · ${totalRates} rates total · saved to ${data.outputFolder}`,
+        okResults.length === data.results.length ? 'success' : 'info'
+      );
+      renderSheetResults(data);
+    } catch (err) {
+      setStatus('sheet-status', err.message, 'error');
+    } finally {
+      selectedFiles = [];
+      parseBtn.disabled = false;
+      parseBtn.textContent = 'Parse selected sheet(s)';
+    }
+  });
+})();
+
+function renderSheetResults(data) {
+  const card = document.getElementById('sheet-results-card');
+  const title = document.getElementById('sheet-results-title');
+  const meta = document.getElementById('sheet-results-meta');
+  const table = document.getElementById('sheet-results-table');
+  if (!card || !table) return;
+  card.hidden = false;
+
+  const okResults = data.results.filter((r) => r.ok);
+  if (okResults.length === 0) {
+    title.textContent = 'No rates extracted';
+    meta.textContent = data.refId;
+    table.innerHTML =
+      '<tbody><tr><td class="empty">All files failed. See queue above.</td></tr></tbody>';
+    return;
+  }
+
+  // Flatten: one row per (file, lane, container).
+  const rows = [];
+  for (const res of okResults) {
+    const carrier = res.parsed.carrier_code;
+    const validity =
+      res.parsed.validity_from && res.parsed.validity_to
+        ? `${res.parsed.validity_from} → ${res.parsed.validity_to}`
+        : res.parsed.validity_from || res.parsed.validity_to || null;
+    for (const lane of res.parsed.lanes) {
+      for (const r of lane.rates_per_container) {
+        rows.push({
+          carrier,
+          validity,
+          filename: res.filename,
+          source: res.artifacts?.source,
+          parsed: res.artifacts?.parsed,
+          origin: lane.origin,
+          originCode: lane.origin_code,
+          destination: lane.destination,
+          destinationCode: lane.destination_code,
+          serviceName: lane.service_name,
+          transitDays: lane.transit_days,
+          detentionDays: lane.detention_freetime_days,
+          demurrageDays: lane.demurrage_freetime_days,
+          containerType: r.container_type,
+          freightCharges: r.freight_charges,
+          freightTotal: r.freight_total,
+          freightCurrency: r.freight_currency,
+          destCharges: r.destination_charges,
+          destTotal: r.destination_total,
+          destCurrency: r.destination_currency,
+        });
+      }
+    }
+  }
+  rows.sort(
+    (a, b) =>
+      a.origin.localeCompare(b.origin) ||
+      a.destination.localeCompare(b.destination) ||
+      a.containerType.localeCompare(b.containerType)
+  );
+
+  title.textContent = `${data.refId}: ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
+  meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code>`;
+
+  const thead = `<thead><tr>
+    <th>Carrier</th>
+    <th>Lane</th>
+    <th>Container</th>
+    <th>Transit</th>
+    <th>Det/Dem free</th>
+    <th>Freight total<br><span class="muted small">(in total)</span></th>
+    <th>Destination<br><span class="muted small">(separate)</span></th>
+    <th>Source</th>
+  </tr></thead>`;
+
+  const body = rows
+    .map((r) => {
+      const laneStr =
+        `${esc(r.origin)}${r.originCode ? ` (${esc(r.originCode)})` : ''}` +
+        ` → ${esc(r.destination)}${r.destinationCode ? ` (${esc(r.destinationCode)})` : ''}`;
+      const transit = r.transitDays != null ? `${r.transitDays}d` : '—';
+      const dnd =
+        r.detentionDays != null || r.demurrageDays != null
+          ? `${r.detentionDays ?? '?'}d / ${r.demurrageDays ?? '?'}d`
+          : '—';
+
+      const fc = (r.freightCharges || [])
+        .map(
+          (c) =>
+            `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency)} ${(c.amount ?? 0).toLocaleString()}</span></div>`
+        )
+        .join('');
+      const dc = (r.destCharges || [])
+        .map(
+          (c) =>
+            `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency)} ${(c.amount ?? 0).toLocaleString()}</span></div>`
+        )
+        .join('');
+
+      const freightCell =
+        `<strong>${esc(r.freightCurrency)} ${r.freightTotal.toLocaleString()}</strong>` +
+        (fc
+          ? `<details class="rate-breakdown"><summary>breakdown</summary><div class="bd-section">${fc}</div></details>`
+          : '');
+
+      const destCell =
+        r.destTotal != null
+          ? `<strong>${esc(r.destCurrency || '')} ${r.destTotal.toLocaleString()}</strong>` +
+            (dc
+              ? `<details class="rate-breakdown"><summary>breakdown</summary><div class="bd-section">${dc}</div></details>`
+              : '')
+          : '<span class="muted small">—</span>';
+
+      const sourceCell = r.source
+        ? `<a href="${esc(r.source)}" target="_blank" rel="noopener" class="artifact-link">${esc(r.filename)}</a>`
+        : esc(r.filename);
+
+      return `<tr>
+        <td><strong>${esc(r.carrier)}</strong>${r.serviceName ? `<br><span class="muted small">${esc(r.serviceName)}</span>` : ''}${r.validity ? `<br><span class="muted small">${esc(r.validity)}</span>` : ''}</td>
+        <td>${laneStr}</td>
+        <td><code>${esc(r.containerType)}</code></td>
+        <td>${transit}</td>
+        <td>${esc(dnd)}</td>
+        <td class="price">${freightCell}</td>
+        <td>${destCell}</td>
+        <td>${sourceCell}</td>
+      </tr>`;
+    })
+    .join('');
+
+  table.innerHTML = thead + '<tbody>' + body + '</tbody>';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function setStatus(elId, msg, type) {
   const el = document.getElementById(elId);
   el.className = 'status-inline ' + (type || '');

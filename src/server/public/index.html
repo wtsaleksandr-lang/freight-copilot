@@ -25,6 +25,7 @@
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="agent">Agent</button>
       <button class="tab" data-tab="record">Record</button>
+      <button class="tab" data-tab="sheets">Sheets</button>
       <button class="tab" data-tab="secrets">Secrets</button>
     </nav>
   </header>
@@ -587,6 +588,38 @@
         </div>
         <div class="table-wrap">
           <table id="rec-list-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-sheets" class="tab-pane">
+      <div class="card">
+        <h2>Parse rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
+        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG). Claude reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate. Same view as a live bundle — just sourced from the document instead of a portal.</p>
+
+        <div id="sheet-dropzone" class="sheet-dropzone">
+          <div class="sheet-drop-prompt">
+            <strong>Drop files here</strong>
+            <span class="muted small">or click to browse — PDF · PNG · JPG · WEBP, multiple at once</span>
+          </div>
+          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
+        </div>
+
+        <div class="row">
+          <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+          <div id="sheet-status" class="status-inline"></div>
+        </div>
+
+        <div id="sheet-progress-list" class="rec-upload-progress"></div>
+      </div>
+
+      <div id="sheet-results-card" class="card" hidden>
+        <div class="card-header">
+          <h2 id="sheet-results-title">Parsed rates</h2>
+          <span id="sheet-results-meta" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table id="sheet-results-table"></table>
         </div>
       </div>
     </section>

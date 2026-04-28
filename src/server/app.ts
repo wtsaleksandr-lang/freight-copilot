@@ -38,6 +38,11 @@ export function createApp(): express.Express {
   const quotesDir = resolve(process.cwd(), 'quotes');
   app.use('/quotes-files', express.static(quotesDir));
 
+  // Same pattern for offline rate-sheet parsing — let the dashboard link
+  // back to the source PDF/image and the parsed JSON.
+  const parsedSheetsDir = resolve(process.cwd(), 'parsed-sheets');
+  app.use('/parsed-sheets-files', express.static(parsedSheetsDir));
+
   // Real Chrome mode: start the keep-alive pinger that probes each
   // carrier's quote URL every 10 min. Two effects:
   //  - Navigation alone counts as portal activity → idle timer resets,
