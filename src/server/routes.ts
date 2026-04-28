@@ -1223,6 +1223,8 @@ export function registerApiRoutes(app: Express): void {
       rows?: SheetReplyRow[];
       markupPct?: number | string;
       markupFlat?: number | string;
+      addExportDeclaration?: boolean;
+      exportDeclarationFee?: number | string;
       clientName?: string;
       emailTemplate?: string;
     };
@@ -1235,6 +1237,11 @@ export function registerApiRoutes(app: Express): void {
         rows: body.rows,
         markupPct: Number(body.markupPct ?? 0),
         markupFlat: Number(body.markupFlat ?? 0),
+        addExportDeclaration: !!body.addExportDeclaration,
+        exportDeclarationFee:
+          body.exportDeclarationFee != null
+            ? Number(body.exportDeclarationFee)
+            : 65,
         clientName: body.clientName,
         emailTemplate: body.emailTemplate,
       });

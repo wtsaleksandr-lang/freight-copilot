@@ -249,6 +249,12 @@ export interface GenerateSheetReplyInput {
   rows: SheetReplyRow[];
   markupPct: number;
   markupFlat: number;
+  /** When true, the email lists an additional export-declaration line
+   *  (per shipment, USD) on top of the freight totals. Destination
+   *  charges remain untouched. */
+  addExportDeclaration?: boolean;
+  /** Amount in USD. Defaults to 65 if omitted. */
+  exportDeclarationFee?: number;
   clientName?: string;
   emailTemplate?: string;
 }
@@ -311,9 +317,15 @@ export async function generateSheetReply(
     blocks.push(lines.join('\n'));
   }
 
+  const exportDeclLine =
+    input.addExportDeclaration && (input.exportDeclarationFee ?? 0) > 0
+      ? `Export declaration: USD ${input.exportDeclarationFee} per shipment — INCLUDE this as a separate line in the email (label "Export declaration" or "Export customs declaration"). Apply once per shipment, not per container. NOT subject to markup. NOT a destination charge.\n`
+      : '';
+
   const userText =
     (input.clientName ? `Client name: ${input.clientName}\n` : '') +
     `Markup applied: +${input.markupPct}% and +${input.markupFlat} USD flat\n` +
+    exportDeclLine +
     `Source: parsed rate sheets (no live carrier query)\n\n` +
     `Lanes & rates:\n\n${blocks.join('\n\n')}\n\n` +
     (input.emailTemplate

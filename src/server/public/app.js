@@ -2843,6 +2843,10 @@ function renderSheetResults(data) {
     }
     const markupPct = Number(pctNum.value) || 0;
     const markupFlat = Number(flatNum.value) || 0;
+    const exportDeclToggle = document.getElementById('sheet-export-decl-toggle');
+    const exportDeclFeeInput = document.getElementById('sheet-export-decl-fee');
+    const addExportDeclaration = !!exportDeclToggle?.checked;
+    const exportDeclarationFee = Number(exportDeclFeeInput?.value) || 0;
     const tplArea = document.getElementById('email-template'); // shared template from Ocean tab
     const emailTemplate = tplArea?.value.trim() || undefined;
     const clientName =
@@ -2886,6 +2890,8 @@ function renderSheetResults(data) {
           })),
           markupPct,
           markupFlat,
+          addExportDeclaration,
+          exportDeclarationFee,
           clientName,
           emailTemplate,
         }),
