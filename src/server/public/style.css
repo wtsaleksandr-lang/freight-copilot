@@ -1385,6 +1385,50 @@ label.check-line input[type="checkbox"] {
   font-variant-numeric: tabular-nums;
 }
 
+/* Overweight calculator output */
+.ow-result {
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.ow-result .ow-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.ow-result .ow-status.legal { background: rgba(46, 160, 67, 0.18); color: #2ea043; }
+.ow-result .ow-status.overweight { background: rgba(210, 153, 34, 0.18); color: #d29922; }
+.ow-result .ow-status.unhaulable { background: rgba(212, 74, 74, 0.18); color: #d44a4a; }
+.ow-result .ow-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+.ow-result .ow-row .muted {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.ow-result .ow-recommendation {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid currentColor;
+  border-radius: 2px;
+  font-weight: 500;
+}
+.ow-result .ow-warning {
+  margin-top: 4px;
+  color: #d29922;
+  font-size: 11px;
+}
+
 /* Image preview modal (Sheets tab source thumbnails) */
 .image-modal {
   position: fixed;

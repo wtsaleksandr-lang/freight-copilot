@@ -910,6 +910,21 @@
     </section>
 
     <section class="calc-section">
+      <h4>Overweight check (US drayage)</h4>
+      <div class="calc-row">
+        <select id="ow-state" style="flex: 1.2"></select>
+        <select id="ow-container" style="flex: 1">
+          <option value="20DV">20' Dry</option>
+          <option value="40DV" selected>40' Dry</option>
+          <option value="20RF">20' Reefer</option>
+          <option value="40RF">40' Reefer</option>
+        </select>
+        <input type="number" id="ow-cargo-lbs" min="0" step="100" placeholder="cargo lbs" />
+      </div>
+      <div id="ow-result" class="ow-result">— enter weight to check</div>
+    </section>
+
+    <section class="calc-section">
       <h4>Container fit</h4>
       <p class="muted small" style="margin: 0 0 6px 0">Standard internal capacity (approx).</p>
       <div class="calc-row">

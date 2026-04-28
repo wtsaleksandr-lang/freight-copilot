@@ -3960,6 +3960,156 @@ const CALC_RATE_KEY = 'freight.calc.usdcad.rate';
     el.addEventListener('input', recalcCbm)
   );
 
+  // ── Overweight check (US drayage) ───────────────────────────────────
+  // Per oversize.io and industry references. Numbers are constants here
+  // so they're easy to tune as regulations shift; verify against your
+  // own carrier/agent quotes before quoting hard.
+  const US_STATES = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN',
+    'IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH',
+    'NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT',
+    'VT','VA','WA','WV','WI','WY',
+  ];
+  const LEGAL_LIMITS_LBS = {
+    default: { '20DV': 38000, '40DV': 44000, '20RF': 34000, '40RF': 41000 },
+    perState: {
+      CA: { '20DV': 36500, '20RF': 32000, '40RF': 39000 },
+      IL: { '20DV': 34000, '40DV': 43000 },
+      MO: { '40DV': 43000 },
+      WI: { '40RF': 39000 },
+    },
+  };
+  const MAX_OW_LIMITS_LBS = {
+    '20DV': 44000,
+    '40DV': 51000,
+    '20RF': 40000,
+    '40RF': 43000,
+  };
+  // States that command higher permit fees (CA + NY are the headline ones).
+  const HEAVY_PERMIT_STATES = new Set(['CA', 'NY']);
+  const TRIAXLE_THRESHOLD = { 20: 36000, 40: 44000 };
+  const TRIAXLE_COST_USD = 200;
+  const PERMIT_COST_STANDARD_USD = 100;
+  const PERMIT_COST_HEAVY_USD = 300;
+  const NEAR_LIMIT_BUFFER_LBS = 1000;
+
+  function calcOverweight(state, container, lbs) {
+    const baseLegal = LEGAL_LIMITS_LBS.default[container] ?? 0;
+    const stateLegal =
+      LEGAL_LIMITS_LBS.perState[state]?.[container] ?? null;
+    const legal = stateLegal ?? baseLegal;
+    const max = MAX_OW_LIMITS_LBS[container] ?? 0;
+    const sizePrefix = container.startsWith('20') ? 20 : 40;
+
+    if (!Number.isFinite(lbs) || lbs <= 0) {
+      return { legal, max, status: null };
+    }
+
+    let status, recommendation, statusCls;
+    let needsTriAxle = false;
+    let needsPermit = false;
+    let triAxleCost = 0;
+    let permitCost = 0;
+
+    if (lbs <= legal) {
+      status = 'LEGAL';
+      statusCls = 'legal';
+      recommendation = 'OK to move on standard chassis. No permit needed.';
+    } else if (lbs <= max) {
+      status = 'OVERWEIGHT';
+      statusCls = 'overweight';
+      needsPermit = true;
+      needsTriAxle = lbs > TRIAXLE_THRESHOLD[sizePrefix];
+      permitCost = HEAVY_PERMIT_STATES.has(state)
+        ? PERMIT_COST_HEAVY_USD
+        : PERMIT_COST_STANDARD_USD;
+      if (needsTriAxle) triAxleCost = TRIAXLE_COST_USD;
+      const parts = [needsPermit && 'overweight permit'];
+      if (needsTriAxle) parts.push('tri-axle chassis');
+      recommendation =
+        'Requires ' +
+        parts.filter(Boolean).join(' + ') +
+        '. Confirm permit availability with your drayage carrier — some lanes will not move overweight at all.';
+    } else {
+      status = 'NOT HAULABLE';
+      statusCls = 'unhaulable';
+      recommendation =
+        'Cargo exceeds the maximum overweight limit for this container. Consider transloading at origin / destination to a flatbed or splitting across two containers.';
+    }
+
+    let warning = null;
+    if (status === 'LEGAL' && legal - lbs <= NEAR_LIMIT_BUFFER_LBS) {
+      warning = `Within ${(legal - lbs).toLocaleString()} lbs of the legal limit — leave headroom for actual gross variability.`;
+    }
+
+    return {
+      legal,
+      max,
+      status,
+      statusCls,
+      needsTriAxle,
+      needsPermit,
+      triAxleCost,
+      permitCost,
+      extraCost: triAxleCost + permitCost,
+      recommendation,
+      warning,
+      stateOverride: stateLegal != null,
+    };
+  }
+
+  const owState = document.getElementById('ow-state');
+  const owContainer = document.getElementById('ow-container');
+  const owLbs = document.getElementById('ow-cargo-lbs');
+  const owResult = document.getElementById('ow-result');
+  if (owState && owContainer && owLbs && owResult) {
+    owState.innerHTML = US_STATES.map(
+      (s) => `<option value="${s}">${s}</option>`
+    ).join('');
+    // Default to a state with no override; the user changes it as needed.
+    owState.value = 'NJ';
+
+    function renderOw() {
+      const state = owState.value;
+      const container = owContainer.value;
+      const lbs = parseFloat(owLbs.value);
+      const r = calcOverweight(state, container, lbs);
+      if (!r.status) {
+        owResult.innerHTML = `<div class="muted">Legal limit (${esc(state)} ${esc(container)}): <strong>${r.legal.toLocaleString()} lbs</strong>${r.legal !== LEGAL_LIMITS_LBS.default[container] ? ' (state override)' : ''}. Max overweight: ${r.max.toLocaleString()} lbs. Enter weight to check.</div>`;
+        return;
+      }
+      const eqRows = [];
+      eqRows.push(
+        `<div class="ow-row"><span class="muted">Legal limit</span><strong>${r.legal.toLocaleString()} lbs${r.stateOverride ? ' (state)' : ''}</strong></div>`
+      );
+      eqRows.push(
+        `<div class="ow-row"><span class="muted">Max overweight</span><strong>${r.max.toLocaleString()} lbs</strong></div>`
+      );
+      if (r.needsTriAxle || r.needsPermit) {
+        if (r.needsPermit)
+          eqRows.push(
+            `<div class="ow-row"><span class="muted">Permit</span><strong>$${r.permitCost.toLocaleString()}${HEAVY_PERMIT_STATES.has(state) ? ' (heavy state)' : ''}</strong></div>`
+          );
+        if (r.needsTriAxle)
+          eqRows.push(
+            `<div class="ow-row"><span class="muted">Tri-axle chassis</span><strong>~$${r.triAxleCost.toLocaleString()}</strong></div>`
+          );
+        eqRows.push(
+          `<div class="ow-row"><span class="muted"><strong>Est. extra</strong></span><strong>$${r.extraCost.toLocaleString()}</strong></div>`
+        );
+      }
+      owResult.innerHTML =
+        `<div><span class="ow-status ${esc(r.statusCls)}">${esc(r.status)}</span></div>` +
+        eqRows.join('') +
+        `<div class="ow-recommendation" style="color: ${r.statusCls === 'unhaulable' ? '#d44a4a' : r.statusCls === 'overweight' ? '#d29922' : '#2ea043'}">${esc(r.recommendation)}</div>` +
+        (r.warning ? `<div class="ow-warning">${esc(r.warning)}</div>` : '');
+    }
+    [owState, owContainer, owLbs].forEach((el) =>
+      el.addEventListener('input', renderOw)
+    );
+    renderOw();
+  }
+
   // ── Container fit ────────────────────────────────────────────────────
   const fitCbm = document.getElementById('calc-fit-cbm');
   const fitKg = document.getElementById('calc-fit-kg');
