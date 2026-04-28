@@ -618,11 +618,55 @@
           <h2 id="sheet-results-title">Parsed rates</h2>
           <span id="sheet-results-meta" class="muted"></span>
         </div>
+
+        <div class="sheet-actions">
+          <button id="sheet-email-btn" class="primary">📧 Generate quote email</button>
+          <label class="sheet-markup-label">Margin add-on
+            <span class="slider-row">
+              <span class="slider-icon">%</span>
+              <input type="range" id="sheet-markup-pct-slider" min="0" max="30" step="0.5" value="0">
+              <input type="number" id="sheet-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
+              <span class="muted">%</span>
+            </span>
+            <span class="slider-row">
+              <span class="slider-icon">+</span>
+              <input type="range" id="sheet-markup-flat-slider" min="0" max="1000" step="5" value="0">
+              <input type="number" id="sheet-markup-flat" min="0" step="5" value="0" class="markup-num">
+              <span class="muted">USD flat</span>
+            </span>
+          </label>
+          <span id="sheet-email-status" class="status-inline"></span>
+        </div>
+
+        <textarea id="sheet-email-text" rows="12" hidden placeholder="Generated email will appear here…"></textarea>
+        <div id="sheet-email-row" class="row" hidden>
+          <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
+        </div>
+
         <div class="table-wrap">
           <table id="sheet-results-table"></table>
         </div>
       </div>
     </section>
+
+    <!-- Image preview modal (used by Sheets tab "Source" links) -->
+    <div id="image-modal" class="image-modal" hidden>
+      <div class="image-modal-backdrop"></div>
+      <div class="image-modal-frame">
+        <div class="image-modal-toolbar">
+          <span id="image-modal-name" class="muted small"></span>
+          <span class="image-modal-spacer"></span>
+          <button id="image-modal-zoom-out" class="btn-sm" title="Zoom out">−</button>
+          <span id="image-modal-zoom-pct" class="muted small">100%</span>
+          <button id="image-modal-zoom-in" class="btn-sm" title="Zoom in">+</button>
+          <button id="image-modal-fit" class="btn-sm" title="Fit to window">Fit</button>
+          <button id="image-modal-close" class="btn-sm" title="Close (Esc)">✕</button>
+        </div>
+        <div class="image-modal-body">
+          <img id="image-modal-img" alt="source" />
+        </div>
+      </div>
+    </div>
 
     <section id="tab-secrets" class="tab-pane">
       <div class="card">

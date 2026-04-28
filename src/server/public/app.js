@@ -2577,6 +2577,10 @@ async function loadCredList() {
   });
 })();
 
+// Most recently rendered rate rows — kept globally so the Generate Email
+// button can read them without having to re-fetch from the table DOM.
+let lastSheetRows = [];
+
 function renderSheetResults(data) {
   const card = document.getElementById('sheet-results-card');
   const title = document.getElementById('sheet-results-title');
@@ -2591,38 +2595,44 @@ function renderSheetResults(data) {
     meta.textContent = data.refId;
     table.innerHTML =
       '<tbody><tr><td class="empty">All files failed. See queue above.</td></tr></tbody>';
+    lastSheetRows = [];
     return;
   }
 
   // Flatten: one row per (file, lane, container).
   const rows = [];
   for (const res of okResults) {
-    const carrier = res.parsed.carrier_code;
+    const carrier = res.parsed.carrier_code || 'UNK';
+    const validityFrom = res.parsed.validity_from || null;
+    const validityTo = res.parsed.validity_to || null;
     const validity =
-      res.parsed.validity_from && res.parsed.validity_to
-        ? `${res.parsed.validity_from} → ${res.parsed.validity_to}`
-        : res.parsed.validity_from || res.parsed.validity_to || null;
+      validityFrom && validityTo
+        ? `${validityFrom} → ${validityTo}`
+        : validityFrom || validityTo || null;
     for (const lane of res.parsed.lanes) {
       for (const r of lane.rates_per_container) {
         rows.push({
           carrier,
           validity,
+          validityFrom,
+          validityTo,
           filename: res.filename,
           source: res.artifacts?.source,
           parsed: res.artifacts?.parsed,
-          origin: lane.origin,
-          originCode: lane.origin_code,
-          destination: lane.destination,
-          destinationCode: lane.destination_code,
-          serviceName: lane.service_name,
+          // POL = Port of Loading (origin), POD = Port of Discharge (destination)
+          pol: lane.origin || '',
+          polCode: lane.origin_code || null,
+          pod: lane.destination || '',
+          podCode: lane.destination_code || null,
+          serviceName: lane.service_name || null,
           transitDays: lane.transit_days,
           detentionDays: lane.detention_freetime_days,
           demurrageDays: lane.demurrage_freetime_days,
           containerType: r.container_type,
-          freightCharges: r.freight_charges,
+          freightCharges: r.freight_charges || [],
           freightTotal: r.freight_total,
           freightCurrency: r.freight_currency,
-          destCharges: r.destination_charges,
+          destCharges: r.destination_charges || [],
           destTotal: r.destination_total,
           destCurrency: r.destination_currency,
         });
@@ -2631,17 +2641,19 @@ function renderSheetResults(data) {
   }
   rows.sort(
     (a, b) =>
-      a.origin.localeCompare(b.origin) ||
-      a.destination.localeCompare(b.destination) ||
+      a.pol.localeCompare(b.pol) ||
+      a.pod.localeCompare(b.pod) ||
       a.containerType.localeCompare(b.containerType)
   );
+
+  lastSheetRows = rows;
 
   title.textContent = `${data.refId}: ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
   meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code>`;
 
   const thead = `<thead><tr>
     <th>Carrier</th>
-    <th>Lane</th>
+    <th>POL → POD</th>
     <th>Container</th>
     <th>Transit</th>
     <th>Det/Dem free</th>
@@ -2650,11 +2662,22 @@ function renderSheetResults(data) {
     <th>Source</th>
   </tr></thead>`;
 
+  // Consistent two-line POL/POD cell: line 1 = POL with code if present,
+  // line 2 = POD with code if present. "—" for missing values, never the
+  // word "UNKNOWN" leaking through.
+  function locCell(name, code) {
+    if (!name && !code) return '—';
+    const main = name || code || '—';
+    const codeStr = code && name ? ` <code>${esc(code)}</code>` : '';
+    return `${esc(main)}${codeStr}`;
+  }
+
   const body = rows
-    .map((r) => {
-      const laneStr =
-        `${esc(r.origin)}${r.originCode ? ` (${esc(r.originCode)})` : ''}` +
-        ` → ${esc(r.destination)}${r.destinationCode ? ` (${esc(r.destinationCode)})` : ''}`;
+    .map((r, idx) => {
+      const polPodCell =
+        `<div><span class="muted small">POL</span> ${locCell(r.pol, r.polCode)}</div>` +
+        `<div><span class="muted small">POD</span> ${locCell(r.pod, r.podCode)}</div>`;
+
       const transit = r.transitDays != null ? `${r.transitDays}d` : '—';
       const dnd =
         r.detentionDays != null || r.demurrageDays != null
@@ -2688,13 +2711,19 @@ function renderSheetResults(data) {
               : '')
           : '<span class="muted small">—</span>';
 
+      // Source link: PDFs still open in a new tab (browser PDF viewer);
+      // images open the in-page modal so the user can compare the
+      // extracted figures against the original side-by-side.
+      const isImage = r.source && /\.(png|jpe?g|webp|gif)$/i.test(r.source);
       const sourceCell = r.source
-        ? `<a href="${esc(r.source)}" target="_blank" rel="noopener" class="artifact-link">${esc(r.filename)}</a>`
+        ? isImage
+          ? `<a href="#" data-image-src="${esc(r.source)}" data-image-name="${esc(r.filename)}" class="artifact-link sheet-source-link" data-row-idx="${idx}">${esc(r.filename)}</a>`
+          : `<a href="${esc(r.source)}" target="_blank" rel="noopener" class="artifact-link">${esc(r.filename)}</a>`
         : esc(r.filename);
 
       return `<tr>
         <td><strong>${esc(r.carrier)}</strong>${r.serviceName ? `<br><span class="muted small">${esc(r.serviceName)}</span>` : ''}${r.validity ? `<br><span class="muted small">${esc(r.validity)}</span>` : ''}</td>
-        <td>${laneStr}</td>
+        <td>${polPodCell}</td>
         <td><code>${esc(r.containerType)}</code></td>
         <td>${transit}</td>
         <td>${esc(dnd)}</td>
@@ -2706,8 +2735,185 @@ function renderSheetResults(data) {
     .join('');
 
   table.innerHTML = thead + '<tbody>' + body + '</tbody>';
+
+  // Wire image-source links to the modal viewer.
+  table.querySelectorAll('a.sheet-source-link').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const src = a.getAttribute('data-image-src');
+      const name = a.getAttribute('data-image-name') || '';
+      if (src) openImageModal(src, name);
+    });
+  });
+
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+
+// ---- Image preview modal (Sheets tab source thumbnails) ----
+(function wireImageModal() {
+  const modal = document.getElementById('image-modal');
+  if (!modal) return;
+  const img = document.getElementById('image-modal-img');
+  const nameEl = document.getElementById('image-modal-name');
+  const zoomPct = document.getElementById('image-modal-zoom-pct');
+
+  let zoom = 1;
+  function applyZoom() {
+    img.style.transform = `scale(${zoom})`;
+    zoomPct.textContent = Math.round(zoom * 100) + '%';
+  }
+
+  function close() {
+    modal.hidden = true;
+    img.src = '';
+    zoom = 1;
+  }
+  function fit() {
+    zoom = 1;
+    applyZoom();
+  }
+  function zoomIn() {
+    zoom = Math.min(zoom + 0.2, 5);
+    applyZoom();
+  }
+  function zoomOut() {
+    zoom = Math.max(zoom - 0.2, 0.2);
+    applyZoom();
+  }
+
+  document.getElementById('image-modal-close').addEventListener('click', close);
+  document
+    .getElementById('image-modal-zoom-in')
+    .addEventListener('click', zoomIn);
+  document
+    .getElementById('image-modal-zoom-out')
+    .addEventListener('click', zoomOut);
+  document.getElementById('image-modal-fit').addEventListener('click', fit);
+  modal.querySelector('.image-modal-backdrop').addEventListener('click', close);
+  document.addEventListener('keydown', (e) => {
+    if (modal.hidden) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === '+' || e.key === '=') zoomIn();
+    else if (e.key === '-' || e.key === '_') zoomOut();
+    else if (e.key === '0') fit();
+  });
+  // Mouse-wheel zoom inside the modal body
+  document
+    .querySelector('.image-modal-body')
+    ?.addEventListener('wheel', (e) => {
+      if (modal.hidden) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) zoomIn();
+        else zoomOut();
+      }
+    });
+
+  window.openImageModal = function (src, name) {
+    img.src = src;
+    nameEl.textContent = name || '';
+    modal.hidden = false;
+    fit();
+  };
+})();
+
+// ---- Sheets margin sliders + Generate Email ----
+(function wireSheetEmailControls() {
+  const pctSlider = document.getElementById('sheet-markup-pct-slider');
+  const pctNum = document.getElementById('sheet-markup-pct');
+  const flatSlider = document.getElementById('sheet-markup-flat-slider');
+  const flatNum = document.getElementById('sheet-markup-flat');
+  const btn = document.getElementById('sheet-email-btn');
+  const ta = document.getElementById('sheet-email-text');
+  const row = document.getElementById('sheet-email-row');
+  const copyBtn = document.getElementById('sheet-email-copy-btn');
+  if (!btn) return;
+
+  function bindPair(slider, num) {
+    slider.addEventListener('input', () => (num.value = slider.value));
+    num.addEventListener('input', () => (slider.value = num.value));
+  }
+  bindPair(pctSlider, pctNum);
+  bindPair(flatSlider, flatNum);
+
+  btn.addEventListener('click', async () => {
+    if (!lastSheetRows || lastSheetRows.length === 0) {
+      setStatus('sheet-email-status', 'No parsed rates — drop a sheet first.', 'error');
+      return;
+    }
+    const markupPct = Number(pctNum.value) || 0;
+    const markupFlat = Number(flatNum.value) || 0;
+    const tplArea = document.getElementById('email-template'); // shared template from Ocean tab
+    const emailTemplate = tplArea?.value.trim() || undefined;
+    const clientName =
+      document.getElementById('client-name')?.value.trim() || undefined;
+
+    btn.disabled = true;
+    setStatus('sheet-email-status', 'Composing email…', 'info');
+
+    try {
+      const r = await fetch('/api/sheets/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: lastSheetRows.map((row) => ({
+            carrier: row.carrier,
+            pol: row.pol,
+            polCode: row.polCode,
+            pod: row.pod,
+            podCode: row.podCode,
+            containerType: row.containerType,
+            transitDays: row.transitDays,
+            detentionFreetimeDays: row.detentionDays,
+            demurrageFreetimeDays: row.demurrageDays,
+            freightTotal: row.freightTotal,
+            freightCurrency: row.freightCurrency,
+            freightCharges: row.freightCharges.map((c) => ({
+              name: c.name,
+              amount: c.amount,
+              currency: c.currency,
+            })),
+            destinationTotal: row.destTotal,
+            destinationCurrency: row.destCurrency,
+            destinationCharges: row.destCharges.map((c) => ({
+              name: c.name,
+              amount: c.amount,
+              currency: c.currency,
+            })),
+            validityFrom: row.validityFrom,
+            validityTo: row.validityTo,
+            serviceName: row.serviceName,
+          })),
+          markupPct,
+          markupFlat,
+          clientName,
+          emailTemplate,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'email generation failed');
+      ta.value = data.text;
+      ta.hidden = false;
+      row.hidden = false;
+      setStatus('sheet-email-status', 'Email ready.', 'success');
+    } catch (err) {
+      setStatus('sheet-email-status', err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  copyBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(ta.value);
+      copyBtn.textContent = '✓ Copied';
+      setTimeout(() => (copyBtn.textContent = '📋 Copy to clipboard'), 1500);
+    } catch {
+      ta.select();
+      alert('Clipboard write failed — text is selected for manual copy.');
+    }
+  });
+})();
 
 function setStatus(elId, msg, type) {
   const el = document.getElementById(elId);

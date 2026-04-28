@@ -221,3 +221,125 @@ export async function generateBundleReply(
   }
   return textBlock.text;
 }
+
+// ---- Reply generator for parsed rate sheets (offline path) ----
+
+export interface SheetReplyRow {
+  carrier: string;
+  pol: string;
+  polCode?: string | null;
+  pod: string;
+  podCode?: string | null;
+  containerType: string;
+  transitDays?: number | null;
+  detentionFreetimeDays?: number | null;
+  demurrageFreetimeDays?: number | null;
+  freightTotal: number;
+  freightCurrency: string;
+  freightCharges: Array<{ name: string; amount: number; currency: string }>;
+  destinationTotal?: number | null;
+  destinationCurrency?: string | null;
+  destinationCharges: Array<{ name: string; amount: number; currency: string }>;
+  validityFrom?: string | null;
+  validityTo?: string | null;
+  serviceName?: string | null;
+}
+
+export interface GenerateSheetReplyInput {
+  rows: SheetReplyRow[];
+  markupPct: number;
+  markupFlat: number;
+  clientName?: string;
+  emailTemplate?: string;
+}
+
+export async function generateSheetReply(
+  input: GenerateSheetReplyInput
+): Promise<string> {
+  const env = loadEnv();
+  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
+  }
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+
+  // Group rows by lane (POL → POD) so multi-container lanes render together.
+  const laneKeys = new Map<string, SheetReplyRow[]>();
+  for (const r of input.rows) {
+    const key = `${r.pol}|${r.polCode ?? ''}|${r.pod}|${r.podCode ?? ''}`;
+    const list = laneKeys.get(key);
+    if (list) list.push(r);
+    else laneKeys.set(key, [r]);
+  }
+
+  const blocks: string[] = [];
+  for (const [, rows] of laneKeys) {
+    const first = rows[0]!;
+    const polLabel = first.polCode ? `${first.pol} (${first.polCode})` : first.pol;
+    const podLabel = first.podCode ? `${first.pod} (${first.podCode})` : first.pod;
+    const lines = [`Lane: ${polLabel} -> ${podLabel}`];
+    if (first.serviceName) lines.push(`Service: ${first.serviceName}`);
+    if (first.transitDays != null) lines.push(`Transit: ${first.transitDays} days`);
+    if (first.detentionFreetimeDays != null || first.demurrageFreetimeDays != null) {
+      lines.push(
+        `Free time at destination: detention ${first.detentionFreetimeDays ?? '?'}d, demurrage ${first.demurrageFreetimeDays ?? '?'}d`
+      );
+    }
+    if (first.validityFrom || first.validityTo) {
+      lines.push(`Validity: ${first.validityFrom ?? '?'} → ${first.validityTo ?? '?'}`);
+    }
+    for (const r of rows) {
+      const yourPrice = Math.round(
+        r.freightTotal * (1 + input.markupPct / 100) + input.markupFlat
+      );
+      const carrierCost = Math.round(r.freightTotal);
+      lines.push('');
+      lines.push(`  ${r.containerType} (carrier: ${r.carrier})`);
+      lines.push(
+        `    Your price: ${r.freightCurrency} ${yourPrice.toLocaleString()} (carrier cost: ${r.freightCurrency} ${carrierCost.toLocaleString()} — do not show client)`
+      );
+      if (r.freightCharges.length > 0) {
+        lines.push(
+          `    Included: ${r.freightCharges.map((c) => `${c.name} ${c.currency} ${c.amount.toLocaleString()}`).join(' + ')}`
+        );
+      }
+      if (r.destinationTotal != null && r.destinationCharges.length > 0) {
+        lines.push(
+          `    Destination charges (on collect, paid by receiver, NOT in your price): ${r.destinationCurrency ?? ''} ${r.destinationTotal.toLocaleString()} — ${r.destinationCharges.map((c) => `${c.name} ${c.amount.toLocaleString()}`).join(', ')}`
+        );
+      }
+    }
+    blocks.push(lines.join('\n'));
+  }
+
+  const userText =
+    (input.clientName ? `Client name: ${input.clientName}\n` : '') +
+    `Markup applied: +${input.markupPct}% and +${input.markupFlat} USD flat\n` +
+    `Source: parsed rate sheets (no live carrier query)\n\n` +
+    `Lanes & rates:\n\n${blocks.join('\n\n')}\n\n` +
+    (input.emailTemplate
+      ? `EMAIL TEMPLATE TO FOLLOW EXACTLY (substitute in the lanes & prices above):\n\n---BEGIN TEMPLATE---\n${input.emailTemplate}\n---END TEMPLATE---\n\nWrite the reply.`
+      : 'Write a clean, professional default reply. Include each lane and each container type. Show "Your price" amounts only — never the carrier cost. Always show destination charges on a separate line clearly labeled as on-collect / not included.');
+
+  console.log(
+    `[generateSheetReply] composing reply for ${input.rows.length} rate row(s)...`
+  );
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1500,
+    system: [
+      {
+        type: 'text',
+        text: BUNDLE_REPLY_SYSTEM_PROMPT,
+        cache_control: { type: 'ephemeral' },
+      },
+    ],
+    messages: [{ role: 'user', content: userText }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    throw new Error('Claude returned no text block');
+  }
+  return textBlock.text;
+}

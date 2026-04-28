@@ -13,7 +13,12 @@ import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
 import { parseIntake, type IntakeInput } from '../llm/parseIntake.js';
-import { generateClientReply, generateBundleReply } from '../llm/generateReply.js';
+import {
+  generateClientReply,
+  generateBundleReply,
+  generateSheetReply,
+  type SheetReplyRow,
+} from '../llm/generateReply.js';
 import type { RankedRateOption } from '../types.js';
 import { runQuoteBundle, saveGeneratedEmail } from '../db/runBundle.js';
 import {
@@ -1211,6 +1216,35 @@ export function registerApiRoutes(app: Express): void {
     }
 
     res.json({ refId, outputFolder: outDir, results });
+  });
+
+  app.post('/api/sheets/reply', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      rows?: SheetReplyRow[];
+      markupPct?: number | string;
+      markupFlat?: number | string;
+      clientName?: string;
+      emailTemplate?: string;
+    };
+    if (!Array.isArray(body.rows) || body.rows.length === 0) {
+      res.status(400).json({ error: 'No rate rows provided.' });
+      return;
+    }
+    try {
+      const text = await generateSheetReply({
+        rows: body.rows,
+        markupPct: Number(body.markupPct ?? 0),
+        markupFlat: Number(body.markupFlat ?? 0),
+        clientName: body.clientName,
+        emailTemplate: body.emailTemplate,
+      });
+      res.json({ text });
+    } catch (err) {
+      console.error('[api/sheets/reply] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   // ---- Carrier credential vault ----
