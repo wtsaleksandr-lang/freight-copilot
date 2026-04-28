@@ -136,6 +136,10 @@ export interface BriefingFile {
 /**
  * Detect media type from filename extension. Used by the route layer
  * which receives a Blob and just knows the filename.
+ *
+ * Note: .msg files are routed through the route layer's MSG converter
+ * before reaching parseShipmentBriefing — by the time we get here they
+ * become text/plain, so .msg isn't returned as its own media type.
  */
 export function detectMediaType(filename: string): BriefingMediaType | null {
   const lower = filename.toLowerCase();
@@ -148,6 +152,11 @@ export function detectMediaType(filename: string): BriefingMediaType | null {
   if (lower.endsWith('.webp')) return 'image/webp';
   if (lower.endsWith('.gif')) return 'image/gif';
   return null;
+}
+
+/** True when the filename indicates an Outlook .msg item we can decode. */
+export function isMsgFile(filename: string | undefined): boolean {
+  return !!filename && filename.toLowerCase().endsWith('.msg');
 }
 
 const TEXT_TYPES = new Set<BriefingMediaType>([

@@ -78,8 +78,10 @@ import {
 import {
   parseShipmentBriefing,
   detectMediaType,
+  isMsgFile,
   type BriefingMediaType,
 } from '../llm/parseShipmentBriefing.js';
+import { convertMsgToEmailText } from '../llm/msgToText.js';
 import {
   getDelayPredictBadgeMap,
   refreshDelayPredictTracking,
@@ -1515,7 +1517,23 @@ export function registerApiRoutes(app: Express): void {
     try {
       // Resolve media type per file. If the client supplied one, use it;
       // otherwise infer from filename. Then route text vs vision.
+      // .msg files are decoded server-side via msgreader and forwarded as
+      // text/plain so Claude sees the same shape it sees for .eml.
       const briefingFiles = files.map((f) => {
+        if (isMsgFile(f.filename)) {
+          const buf = Buffer.from(f.contentBase64, 'base64');
+          // Materialize a fresh ArrayBuffer (Buffer's underlying pool may
+          // be shared / SharedArrayBuffer-like; msgreader wants a plain
+          // ArrayBuffer of just our bytes).
+          const ab = new ArrayBuffer(buf.byteLength);
+          new Uint8Array(ab).set(buf);
+          const textContent = convertMsgToEmailText(ab);
+          return {
+            mediaType: 'text/plain' as BriefingMediaType,
+            filename: f.filename,
+            textContent,
+          };
+        }
         const inferred =
           f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
         if (!inferred) {

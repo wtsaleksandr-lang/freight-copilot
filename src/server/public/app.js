@@ -3303,20 +3303,12 @@ const SHIP_COLS = [
         accepted.push(f);
         continue;
       }
-      // Then by filename extension (browsers often miss the mime on .eml)
+      // Then by filename extension (browsers often miss the mime on
+      // .eml / .msg / .html). .msg is decoded server-side by msgreader
+      // and forwarded to Claude as plain email text.
       const lower = (f.name || '').toLowerCase();
-      if (/\.(eml|html?|txt)$/.test(lower)) {
+      if (/\.(eml|msg|html?|txt)$/.test(lower)) {
         accepted.push(f);
-        continue;
-      }
-      // Outlook's binary .msg format — needs conversion. Tell the user
-      // exactly what to do instead of silently dropping the file.
-      if (/\.msg$/.test(lower)) {
-        rejected.push({
-          name: f.name,
-          reason:
-            "Outlook .msg format isn't supported. In Outlook: File > Print > 'Microsoft Print to PDF' (saves a PDF you can drop here), or use Outlook on the web and click Download to get an .eml file.",
-        });
         continue;
       }
       rejected.push({
