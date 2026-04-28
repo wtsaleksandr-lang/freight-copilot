@@ -19,6 +19,7 @@
     <h1>Freight Copilot</h1>
     <nav>
       <button class="tab active" data-tab="new">Ocean</button>
+      <button class="tab" data-tab="shipments">Shipments</button>
       <button class="tab" data-tab="drayage">Drayage</button>
       <button class="tab" data-tab="trucking">Trucking</button>
       <button class="tab" data-tab="history">History</button>
@@ -725,6 +726,38 @@
       </div>
     </div>
 
+    <section id="tab-shipments" class="tab-pane">
+      <div class="card">
+        <h2>Shipment board <span class="muted-inline">— booked &amp; in-progress</span></h2>
+        <p class="muted">Drop email screenshots, PDFs, or booking briefings — Claude reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit. Reference numbers (<code>S00001</code>, <code>S00002</code>…) are auto-allocated.</p>
+
+        <div id="ship-dropzone" class="sheet-dropzone">
+          <div class="sheet-drop-prompt">
+            <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
+            <span class="muted small">PDF · PNG · JPG · WEBP — multiple files describe ONE shipment</span>
+          </div>
+          <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
+        </div>
+
+        <div class="row">
+          <button id="ship-parse-btn" class="primary" disabled>Extract &amp; create shipment</button>
+          <button id="ship-add-blank-btn" class="btn-sm">+ Add blank row</button>
+          <div id="ship-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>All shipments</h2>
+          <button id="ship-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <input id="ship-search" type="search" placeholder="Filter by ref / shipper / receiver / customer / POL / POD / cargo / carrier..." class="full" />
+        <div class="table-wrap">
+          <table id="ship-table" class="ship-table"></table>
+        </div>
+      </div>
+    </section>
+
     <section id="tab-secrets" class="tab-pane">
       <div class="card">
         <h2>Carrier credentials <span class="muted-inline">— password vault</span></h2>
@@ -777,6 +810,75 @@
       </div>
     </section>
   </main>
+
+  <!-- Floating Calculators panel — opens with the bottom-right button.
+       Pure local math; persists rate/state to localStorage. -->
+  <button id="calc-toggle" class="calc-toggle" title="Open calculators">🧮</button>
+  <aside id="calc-panel" class="calc-panel" hidden>
+    <div class="calc-header">
+      <strong>Calculators</strong>
+      <button id="calc-close" class="btn-sm" title="Close (Esc)">✕</button>
+    </div>
+
+    <section class="calc-section">
+      <h4>USD ↔ CAD</h4>
+      <label class="calc-rate-row">1 USD =
+        <input type="number" id="calc-usd-cad-rate" step="0.0001" min="0" value="1.37" />
+        CAD
+      </label>
+      <div class="calc-row">
+        <input type="number" id="calc-usd" step="0.01" min="0" placeholder="USD" />
+        <span>→</span>
+        <input type="number" id="calc-cad" step="0.01" min="0" placeholder="CAD" />
+      </div>
+    </section>
+
+    <section class="calc-section">
+      <h4>Weight</h4>
+      <div class="calc-row">
+        <input type="number" id="calc-kg" step="0.01" min="0" placeholder="kg" />
+        <input type="number" id="calc-lbs" step="0.01" min="0" placeholder="lbs" />
+        <input type="number" id="calc-tons" step="0.001" min="0" placeholder="t (metric)" />
+      </div>
+    </section>
+
+    <section class="calc-section">
+      <h4>Length</h4>
+      <div class="calc-row">
+        <input type="number" id="calc-cm" step="0.1" min="0" placeholder="cm" />
+        <input type="number" id="calc-in" step="0.1" min="0" placeholder="in" />
+        <input type="number" id="calc-ft" step="0.01" min="0" placeholder="ft" />
+        <input type="number" id="calc-m" step="0.001" min="0" placeholder="m" />
+      </div>
+    </section>
+
+    <section class="calc-section">
+      <h4>CBM (cubic meters)</h4>
+      <p class="muted small" style="margin: 0 0 6px 0">L × W × H per package, then × qty.</p>
+      <div class="calc-row">
+        <select id="calc-cbm-unit">
+          <option value="cm" selected>cm</option>
+          <option value="in">in</option>
+          <option value="m">m</option>
+        </select>
+        <input type="number" id="calc-cbm-l" step="0.1" min="0" placeholder="L" />
+        <input type="number" id="calc-cbm-w" step="0.1" min="0" placeholder="W" />
+        <input type="number" id="calc-cbm-h" step="0.1" min="0" placeholder="H" />
+        <input type="number" id="calc-cbm-qty" step="1" min="1" value="1" placeholder="qty" />
+      </div>
+      <div class="calc-result" id="calc-cbm-result">— CBM, — kg/m³ if weight given</div>
+    </section>
+
+    <section class="calc-section">
+      <h4>Container fit</h4>
+      <p class="muted small" style="margin: 0 0 6px 0">Standard internal capacity (approx).</p>
+      <div class="calc-row">
+        <input type="number" id="calc-fit-cbm" step="0.1" min="0" placeholder="Total CBM" />
+        <input type="number" id="calc-fit-kg" step="1" min="0" placeholder="Total kg" />
+      </div>
+      <div class="calc-result" id="calc-fit-result">Fits in: —</div>
+    </section>
+  </aside>
 
   <footer class="tools-footer">
     <span class="muted small">Tools:</span>

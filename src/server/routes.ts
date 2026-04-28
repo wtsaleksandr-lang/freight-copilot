@@ -68,6 +68,17 @@ import {
   getSheetUploadDetail,
   ratesFromParsedResults,
 } from '../db/sheetHistory.js';
+import {
+  listShipments,
+  createShipment,
+  updateShipment,
+  deleteShipment,
+  getShipment,
+} from '../db/shipmentBoard.js';
+import {
+  parseShipmentBriefing,
+  type BriefingMediaType,
+} from '../llm/parseShipmentBriefing.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -1359,6 +1370,169 @@ export function registerApiRoutes(app: Express): void {
       res.json({ text });
     } catch (err) {
       console.error('[api/sheets/reply] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ---- Shipment board ----
+
+  app.get('/api/shipments', async (req: Request, res: Response) => {
+    const rawQ = req.query.q;
+    const q = typeof rawQ === 'string' ? rawQ : '';
+    try {
+      const rows = await listShipments(q);
+      res.json({ shipments: rows });
+    } catch (err) {
+      console.error('[api/shipments] list error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /** Create a row. If no body fields given, returns a blank row with a fresh ref id. */
+  app.post('/api/shipments', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    try {
+      const row = await createShipment(body);
+      res.json(row);
+    } catch (err) {
+      console.error('[api/shipments] create error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /** Inline-cell edit: PATCH a single field (or several). */
+  app.patch('/api/shipments/:refId', async (req: Request, res: Response) => {
+    const rawId = req.params.refId;
+    const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!refId) {
+      res.status(400).json({ error: 'refId required' });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    try {
+      const updated = await updateShipment(refId, body);
+      if (!updated) {
+        res.status(404).json({ error: 'Shipment not found' });
+        return;
+      }
+      res.json(updated);
+    } catch (err) {
+      console.error('[api/shipments/:refId] patch error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.delete('/api/shipments/:refId', async (req: Request, res: Response) => {
+    const rawId = req.params.refId;
+    const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!refId) {
+      res.status(400).json({ error: 'refId required' });
+      return;
+    }
+    try {
+      const ok = await deleteShipment(refId);
+      res.json({ ok });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * AI-extract from email screenshots / PDFs and create a new shipment row
+   * pre-filled with the extracted fields. The user can then edit cells
+   * inline. Original files are saved under shipments-files/<refId>/ for
+   * audit and accessible via /shipments-files/<refId>/<filename>.
+   */
+  app.post('/api/shipments/parse', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      files?: Array<{
+        filename?: string;
+        contentBase64: string;
+        mediaType: BriefingMediaType;
+      }>;
+    };
+    const files = Array.isArray(body.files) ? body.files : [];
+    if (files.length === 0) {
+      res.status(400).json({ error: 'No files provided.' });
+      return;
+    }
+    try {
+      // Run extraction first so we know whether to create the row at all.
+      const briefing = await parseShipmentBriefing(
+        files.map((f) => ({
+          fileBase64: f.contentBase64,
+          mediaType: f.mediaType,
+          filename: f.filename,
+        }))
+      );
+
+      // Create the row with extracted fields. Ref id is auto-allocated.
+      const row = await createShipment({
+        shipperName: briefing.shipper_name ?? null,
+        receiverName: briefing.receiver_name ?? null,
+        customerName: briefing.customer_name ?? null,
+        loadingAddress: briefing.loading_address ?? null,
+        pol: briefing.pol ?? null,
+        polCode: briefing.pol_code ?? null,
+        pod: briefing.pod ?? null,
+        podCode: briefing.pod_code ?? null,
+        containerType: briefing.container_type ?? null,
+        cargoType: briefing.cargo_type ?? null,
+        cargoName: briefing.cargo_name ?? null,
+        soldRate: briefing.sold_rate ?? null,
+        soldCurrency: briefing.sold_currency ?? 'USD',
+        carrierPreference: briefing.carrier_preference ?? null,
+        notes: briefing.notes ?? null,
+      });
+
+      // Save the source files under shipments-files/<refId>/
+      const { mkdir, writeFile } = await import('node:fs/promises');
+      const outDir = resolve(`./shipments-files/${row.refId}`);
+      await mkdir(outDir, { recursive: true });
+      const artifacts: Array<{
+        filename: string;
+        url: string;
+        mediaType: string;
+      }> = [];
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]!;
+        const safe = (f.filename ?? `file-${i + 1}`).replace(
+          /[^a-z0-9._-]/gi,
+          '_'
+        );
+        const fp = resolve(outDir, `${i + 1}-${safe}`);
+        await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+        artifacts.push({
+          filename: f.filename ?? safe,
+          url: `/shipments-files/${row.refId}/${i + 1}-${safe}`,
+          mediaType: f.mediaType,
+        });
+      }
+      // Persist the artifact list on the row.
+      const updated = await updateShipment(row.refId, {});
+      // updateShipment doesn't accept artifactsJson via EDITABLE_FIELDS;
+      // use a direct DB write to set it (bypassing the safe-list).
+      const db = createDbClient();
+      const { shipments: shipmentsTbl } = await import('../db/schema.js');
+      await db
+        .update(shipmentsTbl)
+        .set({ artifactsJson: artifacts, updatedAt: new Date() })
+        .where(eq(shipmentsTbl.refId, row.refId));
+      const final = await getShipment(row.refId);
+
+      res.json({ shipment: final ?? updated ?? row, briefing });
+    } catch (err) {
+      console.error('[api/shipments/parse] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });

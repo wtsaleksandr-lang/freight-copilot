@@ -3238,6 +3238,494 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   document.addEventListener('sheet-parse-complete', () => load(searchInput.value));
 })();
 
+// ---- Shipment board ----
+const SHIP_COLS = [
+  { key: 'refId', label: 'Ref', editable: false, cls: 'ref-cell' },
+  { key: 'createdAt', label: 'Created', editable: false, cls: 'when-cell' },
+  { key: 'shipperName', label: 'Shipper', editable: true },
+  { key: 'receiverName', label: 'Receiver', editable: true },
+  { key: 'customerName', label: 'Customer', editable: true },
+  { key: 'loadingAddress', label: 'Loading address', editable: true },
+  { key: 'pol', label: 'POL', editable: true },
+  { key: 'pod', label: 'POD', editable: true },
+  { key: 'containerType', label: 'Container', editable: true },
+  { key: 'cargoType', label: 'Cargo type', editable: true },
+  { key: 'cargoName', label: 'Cargo name', editable: true },
+  { key: 'soldRate', label: 'Sold rate', editable: true, type: 'number' },
+  { key: 'soldCurrency', label: 'Cur', editable: true },
+  { key: 'carrierPreference', label: 'Carrier', editable: true },
+  { key: 'notes', label: 'Notes', editable: true },
+];
+
+(function wireShipmentsTab() {
+  const dropzone = document.getElementById('ship-dropzone');
+  const fileInput = document.getElementById('ship-files');
+  const parseBtn = document.getElementById('ship-parse-btn');
+  const addBlankBtn = document.getElementById('ship-add-blank-btn');
+  const refreshBtn = document.getElementById('ship-refresh-btn');
+  const searchInput = document.getElementById('ship-search');
+  const table = document.getElementById('ship-table');
+  if (!dropzone || !table) return;
+
+  let pendingFiles = [];
+
+  function refreshDropState() {
+    parseBtn.disabled = pendingFiles.length === 0;
+    parseBtn.textContent =
+      pendingFiles.length > 0
+        ? `Extract & create shipment (${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''})`
+        : 'Extract & create shipment';
+  }
+  function ingestFiles(fl) {
+    const arr = Array.from(fl || []);
+    const accepted = arr.filter((f) =>
+      /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i.test(f.type)
+    );
+    pendingFiles = pendingFiles.concat(accepted);
+    refreshDropState();
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    ingestFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('is-drag');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('is-drag'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('is-drag');
+    ingestFiles(e.dataTransfer?.files);
+  });
+  document.addEventListener('paste', (e) => {
+    const tabActive = document
+      .getElementById('tab-shipments')
+      ?.classList.contains('active');
+    if (!tabActive) return;
+    const target = e.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
+    ) {
+      return;
+    }
+    const items = (e.clipboardData || {}).items || [];
+    const pastedFiles = [];
+    for (const item of items) {
+      if (!item.type || !item.type.startsWith('image/')) continue;
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      const ext = item.type.split('/')[1] || 'png';
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      pastedFiles.push(
+        new File([blob], `pasted-${ts}.${ext}`, { type: item.type })
+      );
+    }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      ingestFiles(pastedFiles);
+      setStatus(
+        'ship-status',
+        `Pasted ${pastedFiles.length} screenshot${pastedFiles.length > 1 ? 's' : ''} from clipboard.`,
+        'info'
+      );
+    }
+  });
+
+  async function fileToBase64(file) {
+    const buf = await file.arrayBuffer();
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  parseBtn.addEventListener('click', async () => {
+    if (pendingFiles.length === 0) return;
+    parseBtn.disabled = true;
+    setStatus('ship-status', 'Reading files & calling Claude…', 'info');
+    try {
+      const payload = [];
+      for (const f of pendingFiles) {
+        payload.push({
+          filename: f.name,
+          contentBase64: await fileToBase64(f),
+          mediaType: f.type || 'application/pdf',
+        });
+      }
+      const r = await fetch('/api/shipments/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: payload }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'parse failed');
+      setStatus(
+        'ship-status',
+        `Created ${data.shipment.refId} — review & edit cells as needed.`,
+        'success'
+      );
+      pendingFiles = [];
+      refreshDropState();
+      await loadList();
+      // Scroll the new row into view.
+      const newRow = table.querySelector(
+        `tr[data-ref="${CSS.escape(data.shipment.refId)}"]`
+      );
+      newRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) {
+      setStatus('ship-status', err.message, 'error');
+    } finally {
+      parseBtn.disabled = pendingFiles.length === 0;
+    }
+  });
+
+  addBlankBtn?.addEventListener('click', async () => {
+    setStatus('ship-status', 'Creating blank row…', 'info');
+    try {
+      const r = await fetch('/api/shipments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'create failed');
+      setStatus('ship-status', `Created ${data.refId} — start filling.`, 'success');
+      await loadList();
+    } catch (err) {
+      setStatus('ship-status', err.message, 'error');
+    }
+  });
+
+  refreshBtn?.addEventListener('click', loadList);
+  let searchTimer = null;
+  searchInput?.addEventListener('input', () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadList, 250);
+  });
+
+  async function loadList() {
+    const q = searchInput?.value || '';
+    const r = await fetch(
+      '/api/shipments?q=' + encodeURIComponent(q)
+    ).catch(() => null);
+    if (!r) {
+      table.innerHTML =
+        '<tbody><tr><td class="empty">Network error.</td></tr></tbody>';
+      return;
+    }
+    const data = await r.json();
+    if (!r.ok) {
+      table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(data.error || '')}</td></tr></tbody>`;
+      return;
+    }
+    renderTable(data.shipments || []);
+  }
+
+  function renderTable(rows) {
+    if (rows.length === 0) {
+      table.innerHTML = `<thead>${headerHtml()}</thead><tbody><tr><td colspan="${SHIP_COLS.length + 2}" class="empty">No shipments yet. Drop a booking briefing above or click "Add blank row".</td></tr></tbody>`;
+      return;
+    }
+    const body = rows
+      .map((row) => {
+        const cells = SHIP_COLS.map((col) => cellHtml(row, col)).join('');
+        const sources = (row.artifactsJson || [])
+          .map(
+            (a) =>
+              `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="ship-source-link" title="${esc(a.filename)}">📎</a>`
+          )
+          .join('');
+        return `<tr data-ref="${esc(row.refId)}">${cells}<td class="actions-cell">${sources}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td></tr>`;
+      })
+      .join('');
+    table.innerHTML = `<thead>${headerHtml()}</thead><tbody>${body}</tbody>`;
+    wireCellEditors();
+    wireDeleteButtons();
+  }
+
+  function headerHtml() {
+    return (
+      '<tr>' +
+      SHIP_COLS.map((c) => `<th>${esc(c.label)}</th>`).join('') +
+      '<th></th></tr>'
+    );
+  }
+
+  function cellHtml(row, col) {
+    const raw = row[col.key];
+    let display;
+    if (col.key === 'createdAt' && raw) {
+      display = new Date(raw).toISOString().slice(0, 10);
+    } else if (raw == null || raw === '') {
+      display = '';
+    } else {
+      display = String(raw);
+    }
+    const editableAttr = col.editable
+      ? ' contenteditable="true" data-field="' + col.key + '" data-type="' + (col.type || 'text') + '"'
+      : '';
+    const cls = ['cell', col.editable ? 'cell-editable' : ''];
+    if (col.cls) cls.push(col.cls);
+    if (display === '') cls.push('cell-empty');
+    return `<td class="${cls.filter(Boolean).join(' ')}"${editableAttr}>${esc(display)}</td>`;
+  }
+
+  function wireCellEditors() {
+    table.querySelectorAll('td.cell-editable').forEach((td) => {
+      const original = td.textContent;
+      td.addEventListener('focus', () => {
+        td.classList.add('is-editing');
+      });
+      td.addEventListener('blur', async () => {
+        td.classList.remove('is-editing');
+        const newVal = td.textContent.trim();
+        if (newVal === original.trim()) return;
+        const tr = td.closest('tr');
+        const refId = tr?.dataset.ref;
+        const field = td.dataset.field;
+        const type = td.dataset.type || 'text';
+        if (!refId || !field) return;
+        td.classList.add('is-saving');
+        try {
+          const value =
+            type === 'number'
+              ? newVal === ''
+                ? null
+                : Number(newVal.replace(/[^\d.\-]/g, ''))
+              : newVal === ''
+                ? null
+                : newVal;
+          const r = await fetch(
+            `/api/shipments/${encodeURIComponent(refId)}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ [field]: value }),
+            }
+          );
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'save failed');
+          td.classList.remove('is-saving');
+          td.classList.add('is-saved');
+          setTimeout(() => td.classList.remove('is-saved'), 1200);
+          if (newVal === '') td.classList.add('cell-empty');
+          else td.classList.remove('cell-empty');
+        } catch (err) {
+          td.classList.remove('is-saving');
+          td.textContent = original;
+          alert('Save failed: ' + err.message);
+        }
+      });
+      td.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          td.blur();
+        } else if (e.key === 'Escape') {
+          td.textContent = td.dataset.originalOnFocus || '';
+          td.blur();
+        }
+      });
+    });
+  }
+
+  function wireDeleteButtons() {
+    table.querySelectorAll('.ship-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const tr = btn.closest('tr');
+        const refId = tr?.dataset.ref;
+        if (!refId) return;
+        if (!confirm(`Delete shipment ${refId}? This can't be undone.`)) return;
+        try {
+          const r = await fetch(
+            `/api/shipments/${encodeURIComponent(refId)}`,
+            { method: 'DELETE' }
+          );
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'delete failed');
+          await loadList();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  }
+
+  // Initial load + refresh whenever the user opens the tab.
+  loadList();
+  document
+    .querySelector('[data-tab="shipments"]')
+    ?.addEventListener('click', () => loadList());
+})();
+
+// ---- Floating calculators ----
+const CALC_RATE_KEY = 'freight.calc.usdcad.rate';
+
+(function wireCalculators() {
+  const toggle = document.getElementById('calc-toggle');
+  const panel = document.getElementById('calc-panel');
+  const closeBtn = document.getElementById('calc-close');
+  if (!toggle || !panel) return;
+
+  function open() { panel.hidden = false; }
+  function close() { panel.hidden = true; }
+  toggle.addEventListener('click', () => {
+    if (panel.hidden) open();
+    else close();
+  });
+  closeBtn?.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => {
+    if (!panel.hidden && e.key === 'Escape') close();
+  });
+
+  // ── USD ↔ CAD ────────────────────────────────────────────────────────
+  const rateInput = document.getElementById('calc-usd-cad-rate');
+  const usdInput = document.getElementById('calc-usd');
+  const cadInput = document.getElementById('calc-cad');
+  const storedRate = parseFloat(localStorage.getItem(CALC_RATE_KEY) || '');
+  if (Number.isFinite(storedRate) && storedRate > 0) {
+    rateInput.value = storedRate;
+  }
+  function rate() {
+    const r = parseFloat(rateInput.value);
+    return Number.isFinite(r) && r > 0 ? r : 1;
+  }
+  rateInput.addEventListener('input', () => {
+    localStorage.setItem(CALC_RATE_KEY, rateInput.value);
+    // Recompute downstream
+    if (document.activeElement !== usdInput && usdInput.value) {
+      cadInput.value = (parseFloat(usdInput.value) * rate()).toFixed(2);
+    } else if (document.activeElement !== cadInput && cadInput.value) {
+      usdInput.value = (parseFloat(cadInput.value) / rate()).toFixed(2);
+    }
+  });
+  usdInput.addEventListener('input', () => {
+    const v = parseFloat(usdInput.value);
+    cadInput.value = Number.isFinite(v) ? (v * rate()).toFixed(2) : '';
+  });
+  cadInput.addEventListener('input', () => {
+    const v = parseFloat(cadInput.value);
+    usdInput.value = Number.isFinite(v) ? (v / rate()).toFixed(2) : '';
+  });
+
+  // ── Weight ───────────────────────────────────────────────────────────
+  const kgIn = document.getElementById('calc-kg');
+  const lbsIn = document.getElementById('calc-lbs');
+  const tIn = document.getElementById('calc-tons');
+  function setFromKg(kg) {
+    kgIn.value = kg.toFixed(2);
+    lbsIn.value = (kg * 2.20462).toFixed(2);
+    tIn.value = (kg / 1000).toFixed(3);
+  }
+  kgIn.addEventListener('input', () => {
+    const v = parseFloat(kgIn.value);
+    if (!Number.isFinite(v)) return;
+    lbsIn.value = (v * 2.20462).toFixed(2);
+    tIn.value = (v / 1000).toFixed(3);
+  });
+  lbsIn.addEventListener('input', () => {
+    const v = parseFloat(lbsIn.value);
+    if (!Number.isFinite(v)) return;
+    kgIn.value = (v / 2.20462).toFixed(2);
+    tIn.value = (v / 2.20462 / 1000).toFixed(3);
+  });
+  tIn.addEventListener('input', () => {
+    const v = parseFloat(tIn.value);
+    if (!Number.isFinite(v)) return;
+    kgIn.value = (v * 1000).toFixed(2);
+    lbsIn.value = (v * 1000 * 2.20462).toFixed(2);
+  });
+
+  // ── Length ───────────────────────────────────────────────────────────
+  const cmIn = document.getElementById('calc-cm');
+  const inIn = document.getElementById('calc-in');
+  const ftIn = document.getElementById('calc-ft');
+  const mIn = document.getElementById('calc-m');
+  function setFromCm(cm) {
+    cmIn.value = cm.toFixed(1);
+    inIn.value = (cm / 2.54).toFixed(1);
+    ftIn.value = (cm / 30.48).toFixed(2);
+    mIn.value = (cm / 100).toFixed(3);
+  }
+  cmIn.addEventListener('input', () => {
+    const v = parseFloat(cmIn.value);
+    if (Number.isFinite(v)) setFromCm(v);
+  });
+  inIn.addEventListener('input', () => {
+    const v = parseFloat(inIn.value);
+    if (Number.isFinite(v)) setFromCm(v * 2.54);
+  });
+  ftIn.addEventListener('input', () => {
+    const v = parseFloat(ftIn.value);
+    if (Number.isFinite(v)) setFromCm(v * 30.48);
+  });
+  mIn.addEventListener('input', () => {
+    const v = parseFloat(mIn.value);
+    if (Number.isFinite(v)) setFromCm(v * 100);
+  });
+
+  // ── CBM ──────────────────────────────────────────────────────────────
+  const cbmUnit = document.getElementById('calc-cbm-unit');
+  const cbmL = document.getElementById('calc-cbm-l');
+  const cbmW = document.getElementById('calc-cbm-w');
+  const cbmH = document.getElementById('calc-cbm-h');
+  const cbmQty = document.getElementById('calc-cbm-qty');
+  const cbmResult = document.getElementById('calc-cbm-result');
+  function recalcCbm() {
+    const l = parseFloat(cbmL.value);
+    const w = parseFloat(cbmW.value);
+    const h = parseFloat(cbmH.value);
+    const qty = parseInt(cbmQty.value, 10) || 1;
+    if (!Number.isFinite(l) || !Number.isFinite(w) || !Number.isFinite(h)) {
+      cbmResult.textContent = '—';
+      return;
+    }
+    const factor =
+      cbmUnit.value === 'cm' ? 1e-6 : cbmUnit.value === 'in' ? 1.6387e-5 : 1;
+    const cbm = l * w * h * factor * qty;
+    cbmResult.textContent = `${cbm.toFixed(3)} CBM (per qty: ${(cbm / qty).toFixed(3)})`;
+  }
+  [cbmUnit, cbmL, cbmW, cbmH, cbmQty].forEach((el) =>
+    el.addEventListener('input', recalcCbm)
+  );
+
+  // ── Container fit ────────────────────────────────────────────────────
+  const fitCbm = document.getElementById('calc-fit-cbm');
+  const fitKg = document.getElementById('calc-fit-kg');
+  const fitResult = document.getElementById('calc-fit-result');
+  // Approx usable internal capacities. Conservative — actual fits depend
+  // on packaging, stuffing, and stowage. Numbers commonly cited by
+  // freight forwarders.
+  const CONTAINERS = [
+    { code: '20GP', cbm: 28, kgGross: 21800 },
+    { code: '40GP', cbm: 58, kgGross: 26500 },
+    { code: '40HC', cbm: 67, kgGross: 26500 },
+    { code: '20RF', cbm: 26, kgGross: 21800 },
+    { code: '40RH', cbm: 60, kgGross: 26500 },
+  ];
+  function recalcFit() {
+    const cbm = parseFloat(fitCbm.value);
+    const kg = parseFloat(fitKg.value);
+    if (!Number.isFinite(cbm) && !Number.isFinite(kg)) {
+      fitResult.textContent = 'Fits in: —';
+      return;
+    }
+    const fits = CONTAINERS.filter((c) => {
+      const cbmOk = !Number.isFinite(cbm) || cbm <= c.cbm;
+      const kgOk = !Number.isFinite(kg) || kg <= c.kgGross;
+      return cbmOk && kgOk;
+    }).map((c) => c.code);
+    fitResult.textContent = fits.length
+      ? `Fits in: ${fits.join(', ')}`
+      : 'Does not fit any standard size — needs OOG / break-bulk.';
+  }
+  [fitCbm, fitKg].forEach((el) => el.addEventListener('input', recalcFit));
+})();
+
 function setStatus(elId, msg, type) {
   const el = document.getElementById(elId);
   el.className = 'status-inline ' + (type || '');

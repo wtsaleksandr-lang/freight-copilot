@@ -328,6 +328,42 @@ export const sheetRates = sqliteTable('sheet_rates', {
 });
 
 /**
+ * Personal shipment board. One row per booked / in-progress shipment.
+ * Ref id pattern: S00001, S00002 … (zero-padded 5-digit counter).
+ * Cells are editable inline in the dashboard; AI extraction from email
+ * screenshots / PDFs pre-fills new rows.
+ */
+export const shipments = sqliteTable('shipments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refId: text('ref_id').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  shipperName: text('shipper_name'),
+  receiverName: text('receiver_name'),
+  customerName: text('customer_name'),
+  loadingAddress: text('loading_address'),
+  pol: text('pol'),
+  polCode: text('pol_code'),
+  pod: text('pod'),
+  podCode: text('pod_code'),
+  containerType: text('container_type'),
+  cargoType: text('cargo_type'),
+  cargoName: text('cargo_name'),
+  soldRate: real('sold_rate'),
+  soldCurrency: text('sold_currency').default('USD'),
+  carrierPreference: text('carrier_preference'),
+  notes: text('notes'),
+  /** JSON list of uploaded source files (paths under /shipments-files/...). */
+  artifactsJson: text('artifacts_json', { mode: 'json' }).$type<
+    Array<{ filename: string; url: string; mediaType: string }>
+  >(),
+});
+
+/**
  * Carrier portal login credentials. Vault-only — the system does not type
  * these into login forms. They're stored here so the user can keep them in
  * one place across devices, copy-paste them when logging in, and not have

@@ -43,6 +43,11 @@ export function createApp(): express.Express {
   const parsedSheetsDir = resolve(process.cwd(), 'parsed-sheets');
   app.use('/parsed-sheets-files', express.static(parsedSheetsDir));
 
+  // Source files for the personal shipment board (email screenshots /
+  // PDFs the user dropped to populate a row).
+  const shipmentsDir = resolve(process.cwd(), 'shipments-files');
+  app.use('/shipments-files', express.static(shipmentsDir));
+
   // Real Chrome mode: start the keep-alive pinger that probes each
   // carrier's quote URL every 10 min. Two effects:
   //  - Navigation alone counts as portal activity → idle timer resets,

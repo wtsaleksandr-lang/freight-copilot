@@ -1066,6 +1066,178 @@ label.check-line input[type="checkbox"] {
   background: rgba(212, 74, 74, 0.1);
 }
 
+/* Shipment board editable grid */
+.ship-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: auto;
+}
+.ship-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card-bg, #1a1a1a);
+  text-align: left;
+  padding: 8px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--card-border, #2a2a2a);
+  white-space: nowrap;
+}
+.ship-table tbody td {
+  padding: 6px;
+  border-bottom: 1px solid var(--card-border, #2a2a2a);
+  vertical-align: top;
+  min-width: 80px;
+  max-width: 220px;
+}
+.ship-table tbody td.cell-editable {
+  cursor: text;
+  outline: none;
+  border-radius: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ship-table tbody td.cell-editable:hover {
+  background: rgba(88, 166, 255, 0.04);
+}
+.ship-table tbody td.cell-editable:focus,
+.ship-table tbody td.cell-editable.is-editing {
+  background: rgba(88, 166, 255, 0.1);
+  outline: 1px solid #58a6ff;
+}
+.ship-table tbody td.cell-editable.is-saving {
+  opacity: 0.6;
+}
+.ship-table tbody td.cell-editable.is-saved {
+  background: rgba(46, 160, 67, 0.12);
+  transition: background 0.6s ease-out;
+}
+.ship-table .cell-empty::before {
+  content: '—';
+  color: var(--muted);
+}
+.ship-table .ref-cell {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 80px;
+}
+.ship-table .when-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.ship-table .actions-cell {
+  white-space: nowrap;
+  text-align: right;
+}
+.ship-table .ship-delete-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.ship-table .ship-delete-btn:hover {
+  color: #d44a4a;
+  background: rgba(212, 74, 74, 0.1);
+}
+.ship-table .ship-source-link {
+  color: #58a6ff;
+  text-decoration: none;
+  font-size: 11px;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+.ship-table .ship-source-link:hover { text-decoration: underline; }
+
+/* Floating calculators panel */
+.calc-toggle {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 9999;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: #58a6ff;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.calc-toggle:hover { background: #6cb1ff; }
+.calc-panel {
+  position: fixed;
+  bottom: 70px;
+  right: 18px;
+  z-index: 9998;
+  width: 340px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: #1a1a1a;
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+}
+.calc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border, #2a2a2a);
+}
+.calc-section {
+  margin-bottom: 16px;
+}
+.calc-section:last-child { margin-bottom: 0; }
+.calc-section h4 {
+  margin: 0 0 6px 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.calc-rate-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.calc-rate-row input { width: 80px; }
+.calc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.calc-row input,
+.calc-row select {
+  flex: 1;
+  min-width: 60px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.calc-row select { flex: 0 0 auto; }
+.calc-result {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #2ea043;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Image preview modal (Sheets tab source thumbnails) */
 .image-modal {
   position: fixed;
