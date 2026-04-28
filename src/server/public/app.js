@@ -3283,20 +3283,61 @@ const SHIP_COLS = [
   }
   function ingestFiles(fl) {
     const arr = Array.from(fl || []);
-    const accepted = arr.filter((f) => {
-      // Accept by mime type first
+    if (arr.length === 0) {
+      setStatus(
+        'ship-status',
+        "No file detected — if you dragged an email directly from Outlook or webmail, save it to disk first (PDF or .eml) and drop the file.",
+        'error'
+      );
+      return;
+    }
+    const accepted = [];
+    const rejected = []; // { name, reason }
+    for (const f of arr) {
+      // Accept by mime first
       if (
         /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(
           f.type
         )
       ) {
-        return true;
+        accepted.push(f);
+        continue;
       }
-      // Browsers don't always set a mime for .eml; fall back to extension.
+      // Then by filename extension (browsers often miss the mime on .eml)
       const lower = (f.name || '').toLowerCase();
-      if (/\.(eml|html?|txt)$/.test(lower)) return true;
-      return false;
-    });
+      if (/\.(eml|html?|txt)$/.test(lower)) {
+        accepted.push(f);
+        continue;
+      }
+      // Outlook's binary .msg format — needs conversion. Tell the user
+      // exactly what to do instead of silently dropping the file.
+      if (/\.msg$/.test(lower)) {
+        rejected.push({
+          name: f.name,
+          reason:
+            "Outlook .msg format isn't supported. In Outlook: File > Print > 'Microsoft Print to PDF' (saves a PDF you can drop here), or use Outlook on the web and click Download to get an .eml file.",
+        });
+        continue;
+      }
+      rejected.push({
+        name: f.name || '(unnamed)',
+        reason: `Unsupported type "${f.type || 'unknown'}" — drop a PDF, screenshot, .eml, .html, or .txt instead.`,
+      });
+    }
+    if (rejected.length > 0) {
+      const msg = rejected
+        .map((r) => `${r.name}: ${r.reason}`)
+        .join('\n');
+      setStatus(
+        'ship-status',
+        rejected.length === 1
+          ? rejected[0].reason
+          : `${rejected.length} file(s) rejected:\n${msg}`,
+        'error'
+      );
+    } else if (accepted.length > 0) {
+      setStatus('ship-status', '', '');
+    }
     pendingFiles = pendingFiles.concat(accepted);
     refreshDropState();
   }
