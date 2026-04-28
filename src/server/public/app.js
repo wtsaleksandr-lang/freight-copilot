@@ -2479,10 +2479,14 @@ async function loadCredList() {
   // filename from the clipboard mime type since clipboard images have no
   // intrinsic name.
   document.addEventListener('paste', (e) => {
-    const sheetsActive = document
-      .getElementById('tab-sheets')
+    // The rate-sheet drop zone now lives inside the Ocean tab (#tab-new)
+    // since the Sheets/Ocean merge. Old guard checked #tab-sheets.active
+    // which no longer exists, so Ctrl+V was silently no-oping. Gate on
+    // the Ocean tab instead.
+    const oceanActive = document
+      .getElementById('tab-new')
       ?.classList.contains('active');
-    if (!sheetsActive) return;
+    if (!oceanActive) return;
     const target = e.target;
     const isTypingInput =
       target instanceof HTMLInputElement ||
