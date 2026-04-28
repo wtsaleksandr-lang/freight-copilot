@@ -2823,6 +2823,17 @@ function renderSheetResults(data) {
 })();
 
 // ---- Sheets margin sliders + Generate Email ----
+const SHEET_EMAIL_TEMPLATE_KEY = 'freight.sheet.email.template';
+const SHEET_EMAIL_TEMPLATE_DEFAULT = `Dear ___,
+
+Pls find below our quote-
+POL <POL CITY/PORT>
+POD <POD CITY/COUNTRY>
+$<20GP price>/20'GP ; $<40HQ price>/40'HQ  , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
+$<20GP price>/20'GP ; $<40HQ price>/40'HQ  , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
+Export declaration: $65
+All origin charges (ocean carrier/terminal) included.`;
+
 (function wireSheetEmailControls() {
   const pctSlider = document.getElementById('sheet-markup-pct-slider');
   const pctNum = document.getElementById('sheet-markup-pct');
@@ -2832,7 +2843,18 @@ function renderSheetResults(data) {
   const ta = document.getElementById('sheet-email-text');
   const row = document.getElementById('sheet-email-row');
   const copyBtn = document.getElementById('sheet-email-copy-btn');
+  const templateTa = document.getElementById('sheet-email-template');
   if (!btn) return;
+
+  // Load template from localStorage; if none stored, prefill with the
+  // user's preferred default. They can edit it; their edits persist.
+  if (templateTa) {
+    const stored = localStorage.getItem(SHEET_EMAIL_TEMPLATE_KEY);
+    templateTa.value = stored != null ? stored : SHEET_EMAIL_TEMPLATE_DEFAULT;
+    templateTa.addEventListener('input', () => {
+      localStorage.setItem(SHEET_EMAIL_TEMPLATE_KEY, templateTa.value);
+    });
+  }
 
   function bindPair(slider, num) {
     slider.addEventListener('input', () => (num.value = slider.value));
@@ -2852,8 +2874,12 @@ function renderSheetResults(data) {
     const exportDeclFeeInput = document.getElementById('sheet-export-decl-fee');
     const addExportDeclaration = !!exportDeclToggle?.checked;
     const exportDeclarationFee = Number(exportDeclFeeInput?.value) || 0;
-    const tplArea = document.getElementById('email-template'); // shared template from Ocean tab
-    const emailTemplate = tplArea?.value.trim() || undefined;
+    // Sheets-specific template, persisted to localStorage. Falls back to
+    // the Ocean tab's shared template if for some reason this one is empty.
+    const sheetTpl = document.getElementById('sheet-email-template');
+    const oceanTpl = document.getElementById('email-template');
+    const emailTemplate =
+      (sheetTpl?.value.trim() || oceanTpl?.value.trim()) || undefined;
     const clientName =
       document.getElementById('client-name')?.value.trim() || undefined;
 

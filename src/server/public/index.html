@@ -647,16 +647,21 @@
           </label>
           <label class="sheet-export-decl">
             <input type="checkbox" id="sheet-export-decl-toggle" />
-            <span>Add export declaration</span>
-            <span class="muted">USD</span>
+            <span>+Export decl. $</span>
             <input type="number" id="sheet-export-decl-fee" min="0" step="1" value="65" class="markup-num" />
           </label>
           <span id="sheet-email-status" class="status-inline"></span>
         </div>
 
-        <textarea id="sheet-email-text" rows="12" hidden placeholder="Generated email will appear here…"></textarea>
+        <details class="template-details">
+          <summary>Email template (Claude follows this format — edit once, reused for every quote)</summary>
+          <textarea id="sheet-email-template" rows="10" placeholder="Paste your typical client reply structure here. Saved locally in your browser."></textarea>
+        </details>
+
+        <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>
         <div id="sheet-email-row" class="row" hidden>
           <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
+          <span class="muted small">Tip: edit the email above before copying — your edits are preserved.</span>
         </div>
 
         <div class="table-wrap">

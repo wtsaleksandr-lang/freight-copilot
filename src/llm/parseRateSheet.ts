@@ -49,6 +49,18 @@ CRITICAL RULES:
 
 11. **Don't invent.** If a field isn't on the sheet, leave it null.
 
+12. **POL and POD must be SPECIFIC ports — not regions, services, or countries.** Common mistakes to avoid:
+    - "Mediterranean" — that's a region/trade name, NOT a port. Look for the actual port (Algeciras, Genoa, Piraeus, Valencia…).
+    - "Canada" or "USA" — countries are not ports. Look for the actual port (Montreal, Halifax, New York…).
+    - "Far East", "North Europe", "USEC", "USWC" — these are trade lanes, NOT ports.
+    - Service names like "MED CANADIAN SERVICE", "MEDCAN", "AE7", "EC1" — these are ROUTES, not ports. Put them in service_name, not in origin/destination.
+
+    If a single sheet covers multiple POLs or PODs (e.g. "Origin: any of Halifax, Montreal, Toronto"), output ONE LANE per (POL, POD) combination. Don't merge them into one row.
+
+    If you genuinely cannot identify a specific port for either side, leave that lane out rather than emit a placeholder. Better to extract fewer accurate lanes than many wrong ones.
+
+13. **Validity dates apply to the whole sheet** — don't repeat per-lane.
+
 Return through the extract_rate_sheet tool.`;
 
 const ChargeSchema = z.object({
