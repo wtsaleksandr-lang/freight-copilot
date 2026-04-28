@@ -21,6 +21,13 @@ const envSchema = z.object({
    */
   BASIC_AUTH_USER: z.string().optional(),
   BASIC_AUTH_PASS: z.string().optional(),
+  /**
+   * Optional. Base URL of a running DelayPredict instance, e.g.
+   * http://localhost:5001. When set, the Shipments tab joins each row
+   * with DelayPredict's tracking status by personal_ref → refId.
+   * If unset, the status column shows "Not tracked" for every row.
+   */
+  DELAYPREDICT_URL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1225,6 +1225,63 @@ label.check-line input[type="checkbox"] {
   font-size: 12.5px;
 }
 
+/* DelayPredict tracking dots on the Shipments grid */
+.ship-table .track-cell {
+  text-align: center;
+  vertical-align: middle;
+  min-width: 40px;
+  width: 40px;
+}
+.track-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  vertical-align: middle;
+  transition: transform 0.1s;
+}
+.track-dot:hover { transform: scale(1.3); }
+.track-dot.dot-green { background: #2ea043; box-shadow: 0 0 5px rgba(46, 160, 67, 0.6); }
+.track-dot.dot-yellow { background: #d29922; box-shadow: 0 0 5px rgba(210, 153, 34, 0.6); }
+.track-dot.dot-red { background: #d44a4a; box-shadow: 0 0 5px rgba(212, 74, 74, 0.6); }
+.track-dot.dot-orange { background: #d97757; box-shadow: 0 0 5px rgba(217, 119, 87, 0.6); }
+.track-dot.dot-check { background: #58a6ff; box-shadow: 0 0 5px rgba(88, 166, 255, 0.6); }
+.track-dot.dot-gray { background: #555; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1); }
+
+/* Tracking detail modal — status banner + key/value grid */
+.track-detail-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+.track-detail-status .track-dot { cursor: default; }
+.track-detail-status .track-dot:hover { transform: none; }
+.track-detail-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 14px;
+  font-size: 13px;
+}
+.track-detail-row {
+  display: contents;
+}
+.track-detail-row .muted {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  align-self: center;
+}
+
 /* Floating calculators panel */
 .calc-toggle {
   position: fixed;

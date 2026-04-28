@@ -815,6 +815,20 @@
     </section>
   </main>
 
+  <!-- DelayPredict tracking detail modal -->
+  <div id="track-detail-modal" class="image-modal" hidden>
+    <div class="image-modal-backdrop"></div>
+    <div class="image-modal-frame clarify-frame">
+      <div class="image-modal-toolbar">
+        <strong>Tracking — <span id="track-detail-ref">—</span></strong>
+        <span class="image-modal-spacer"></span>
+        <button id="track-detail-refresh" class="btn-sm" title="Pull latest carrier tracking">↻ Refresh tracking</button>
+        <button id="track-detail-close" class="btn-sm" title="Close (Esc)">✕</button>
+      </div>
+      <div class="image-modal-body clarify-body" id="track-detail-body"></div>
+    </div>
+  </div>
+
   <!-- Clarification modal: shown when AI extraction returns questions.
        Modal collects the user's answers, then the parse re-fires with
        them as authoritative context. -->

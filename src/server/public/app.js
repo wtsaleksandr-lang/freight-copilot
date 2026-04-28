@@ -3240,6 +3240,7 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 
 // ---- Shipment board ----
 const SHIP_COLS = [
+  { key: 'tracking', label: 'Track', editable: false, cls: 'track-cell' },
   { key: 'refId', label: 'Ref', editable: false, cls: 'ref-cell' },
   { key: 'createdAt', label: 'Created', editable: false, cls: 'when-cell' },
   { key: 'shipperName', label: 'Shipper', editable: true },
@@ -3491,6 +3492,113 @@ const SHIP_COLS = [
     table.innerHTML = `<thead>${headerHtml()}</thead><tbody>${body}</tbody>`;
     wireCellEditors();
     wireDeleteButtons();
+    wireTrackingDots(rows);
+  }
+
+  function wireTrackingDots(rows) {
+    const byRef = new Map(rows.map((r) => [r.refId, r]));
+    table.querySelectorAll('button[data-action="track-detail"]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tr = btn.closest('tr');
+        const refId = tr?.dataset.ref;
+        if (!refId) return;
+        const row = byRef.get(refId);
+        if (!row) return;
+        openTrackingDetail(row);
+      });
+    });
+  }
+
+  function openTrackingDetail(row) {
+    const t = row.tracking || { color: 'gray', label: 'Not tracked', data: null };
+    const d = t.data;
+    const detail = document.getElementById('track-detail-modal');
+    const body = document.getElementById('track-detail-body');
+    const refLabel = document.getElementById('track-detail-ref');
+    if (!detail || !body) return;
+
+    refLabel.textContent = row.refId;
+    if (!d) {
+      body.innerHTML =
+        `<p class="muted">${esc(t.label)}.</p>` +
+        `<p class="muted small">No DelayPredict shipment matches this ref. Either DelayPredict isn't running, or no shipment has been created there with personal_ref = <code>${esc(row.refId)}</code>.</p>`;
+    } else {
+      const rows_ = [
+        ['Status', d.status || '—'],
+        ['ETD', d.etd || '—'],
+        ['ETA', d.eta || '—'],
+        ['Actual arrival', d.actual_arrival || '—'],
+        [
+          'Actual delay',
+          d.actual_delay_days != null ? `${d.actual_delay_days} day(s)` : '—',
+        ],
+        [
+          'Predicted arrival',
+          d.predicted_arrival ? d.predicted_arrival.slice(0, 16).replace('T', ' ') : '—',
+        ],
+        [
+          'Predicted delay',
+          d.predicted_delay_days != null
+            ? `${d.predicted_delay_days} day(s)`
+            : '—',
+        ],
+        ['Vessel', d.vessel_name || '—'],
+        ['Risk score', d.risk_score != null ? String(d.risk_score) : '—'],
+        [
+          'Last tracking event',
+          d.tracking_last_event_at
+            ? new Date(d.tracking_last_event_at).toISOString().slice(0, 16).replace('T', ' ')
+            : '—',
+        ],
+      ];
+      const inner = rows_
+        .map(
+          ([k, v]) =>
+            `<div class="track-detail-row"><span class="muted">${esc(k)}</span><strong>${esc(v)}</strong></div>`
+        )
+        .join('');
+      body.innerHTML =
+        `<div class="track-detail-status track-status-${esc(t.color)}"><span class="track-dot dot-${esc(t.color)}"></span> ${esc(t.label)}</div>` +
+        `<div class="track-detail-grid">${inner}</div>` +
+        (d.recommendation
+          ? `<p class="muted small" style="margin-top: 10px"><em>${esc(d.recommendation)}</em></p>`
+          : '');
+    }
+    detail.hidden = false;
+
+    // Wire close + refresh handlers (idempotent)
+    const closeBtn = document.getElementById('track-detail-close');
+    const refreshBtn = document.getElementById('track-detail-refresh');
+    function close() {
+      detail.hidden = true;
+      closeBtn?.removeEventListener('click', close);
+      refreshBtn?.removeEventListener('click', refresh);
+      detail.querySelector('.image-modal-backdrop')?.removeEventListener('click', close);
+    }
+    async function refresh() {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing…';
+      try {
+        const r = await fetch(
+          `/api/shipments/${encodeURIComponent(row.refId)}/refresh-tracking`,
+          { method: 'POST' }
+        );
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'refresh failed');
+        // Re-fetch the whole list (cheap; cache on server is now invalidated).
+        await loadList();
+        close();
+      } catch (err) {
+        alert('Refresh failed: ' + err.message);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '↻ Refresh tracking';
+      }
+    }
+    closeBtn?.addEventListener('click', close);
+    refreshBtn?.addEventListener('click', refresh);
+    detail.querySelector('.image-modal-backdrop')?.addEventListener('click', close);
   }
 
   function headerHtml() {
@@ -3502,6 +3610,16 @@ const SHIP_COLS = [
   }
 
   function cellHtml(row, col) {
+    if (col.key === 'tracking') {
+      const t = row.tracking || { color: 'gray', label: 'Not tracked' };
+      const tooltipBits = [t.label];
+      if (t.data?.eta) tooltipBits.push(`ETA: ${t.data.eta}`);
+      if (t.data?.predicted_arrival)
+        tooltipBits.push(`Predicted arrival: ${t.data.predicted_arrival.slice(0, 10)}`);
+      if (t.data?.vessel_name) tooltipBits.push(`Vessel: ${t.data.vessel_name}`);
+      const tooltip = esc(tooltipBits.join(' · '));
+      return `<td class="cell track-cell"><button class="track-dot dot-${esc(t.color)}" data-action="track-detail" title="${tooltip}" aria-label="${tooltip}"></button></td>`;
+    }
     const raw = row[col.key];
     let display;
     if (col.key === 'createdAt' && raw) {

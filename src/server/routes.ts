@@ -80,6 +80,10 @@ import {
   detectMediaType,
   type BriefingMediaType,
 } from '../llm/parseShipmentBriefing.js';
+import {
+  getDelayPredictBadgeMap,
+  refreshDelayPredictTracking,
+} from './delayPredictClient.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -1383,8 +1387,20 @@ export function registerApiRoutes(app: Express): void {
     const rawQ = req.query.q;
     const q = typeof rawQ === 'string' ? rawQ : '';
     try {
-      const rows = await listShipments(q);
-      res.json({ shipments: rows });
+      const [rows, badges] = await Promise.all([
+        listShipments(q),
+        getDelayPredictBadgeMap(),
+      ]);
+      // Attach tracking badge per row (gray "Not tracked" if no match).
+      const enriched = rows.map((r) => ({
+        ...r,
+        tracking: badges.get(r.refId) ?? {
+          color: 'gray' as const,
+          label: 'Not tracked',
+          data: null,
+        },
+      }));
+      res.json({ shipments: enriched });
     } catch (err) {
       console.error('[api/shipments] list error:', err);
       res.status(500).json({
@@ -1392,6 +1408,27 @@ export function registerApiRoutes(app: Express): void {
       });
     }
   });
+
+  /** Trigger a tracking refresh on DelayPredict for one shipment. */
+  app.post(
+    '/api/shipments/:refId/refresh-tracking',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      try {
+        const tracking = await refreshDelayPredictTracking(refId);
+        res.json({ refId, tracking });
+      } catch (err) {
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
 
   /** Create a row. If no body fields given, returns a blank row with a fresh ref id. */
   app.post('/api/shipments', async (req: Request, res: Response) => {
