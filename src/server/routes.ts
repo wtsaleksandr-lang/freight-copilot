@@ -77,6 +77,7 @@ import {
 } from '../db/shipmentBoard.js';
 import {
   parseShipmentBriefing,
+  detectMediaType,
   type BriefingMediaType,
 } from '../llm/parseShipmentBriefing.js';
 
@@ -1458,23 +1459,52 @@ export function registerApiRoutes(app: Express): void {
       files?: Array<{
         filename?: string;
         contentBase64: string;
-        mediaType: BriefingMediaType;
+        mediaType?: BriefingMediaType;
       }>;
+      /** If true, original files are NOT saved to disk — extract only.
+       *  Use for confidential email content. Default false (keep). */
+      ephemeral?: boolean;
     };
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
       res.status(400).json({ error: 'No files provided.' });
       return;
     }
+    const ephemeral = !!body.ephemeral;
     try {
-      // Run extraction first so we know whether to create the row at all.
-      const briefing = await parseShipmentBriefing(
-        files.map((f) => ({
-          fileBase64: f.contentBase64,
-          mediaType: f.mediaType,
+      // Resolve media type per file. If the client supplied one, use it;
+      // otherwise infer from filename. Then route text vs vision.
+      const briefingFiles = files.map((f) => {
+        const inferred =
+          f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
+        if (!inferred) {
+          throw new Error(`Could not detect media type for ${f.filename ?? 'file'}`);
+        }
+        const isText =
+          inferred === 'message/rfc822' ||
+          inferred === 'text/html' ||
+          inferred === 'text/plain';
+        if (isText) {
+          // Decode base64 → utf-8 text. Send to Claude as text.
+          const textContent = Buffer.from(
+            f.contentBase64,
+            'base64'
+          ).toString('utf8');
+          return {
+            mediaType: inferred,
+            filename: f.filename,
+            textContent,
+          };
+        }
+        return {
+          mediaType: inferred,
           filename: f.filename,
-        }))
-      );
+          fileBase64: f.contentBase64,
+        };
+      });
+
+      // Run extraction first so we know whether to create the row at all.
+      const briefing = await parseShipmentBriefing(briefingFiles);
 
       // Create the row with extracted fields. Ref id is auto-allocated.
       const row = await createShipment({
@@ -1495,42 +1525,41 @@ export function registerApiRoutes(app: Express): void {
         notes: briefing.notes ?? null,
       });
 
-      // Save the source files under shipments-files/<refId>/
-      const { mkdir, writeFile } = await import('node:fs/promises');
-      const outDir = resolve(`./shipments-files/${row.refId}`);
-      await mkdir(outDir, { recursive: true });
-      const artifacts: Array<{
+      // Save source files unless the user opted into ephemeral mode.
+      let artifacts: Array<{
         filename: string;
         url: string;
         mediaType: string;
       }> = [];
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]!;
-        const safe = (f.filename ?? `file-${i + 1}`).replace(
-          /[^a-z0-9._-]/gi,
-          '_'
-        );
-        const fp = resolve(outDir, `${i + 1}-${safe}`);
-        await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
-        artifacts.push({
-          filename: f.filename ?? safe,
-          url: `/shipments-files/${row.refId}/${i + 1}-${safe}`,
-          mediaType: f.mediaType,
-        });
+      if (!ephemeral) {
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        const outDir = resolve(`./shipments-files/${row.refId}`);
+        await mkdir(outDir, { recursive: true });
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i]!;
+          const safe = (f.filename ?? `file-${i + 1}`).replace(
+            /[^a-z0-9._-]/gi,
+            '_'
+          );
+          const fp = resolve(outDir, `${i + 1}-${safe}`);
+          await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+          artifacts.push({
+            filename: f.filename ?? safe,
+            url: `/shipments-files/${row.refId}/${i + 1}-${safe}`,
+            mediaType: briefingFiles[i]!.mediaType,
+          });
+        }
+        // Direct DB write — artifactsJson isn't on the EDITABLE_FIELDS allow-list.
+        const db = createDbClient();
+        const { shipments: shipmentsTbl } = await import('../db/schema.js');
+        await db
+          .update(shipmentsTbl)
+          .set({ artifactsJson: artifacts, updatedAt: new Date() })
+          .where(eq(shipmentsTbl.refId, row.refId));
       }
-      // Persist the artifact list on the row.
-      const updated = await updateShipment(row.refId, {});
-      // updateShipment doesn't accept artifactsJson via EDITABLE_FIELDS;
-      // use a direct DB write to set it (bypassing the safe-list).
-      const db = createDbClient();
-      const { shipments: shipmentsTbl } = await import('../db/schema.js');
-      await db
-        .update(shipmentsTbl)
-        .set({ artifactsJson: artifacts, updatedAt: new Date() })
-        .where(eq(shipmentsTbl.refId, row.refId));
       const final = await getShipment(row.refId);
 
-      res.json({ shipment: final ?? updated ?? row, briefing });
+      res.json({ shipment: final ?? row, briefing, ephemeral });
     } catch (err) {
       console.error('[api/shipments/parse] error:', err);
       res.status(500).json({

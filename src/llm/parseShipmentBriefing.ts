@@ -81,13 +81,45 @@ export type BriefingMediaType =
   | 'image/png'
   | 'image/jpeg'
   | 'image/webp'
-  | 'image/gif';
+  | 'image/gif'
+  /** Raw email file (RFC 822 / MIME). Sent to Claude as text. */
+  | 'message/rfc822'
+  /** Email saved as HTML, or any HTML document. Sent as text. */
+  | 'text/html'
+  /** Plain text dumps. */
+  | 'text/plain';
 
 export interface BriefingFile {
-  fileBase64: string;
+  /** Base64-encoded content for binary types (PDF/image). */
+  fileBase64?: string;
+  /** Pre-decoded text content for email/HTML/plain text. */
+  textContent?: string;
   mediaType: BriefingMediaType;
   filename?: string;
 }
+
+/**
+ * Detect media type from filename extension. Used by the route layer
+ * which receives a Blob and just knows the filename.
+ */
+export function detectMediaType(filename: string): BriefingMediaType | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.eml')) return 'message/rfc822';
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
+  if (lower.endsWith('.txt')) return 'text/plain';
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return null;
+}
+
+const TEXT_TYPES = new Set<BriefingMediaType>([
+  'message/rfc822',
+  'text/html',
+  'text/plain',
+]);
 
 /**
  * Extract one shipment record from a set of email screenshots / PDFs.
@@ -107,17 +139,32 @@ export async function parseShipmentBriefing(
   }
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
+  const textCount = files.filter((f) => TEXT_TYPES.has(f.mediaType)).length;
+  const visionCount = files.length - textCount;
+  const introBits: string[] = [];
+  if (visionCount > 0) {
+    introBits.push(
+      visionCount === 1
+        ? '1 visual document (PDF or screenshot)'
+        : `${visionCount} visual documents (PDFs or screenshots)`
+    );
+  }
+  if (textCount > 0) {
+    introBits.push(
+      textCount === 1 ? '1 email/text body' : `${textCount} email/text bodies`
+    );
+  }
+  const intro =
+    files.length === 1
+      ? 'Extract the shipment details from this document.'
+      : `Extract the shipment details from these ${introBits.join(' + ')} — they describe ONE shipment together.`;
+
   const content: Array<{ type: string; [k: string]: unknown }> = [
-    {
-      type: 'text',
-      text:
-        files.length === 1
-          ? 'Extract the shipment details from this document.'
-          : `Extract the shipment details from these ${files.length} documents — they describe ONE shipment together.`,
-    },
+    { type: 'text', text: intro },
   ];
   for (const f of files) {
     if (f.mediaType === 'application/pdf') {
+      if (!f.fileBase64) throw new Error('PDF missing fileBase64');
       content.push({
         type: 'document',
         source: {
@@ -126,7 +173,23 @@ export async function parseShipmentBriefing(
           data: f.fileBase64,
         },
       });
+    } else if (TEXT_TYPES.has(f.mediaType)) {
+      const body = f.textContent ?? '';
+      const label =
+        f.mediaType === 'message/rfc822'
+          ? 'Email file (.eml — full MIME headers + body)'
+          : f.mediaType === 'text/html'
+            ? 'HTML email body'
+            : 'Plain text';
+      content.push({
+        type: 'text',
+        text:
+          `--- ${f.filename ?? 'file'} (${label}) ---\n` +
+          body +
+          '\n--- end ---',
+      });
     } else {
+      if (!f.fileBase64) throw new Error('Image missing fileBase64');
       content.push({
         type: 'image',
         source: {

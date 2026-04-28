@@ -3278,9 +3278,20 @@ const SHIP_COLS = [
   }
   function ingestFiles(fl) {
     const arr = Array.from(fl || []);
-    const accepted = arr.filter((f) =>
-      /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i.test(f.type)
-    );
+    const accepted = arr.filter((f) => {
+      // Accept by mime type first
+      if (
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(
+          f.type
+        )
+      ) {
+        return true;
+      }
+      // Browsers don't always set a mime for .eml; fall back to extension.
+      const lower = (f.name || '').toLowerCase();
+      if (/\.(eml|html?|txt)$/.test(lower)) return true;
+      return false;
+    });
     pendingFiles = pendingFiles.concat(accepted);
     refreshDropState();
   }
@@ -3349,18 +3360,22 @@ const SHIP_COLS = [
     parseBtn.disabled = true;
     setStatus('ship-status', 'Reading files & calling Claude…', 'info');
     try {
+      const ephemeral = !!document.getElementById('ship-ephemeral')?.checked;
       const payload = [];
       for (const f of pendingFiles) {
+        // Send mediaType when the browser provided one; otherwise let the
+        // server infer from the filename extension (handles .eml which
+        // Chrome often labels as application/octet-stream).
         payload.push({
           filename: f.name,
           contentBase64: await fileToBase64(f),
-          mediaType: f.type || 'application/pdf',
+          mediaType: f.type && f.type !== 'application/octet-stream' ? f.type : undefined,
         });
       }
       const r = await fetch('/api/shipments/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: payload }),
+        body: JSON.stringify({ files: payload, ephemeral }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'parse failed');

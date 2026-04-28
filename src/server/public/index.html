@@ -734,14 +734,18 @@
         <div id="ship-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
             <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
-            <span class="muted small">PDF · PNG · JPG · WEBP — multiple files describe ONE shipment</span>
+            <span class="muted small">PDF · PNG · JPG · WEBP · <strong>EML</strong> · <strong>HTML</strong> · TXT — multiple files describe ONE shipment</span>
           </div>
-          <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
+          <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.html,.htm,.txt" hidden />
         </div>
 
-        <div class="row">
+        <div class="row" style="gap: 12px; flex-wrap: wrap;">
           <button id="ship-parse-btn" class="primary" disabled>Extract &amp; create shipment</button>
           <button id="ship-add-blank-btn" class="btn-sm">+ Add blank row</button>
+          <label class="ship-ephemeral-toggle">
+            <input type="checkbox" id="ship-ephemeral" />
+            <span>Don't save these files (extract only)</span>
+          </label>
           <div id="ship-status" class="status-inline"></div>
         </div>
       </div>
