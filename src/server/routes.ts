@@ -61,6 +61,13 @@ import {
   parseRateSheet,
   type RateSheetMediaType,
 } from '../llm/parseRateSheet.js';
+import {
+  saveSheetUpload,
+  updateSheetUploadEmail,
+  searchSheetUploads,
+  getSheetUploadDetail,
+  ratesFromParsedResults,
+} from '../db/sheetHistory.js';
 
 interface QuoteReqBody {
   carrier?: string;
@@ -1215,8 +1222,72 @@ export function registerApiRoutes(app: Express): void {
       void ext;
     }
 
+    // Persist parsed-sheet results so the user can search past quotes by
+    // POL/POD without paying Claude again. Best-effort — a DB hiccup
+    // shouldn't fail the parse response.
+    try {
+      const okFiles = results
+        .filter((r) => r.ok && r.parsed && r.artifacts)
+        .map((r) => ({
+          filename: r.filename,
+          parsed: r.parsed!,
+          sourceUrl: r.artifacts!.source,
+        }));
+      const ratesForDb = ratesFromParsedResults(okFiles);
+      await saveSheetUpload({
+        refId,
+        outputFolder: outDir,
+        rows: ratesForDb,
+        rawResults: { refId, outputFolder: outDir, results },
+      });
+    } catch (err) {
+      console.error('[api/rates/parse-sheet] persist error:', err);
+    }
+
     res.json({ refId, outputFolder: outDir, results });
   });
+
+  // Search past parsed-sheet quotes by POL/POD substring.
+  app.get('/api/sheets/history', async (req: Request, res: Response) => {
+    const rawQ = req.query.q;
+    const q = typeof rawQ === 'string' ? rawQ : '';
+    try {
+      const uploads = await searchSheetUploads(q, 50);
+      res.json({ uploads });
+    } catch (err) {
+      console.error('[api/sheets/history] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // Load a saved upload by refId — returns the same shape the dashboard
+  // gets from a fresh parse, so the same render path can replay it.
+  app.get(
+    '/api/sheets/history/:refId',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId is required' });
+        return;
+      }
+      try {
+        const detail = await getSheetUploadDetail(refId);
+        if (!detail) {
+          res.status(404).json({ error: 'Upload not found' });
+          return;
+        }
+        res.json(detail);
+      } catch (err) {
+        console.error('[api/sheets/history/:refId] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
 
   app.post('/api/sheets/reply', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as {
@@ -1227,24 +1298,41 @@ export function registerApiRoutes(app: Express): void {
       exportDeclarationFee?: number | string;
       clientName?: string;
       emailTemplate?: string;
+      /** When set, the saved upload row is updated so the email persists. */
+      refId?: string;
     };
     if (!Array.isArray(body.rows) || body.rows.length === 0) {
       res.status(400).json({ error: 'No rate rows provided.' });
       return;
     }
     try {
+      const markupPct = Number(body.markupPct ?? 0);
+      const markupFlat = Number(body.markupFlat ?? 0);
+      const exportDeclarationFee =
+        body.exportDeclarationFee != null
+          ? Number(body.exportDeclarationFee)
+          : 65;
       const text = await generateSheetReply({
         rows: body.rows,
-        markupPct: Number(body.markupPct ?? 0),
-        markupFlat: Number(body.markupFlat ?? 0),
+        markupPct,
+        markupFlat,
         addExportDeclaration: !!body.addExportDeclaration,
-        exportDeclarationFee:
-          body.exportDeclarationFee != null
-            ? Number(body.exportDeclarationFee)
-            : 65,
+        exportDeclarationFee,
         clientName: body.clientName,
         emailTemplate: body.emailTemplate,
       });
+      // Persist the latest email + markup back to the saved row.
+      if (body.refId) {
+        await updateSheetUploadEmail(body.refId, {
+          generatedEmail: text,
+          markupPct,
+          markupFlat,
+          addExportDeclaration: !!body.addExportDeclaration,
+          exportDeclarationFee,
+        }).catch((err) =>
+          console.error('[api/sheets/reply] persist error:', err)
+        );
+      }
       res.json({ text });
     } catch (err) {
       console.error('[api/sheets/reply] error:', err);

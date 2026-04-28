@@ -863,6 +863,68 @@ label.check-line input[type="checkbox"] {
   width: 60px;
 }
 
+/* Past quotes list */
+.sheet-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.sheet-history-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--card-border, #2a2a2a);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+.sheet-history-row:hover {
+  background: rgba(88,166,255,0.07);
+  border-color: #58a6ff;
+}
+.sheet-history-row .when {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sheet-history-row .lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sheet-history-row .lanes .lane {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-history-row .meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sheet-history-row .carrier-pill {
+  background: rgba(88,166,255,0.15);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-weight: 600;
+  color: #58a6ff;
+}
+.sheet-history-row .has-email {
+  color: #2ea043;
+  font-size: 11px;
+}
+
 /* Image preview modal (Sheets tab source thumbnails) */
 .image-modal {
   position: fixed;

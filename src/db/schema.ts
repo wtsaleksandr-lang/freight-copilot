@@ -269,6 +269,65 @@ export const truckingRates = sqliteTable('trucking_rates', {
 });
 
 /**
+ * Parsed-sheet history. One row in sheet_uploads per Sheets-tab parse
+ * event, with N rows in sheet_rates (one per lane × container).
+ * Lets the user search past quotes by POL/POD without re-running Claude
+ * over the same screenshots.
+ */
+export const sheetUploads = sqliteTable('sheet_uploads', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  refId: text('ref_id').notNull().unique(),
+  outputFolder: text('output_folder').notNull(),
+  /** Most recently generated email body (replaces on each /api/sheets/reply). */
+  generatedEmail: text('generated_email'),
+  markupPct: real('markup_pct').notNull().default(0),
+  markupFlat: real('markup_flat').notNull().default(0),
+  addExportDeclaration: integer('add_export_declaration', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  exportDeclarationFee: real('export_declaration_fee').notNull().default(0),
+  /** Whatever JSON the original parse_sheet endpoint returned (keep for replay). */
+  rawResultsJson: text('raw_results_json', { mode: 'json' }).$type<unknown>(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const sheetRates = sqliteTable('sheet_rates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  uploadId: integer('upload_id')
+    .notNull()
+    .references(() => sheetUploads.id, { onDelete: 'cascade' }),
+  carrierCode: text('carrier_code').notNull(),
+  pol: text('pol').notNull(),
+  polCode: text('pol_code'),
+  pod: text('pod').notNull(),
+  podCode: text('pod_code'),
+  containerType: text('container_type').notNull(),
+  transitDays: integer('transit_days'),
+  detentionFreetimeDays: integer('detention_freetime_days'),
+  demurrageFreetimeDays: integer('demurrage_freetime_days'),
+  freightTotal: real('freight_total').notNull(),
+  freightCurrency: text('freight_currency').notNull(),
+  freightCharges: text('freight_charges', { mode: 'json' }).$type<
+    Array<{ name: string; amount: number; currency: string }>
+  >(),
+  destinationTotal: real('destination_total'),
+  destinationCurrency: text('destination_currency'),
+  destinationCharges: text('destination_charges', { mode: 'json' }).$type<
+    Array<{ name: string; amount: number; currency: string }>
+  >(),
+  validityFrom: text('validity_from'),
+  validityTo: text('validity_to'),
+  serviceName: text('service_name'),
+  sourceFilename: text('source_filename'),
+  /** URL path under /parsed-sheets-files for the dashboard to link/preview. */
+  sourceUrl: text('source_url'),
+  /** Pre-lowered concat of pol/polCode/pod/podCode for fast search. */
+  searchKey: text('search_key').notNull(),
+});
+
+/**
  * Carrier portal login credentials. Vault-only — the system does not type
  * these into login forms. They're stored here so the user can keep them in
  * one place across devices, copy-paste them when logging in, and not have

@@ -2567,6 +2567,7 @@ async function loadCredList() {
         okResults.length === data.results.length ? 'success' : 'info'
       );
       renderSheetResults(data);
+      document.dispatchEvent(new Event('sheet-parse-complete'));
     } catch (err) {
       setStatus('sheet-status', err.message, 'error');
     } finally {
@@ -2580,6 +2581,9 @@ async function loadCredList() {
 // Most recently rendered rate rows — kept globally so the Generate Email
 // button can read them without having to re-fetch from the table DOM.
 let lastSheetRows = [];
+// refId of the sheet currently displayed (so Generate Email can persist
+// the new email back to the saved row).
+let lastSheetRefId = null;
 
 function renderSheetResults(data) {
   const card = document.getElementById('sheet-results-card');
@@ -2647,6 +2651,7 @@ function renderSheetResults(data) {
   );
 
   lastSheetRows = rows;
+  lastSheetRefId = data.refId || null;
 
   title.textContent = `${data.refId}: ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
   meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code>`;
@@ -2894,6 +2899,7 @@ function renderSheetResults(data) {
           exportDeclarationFee,
           clientName,
           emailTemplate,
+          refId: lastSheetRefId,
         }),
       });
       const data = await r.json();
@@ -2919,6 +2925,135 @@ function renderSheetResults(data) {
       alert('Clipboard write failed — text is selected for manual copy.');
     }
   });
+})();
+
+// ---- Past sheet quotes: search + load-back ----
+(function wireSheetHistory() {
+  const searchInput = document.getElementById('sheet-history-search');
+  const list = document.getElementById('sheet-history-list');
+  const refreshBtn = document.getElementById('sheet-history-refresh');
+  if (!searchInput || !list) return;
+
+  let debounceTimer = null;
+
+  async function load(query) {
+    list.innerHTML = '<div class="muted small">Loading…</div>';
+    try {
+      const r = await fetch(
+        '/api/sheets/history?q=' + encodeURIComponent(query || '')
+      );
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'load failed');
+      renderList(data.uploads || []);
+    } catch (err) {
+      list.innerHTML = `<div class="muted small">Error: ${esc(err.message)}</div>`;
+    }
+  }
+
+  function renderList(uploads) {
+    if (uploads.length === 0) {
+      list.innerHTML =
+        '<div class="muted small">No saved quotes yet. Drop a sheet above and they\'ll start showing up here.</div>';
+      return;
+    }
+    list.innerHTML = uploads
+      .map((u) => {
+        const when = new Date(u.createdAt)
+          .toISOString()
+          .replace('T', ' ')
+          .slice(0, 16);
+        const lanesHtml = u.lanes
+          .slice(0, 3)
+          .map((l) => `<span class="lane">${esc(l)}</span>`)
+          .join('');
+        const more =
+          u.lanes.length > 3
+            ? `<span class="muted small">+${u.lanes.length - 3} more</span>`
+            : '';
+        const carriers = u.carriers
+          .map((c) => `<span class="carrier-pill">${esc(c)}</span>`)
+          .join(' ');
+        const containers =
+          u.containerTypes.length > 0
+            ? u.containerTypes.map((c) => `<code>${esc(c)}</code>`).join(' ')
+            : '';
+        const emailFlag = u.generatedEmail
+          ? '<span class="has-email">✓ email saved</span>'
+          : '';
+        return `<div class="sheet-history-row" data-ref="${esc(u.refId)}">
+          <div class="when">${esc(when)}<br><code class="muted small">${esc(u.refId)}</code></div>
+          <div class="lanes">${lanesHtml}${more}</div>
+          <div class="meta">${carriers} ${containers} <span class="muted small">${u.rateRowCount} rate${u.rateRowCount === 1 ? '' : 's'}</span> ${emailFlag}</div>
+        </div>`;
+      })
+      .join('');
+
+    list.querySelectorAll('.sheet-history-row').forEach((row) => {
+      row.addEventListener('click', () => loadSavedUpload(row.dataset.ref));
+    });
+  }
+
+  async function loadSavedUpload(refId) {
+    try {
+      const r = await fetch(`/api/sheets/history/${encodeURIComponent(refId)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'load failed');
+      // results was stored as the ORIGINAL parse-sheet response payload —
+      // hand it to the same renderer the live parse uses.
+      if (data.results) {
+        renderSheetResults(data.results);
+      }
+      // Restore the saved email + markup state.
+      const ta = document.getElementById('sheet-email-text');
+      const row = document.getElementById('sheet-email-row');
+      if (data.generatedEmail && ta) {
+        ta.value = data.generatedEmail;
+        ta.hidden = false;
+        if (row) row.hidden = false;
+        setStatus(
+          'sheet-email-status',
+          'Loaded saved email — adjust and re-generate or copy as-is.',
+          'info'
+        );
+      } else if (ta) {
+        ta.value = '';
+        ta.hidden = true;
+        if (row) row.hidden = true;
+      }
+      const pctNum = document.getElementById('sheet-markup-pct');
+      const pctSlider = document.getElementById('sheet-markup-pct-slider');
+      const flatNum = document.getElementById('sheet-markup-flat');
+      const flatSlider = document.getElementById('sheet-markup-flat-slider');
+      if (pctNum && pctSlider) {
+        pctNum.value = data.markupPct ?? 0;
+        pctSlider.value = data.markupPct ?? 0;
+      }
+      if (flatNum && flatSlider) {
+        flatNum.value = data.markupFlat ?? 0;
+        flatSlider.value = data.markupFlat ?? 0;
+      }
+      const decTog = document.getElementById('sheet-export-decl-toggle');
+      const decFee = document.getElementById('sheet-export-decl-fee');
+      if (decTog) decTog.checked = !!data.addExportDeclaration;
+      if (decFee && data.exportDeclarationFee != null) {
+        decFee.value = data.exportDeclarationFee;
+      }
+    } catch (err) {
+      setStatus('sheet-email-status', 'Load failed: ' + err.message, 'error');
+    }
+  }
+
+  searchInput.addEventListener('input', () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => load(searchInput.value), 250);
+  });
+  refreshBtn?.addEventListener('click', () => load(searchInput.value));
+
+  // Initial load
+  load('');
+
+  // Refresh after every successful parse so the new quote appears immediately.
+  document.addEventListener('sheet-parse-complete', () => load(searchInput.value));
 })();
 
 function setStatus(elId, msg, type) {

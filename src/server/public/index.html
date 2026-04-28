@@ -613,6 +613,16 @@
         <div id="sheet-progress-list" class="rec-upload-progress"></div>
       </div>
 
+      <div class="card">
+        <div class="card-header">
+          <h2>Past sheet quotes</h2>
+          <button id="sheet-history-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <p class="muted small">Search by POL or POD (e.g. "charleston", "USCHS", "ROCND", "constanta"). Empty search shows the most recent quotes. Click a row to reload the rates + email without spending any tokens.</p>
+        <input id="sheet-history-search" type="search" placeholder="Filter by POL/POD..." class="full" />
+        <div id="sheet-history-list" class="sheet-history-list"></div>
+      </div>
+
       <div id="sheet-results-card" class="card" hidden>
         <div class="card-header">
           <h2 id="sheet-results-title">Parsed rates</h2>
