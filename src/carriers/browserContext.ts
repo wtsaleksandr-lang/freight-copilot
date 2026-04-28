@@ -55,8 +55,12 @@ export async function createBrowserContext(opts: {
       context,
       usingRealChrome: true,
       close: async () => {
-        // Don't close the browser — it's the user's Chrome. Pages we opened
-        // can be closed by the caller individually.
+        // For CDP-connected browsers, browser.close() disconnects the
+        // websocket — it does NOT close the user's Chrome process. Failing
+        // to call this leaks CDP connections; with a 5-min keep-alive
+        // pinger × 6 carriers we accumulated ~72 connections/hour and
+        // OOM-crashed Node after ~3 hours of uptime.
+        await browser.close().catch(() => undefined);
       },
     };
   }

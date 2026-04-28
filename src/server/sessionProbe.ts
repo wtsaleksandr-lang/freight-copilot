@@ -50,8 +50,10 @@ const QUOTE_FORM_SELECTORS: Record<string, string[]> = {
     'role=combobox[name=/From \\(City, Country\\/Region\\)/i]',
   ],
   MSC: [
-    '[data-test-id^="equipment-sizetype-input-"]',
+    'text=Welcome to Instant Quote',
+    'text=Equipment Type',
     '[data-test-id="originDropDown"]',
+    '[data-test-id^="equipment-sizetype-input-"]',
   ],
   CMA: [
     'div.o-search-port input',
