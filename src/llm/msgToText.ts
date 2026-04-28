@@ -5,8 +5,30 @@
  *
  * Uses @kenjiuno/msgreader, a pure-JS parser (no native deps, ~100 KB).
  */
-import MsgReader from '@kenjiuno/msgreader';
+// @kenjiuno/msgreader is CJS with `exports.default = MsgReader` AND
+// `__esModule = true`. Under Node ESM (tsx), `import x from '...'`
+// gives us a namespace object whose `.default` is the CJS exports
+// object, and the actual class lives at `default.default`. Walk
+// both to find the real constructor regardless of which interop mode
+// we end up in.
+import * as MsgReaderModule from '@kenjiuno/msgreader';
 import type { FieldsData } from '@kenjiuno/msgreader/lib/MsgReader.js';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveMsgReaderCtor(mod: any): any {
+  for (const candidate of [
+    mod,
+    mod?.default,
+    mod?.default?.default,
+    mod?.MsgReader,
+  ]) {
+    if (typeof candidate === 'function') return candidate;
+  }
+  throw new Error(
+    'Could not locate MsgReader constructor in @kenjiuno/msgreader exports'
+  );
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const MsgReaderCtor: any = resolveMsgReaderCtor(MsgReaderModule);
 
 function joinNameEmail(name?: string, email?: string): string {
   const n = (name ?? '').trim();
@@ -37,7 +59,7 @@ function recipientsByType(
 export function convertMsgToEmailText(buf: ArrayBuffer): string {
   // msgreader accepts ArrayBuffer / DataView. The route layer slices a
   // Buffer into a real ArrayBuffer before calling us.
-  const reader = new MsgReader(buf);
+  const reader = new MsgReaderCtor(buf);
   const d = reader.getFileData();
 
   const lines: string[] = [];
