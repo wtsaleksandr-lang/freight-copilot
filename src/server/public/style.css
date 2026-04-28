@@ -1084,58 +1084,111 @@ label.check-line input[type="checkbox"] {
   background: rgba(212, 74, 74, 0.1);
 }
 
-/* Shipment board editable grid */
+/* Shipment board — wider panel, white header, click-to-select rows,
+   drag-to-pan when overflow, single-line cells with truncation, and
+   modals for long-text editing. */
+
+/* Let the Shipments tab card span the full available width */
+#tab-shipments .card { max-width: none; }
+
+.ship-table-wrap {
+  position: relative;
+  /* Allow horizontal pan with the mouse; cursor cues are set on the
+     container so the grab feedback works everywhere over the table. */
+  overflow: auto;
+  cursor: grab;
+  user-select: none;
+  scroll-behavior: smooth;
+  border-radius: 4px;
+}
+.ship-table-wrap.is-dragging { cursor: grabbing; scroll-behavior: auto; }
+.ship-table-wrap.is-dragging * { user-select: none !important; }
+
 .ship-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12.5px;
   table-layout: auto;
 }
 .ship-table thead th {
   position: sticky;
   top: 0;
-  background: var(--card-bg, #1a1a1a);
+  z-index: 2;
+  /* Flat white header — high contrast against dark cells */
+  background: #ffffff;
+  color: #111827;
   text-align: left;
-  padding: 8px 6px;
+  padding: 9px 10px;
   font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--muted);
-  border-bottom: 1px solid var(--card-border, #2a2a2a);
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid #111827;
   white-space: nowrap;
 }
 .ship-table tbody td {
-  padding: 6px;
-  border-bottom: 1px solid var(--card-border, #2a2a2a);
-  vertical-align: top;
+  padding: 7px 10px;
+  /* Subtle dividers — both row and column lines */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
   min-width: 80px;
-  max-width: 220px;
+  max-width: 240px;
+  /* Single-line cells by default (truncation for the rare long ones) */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ship-table tbody td:last-child { border-right: 0; }
+.ship-table tbody tr {
+  transition: background 0.08s;
+}
+.ship-table tbody tr:hover {
+  background: rgba(88, 166, 255, 0.04);
+}
+.ship-table tbody tr.is-selected {
+  background: rgba(88, 166, 255, 0.14);
+  box-shadow: inset 3px 0 0 #58a6ff;
 }
 .ship-table tbody td.cell-editable {
   cursor: text;
-  outline: none;
-  border-radius: 2px;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 .ship-table tbody td.cell-editable:hover {
-  background: rgba(88, 166, 255, 0.04);
+  outline: 1px dashed rgba(88, 166, 255, 0.4);
 }
-.ship-table tbody td.cell-editable:focus,
 .ship-table tbody td.cell-editable.is-editing {
-  background: rgba(88, 166, 255, 0.1);
+  background: rgba(88, 166, 255, 0.12);
   outline: 1px solid #58a6ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
 }
-.ship-table tbody td.cell-editable.is-saving {
-  opacity: 0.6;
-}
-.ship-table tbody td.cell-editable.is-saved {
-  background: rgba(46, 160, 67, 0.12);
+.ship-table tbody td.is-saving { opacity: 0.6; }
+.ship-table tbody td.is-saved {
+  background: rgba(46, 160, 67, 0.18);
   transition: background 0.6s ease-out;
 }
 .ship-table .cell-empty::before {
   content: '—';
   color: var(--muted);
+}
+.ship-table .cell-notes,
+.ship-table .cell-cargo {
+  cursor: pointer;
+}
+.ship-table .cell-notes:hover,
+.ship-table .cell-cargo:hover {
+  background: rgba(88, 166, 255, 0.06);
+}
+.cell-inline-select {
+  width: 100%;
+  font: inherit;
+  padding: 2px 4px;
+  border: 1px solid #58a6ff;
+  background: #1a1a1a;
+  color: white;
+  border-radius: 3px;
 }
 .ship-table .ref-cell {
   font-family: var(--mono, ui-monospace, monospace);

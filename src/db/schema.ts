@@ -356,6 +356,14 @@ export const shipments = sqliteTable('shipments', {
   soldRate: real('sold_rate'),
   soldCurrency: text('sold_currency').default('USD'),
   carrierPreference: text('carrier_preference'),
+  /** FCL / LCL / Road — shipment mode (extracted by AI when explicit in
+   *  the email, otherwise null and editable inline). */
+  shipmentType: text('shipment_type'),
+  /** User-managed operational status: shipped / processing /
+   *  pending_invoice / pending_payment / null. Drives the colored dot
+   *  in the Status column. Independent of DelayPredict's tracking
+   *  status (which lives in shipment.tracking at render time). */
+  operationalStatus: text('operational_status'),
   notes: text('notes'),
   /** JSON list of uploaded source files (paths under /shipments-files/...). */
   artifactsJson: text('artifacts_json', { mode: 'json' }).$type<

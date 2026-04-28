@@ -3243,24 +3243,50 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 })();
 
 // ---- Shipment board ----
+// Statuses are user-managed (not DelayPredict). Each maps to a colored
+// dot + a hover label. DelayPredict's tracking, when configured, is
+// available via the row-detail modal (separate concern).
+const STATUS_OPTIONS = [
+  { value: '', label: '— none —', color: 'gray' },
+  { value: 'processing', label: 'Processing', color: 'yellow' },
+  { value: 'shipped', label: 'Shipped', color: 'green' },
+  { value: 'pending_invoice', label: 'Pending Invoice', color: 'orange' },
+  { value: 'pending_payment', label: 'Pending Payment', color: 'red' },
+];
+function statusFor(value) {
+  return (
+    STATUS_OPTIONS.find((s) => s.value === (value || '')) || STATUS_OPTIONS[0]
+  );
+}
+
 const SHIP_COLS = [
-  { key: 'tracking', label: 'Track', editable: false, cls: 'track-cell' },
+  // Status — colored dot, hover label, double-click to change.
+  { key: 'operationalStatus', label: 'Status', editable: true, kind: 'status', cls: 'track-cell' },
   { key: 'refId', label: 'Ref', editable: false, cls: 'ref-cell' },
   { key: 'createdAt', label: 'Created', editable: false, cls: 'when-cell' },
   { key: 'shipperName', label: 'Shipper', editable: true },
   { key: 'receiverName', label: 'Receiver', editable: true },
   { key: 'customerName', label: 'Customer', editable: true },
-  { key: 'loadingAddress', label: 'Loading address', editable: true },
+  { key: 'loadingAddress', label: 'Loading address', editable: true, kind: 'short-modal' },
   { key: 'pol', label: 'POL', editable: true },
   { key: 'pod', label: 'POD', editable: true },
+  // NEW: Shipment Type (FCL / LCL / Road) — sits right after POD per spec.
+  { key: 'shipmentType', label: 'Type', editable: true, kind: 'shipment-type' },
   { key: 'containerType', label: 'Container', editable: true },
-  { key: 'cargoType', label: 'Cargo type', editable: true },
-  { key: 'cargoName', label: 'Cargo name', editable: true },
+  // Merged Cargo (type — name) — preview only, click to expand into modal.
+  { key: 'cargo', label: 'Cargo', editable: true, kind: 'cargo-modal' },
   { key: 'soldRate', label: 'Sold rate', editable: true, type: 'number' },
   { key: 'soldCurrency', label: 'Cur', editable: true },
   { key: 'carrierPreference', label: 'Carrier', editable: true },
-  { key: 'notes', label: 'Notes', editable: true },
+  { key: 'notes', label: 'Notes', editable: true, kind: 'notes-modal' },
 ];
+
+const SHIPMENT_TYPE_OPTIONS = ['', 'FCL', 'LCL', 'Road'];
+
+function truncate(s, n = 60) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
 
 (function wireShipmentsTab() {
   const dropzone = document.getElementById('ship-dropzone');
@@ -3527,9 +3553,214 @@ const SHIP_COLS = [
       })
       .join('');
     table.innerHTML = `<thead>${headerHtml()}</thead><tbody>${body}</tbody>`;
-    wireCellEditors();
+    wireRowSelection();
+    wireCellInteractions(rows);
     wireDeleteButtons();
-    wireTrackingDots(rows);
+  }
+
+  let selectedRowRef = null;
+  function wireRowSelection() {
+    table.querySelectorAll('tbody tr[data-ref]').forEach((tr) => {
+      tr.addEventListener('click', (e) => {
+        // Don't steal clicks meant for delete buttons / source links.
+        if (
+          e.target.closest('.ship-delete-btn, .ship-source-link, .actions-cell')
+        ) {
+          return;
+        }
+        table
+          .querySelectorAll('tbody tr.is-selected')
+          .forEach((x) => x.classList.remove('is-selected'));
+        tr.classList.add('is-selected');
+        selectedRowRef = tr.dataset.ref;
+      });
+    });
+    if (selectedRowRef) {
+      const tr = table.querySelector(
+        `tr[data-ref="${CSS.escape(selectedRowRef)}"]`
+      );
+      tr?.classList.add('is-selected');
+    }
+  }
+
+  function wireCellInteractions(rows) {
+    const byRef = new Map(rows.map((r) => [r.refId, r]));
+    table.querySelectorAll('tbody td[data-field]').forEach((td) => {
+      const kind = td.getAttribute('data-kind');
+      const field = td.getAttribute('data-field');
+      const tr = td.closest('tr');
+      const refId = tr?.dataset.ref;
+      if (!refId) return;
+      const row = byRef.get(refId);
+      if (!row) return;
+
+      // Notes / Cargo / short-modal → double-click opens modal
+      if (kind === 'notes-modal' || kind === 'cargo-modal' || kind === 'short-modal') {
+        td.addEventListener('dblclick', () => {
+          if (kind === 'cargo-modal') openCargoModal(row, refId);
+          else if (kind === 'notes-modal') openTextModal('Notes', row.notes, async (v) => {
+            await patchField(refId, 'notes', v);
+            td.textContent = truncate(v || '', 50);
+            td.classList.toggle('cell-empty', !v);
+          });
+          else openTextModal('Loading address', row.loadingAddress, async (v) => {
+            await patchField(refId, 'loadingAddress', v);
+            td.textContent = truncate(v || '', 35);
+            td.classList.toggle('cell-empty', !v);
+          });
+        });
+        return;
+      }
+
+      // Status → double-click opens dropdown
+      if (kind === 'status') {
+        td.addEventListener('dblclick', () => {
+          openStatusPicker(td, refId, row.operationalStatus || '');
+        });
+        return;
+      }
+
+      // Shipment Type → double-click opens dropdown
+      if (kind === 'shipment-type') {
+        td.addEventListener('dblclick', () => {
+          openShipmentTypePicker(td, refId, row.shipmentType || '');
+        });
+        return;
+      }
+
+      // Generic editable text/number → double-click activates contenteditable
+      td.addEventListener('dblclick', () => {
+        const original = td.textContent;
+        td.contentEditable = 'true';
+        td.classList.add('is-editing');
+        td.focus();
+        // Select all
+        const range = document.createRange();
+        range.selectNodeContents(td);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        function commit(save) {
+          td.contentEditable = 'false';
+          td.classList.remove('is-editing');
+          const newVal = td.textContent.trim();
+          if (!save || newVal === original.trim()) {
+            td.textContent = original;
+            return;
+          }
+          patchField(
+            refId,
+            field,
+            td.dataset.type === 'number'
+              ? newVal === ''
+                ? null
+                : Number(newVal.replace(/[^\d.\-]/g, ''))
+              : newVal === ''
+                ? null
+                : newVal
+          )
+            .then(() => {
+              td.classList.add('is-saved');
+              setTimeout(() => td.classList.remove('is-saved'), 1200);
+              td.classList.toggle('cell-empty', newVal === '');
+            })
+            .catch((err) => {
+              td.textContent = original;
+              alert('Save failed: ' + err.message);
+            });
+        }
+        td.addEventListener('blur', () => commit(true), { once: true });
+        td.addEventListener('keydown', function onKey(e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            td.removeEventListener('keydown', onKey);
+            commit(true);
+            td.blur();
+          } else if (e.key === 'Escape') {
+            td.removeEventListener('keydown', onKey);
+            commit(false);
+            td.blur();
+          }
+        });
+      });
+    });
+  }
+
+  async function patchField(refId, field, value) {
+    const r = await fetch(`/api/shipments/${encodeURIComponent(refId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'save failed');
+    return data;
+  }
+
+  function openStatusPicker(td, refId, current) {
+    const sel = document.createElement('select');
+    sel.className = 'cell-inline-select';
+    sel.innerHTML = STATUS_OPTIONS.map(
+      (o) => `<option value="${esc(o.value)}"${o.value === current ? ' selected' : ''}>${esc(o.label)}</option>`
+    ).join('');
+    const dot = td.querySelector('.track-dot');
+    td.replaceChildren(sel);
+    sel.focus();
+    async function close(save) {
+      if (save) {
+        try {
+          const newVal = sel.value || null;
+          await patchField(refId, 'operationalStatus', newVal);
+          const s = statusFor(newVal);
+          td.innerHTML = `<span class="track-dot dot-${s.color}" title="${esc(s.label)}"></span>`;
+          td.classList.add('is-saved');
+          setTimeout(() => td.classList.remove('is-saved'), 1200);
+          return;
+        } catch (err) {
+          alert('Save failed: ' + err.message);
+        }
+      }
+      // Restore the previous dot
+      td.replaceChildren(dot ?? document.createElement('span'));
+    }
+    sel.addEventListener('change', () => close(true));
+    sel.addEventListener('blur', () => close(true), { once: true });
+    sel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        close(false);
+        sel.blur();
+      }
+    });
+  }
+
+  function openShipmentTypePicker(td, refId, current) {
+    const sel = document.createElement('select');
+    sel.className = 'cell-inline-select';
+    sel.innerHTML = SHIPMENT_TYPE_OPTIONS.map(
+      (o) => `<option value="${esc(o)}"${o === current ? ' selected' : ''}>${esc(o || '— none —')}</option>`
+    ).join('');
+    const previousText = td.textContent;
+    td.replaceChildren(sel);
+    sel.focus();
+    async function close(save) {
+      if (save) {
+        try {
+          const newVal = sel.value || null;
+          await patchField(refId, 'shipmentType', newVal);
+          td.textContent = newVal || '';
+          td.classList.toggle('cell-empty', !newVal);
+          td.classList.add('is-saved');
+          setTimeout(() => td.classList.remove('is-saved'), 1200);
+          return;
+        } catch (err) {
+          alert('Save failed: ' + err.message);
+        }
+      }
+      td.textContent = previousText;
+    }
+    sel.addEventListener('change', () => close(true));
+    sel.addEventListener('blur', () => close(true), { once: true });
   }
 
   function wireTrackingDots(rows) {
@@ -3647,16 +3878,53 @@ const SHIP_COLS = [
   }
 
   function cellHtml(row, col) {
-    if (col.key === 'tracking') {
-      const t = row.tracking || { color: 'gray', label: 'Not tracked' };
-      const tooltipBits = [t.label];
-      if (t.data?.eta) tooltipBits.push(`ETA: ${t.data.eta}`);
-      if (t.data?.predicted_arrival)
-        tooltipBits.push(`Predicted arrival: ${t.data.predicted_arrival.slice(0, 10)}`);
-      if (t.data?.vessel_name) tooltipBits.push(`Vessel: ${t.data.vessel_name}`);
-      const tooltip = esc(tooltipBits.join(' · '));
-      return `<td class="cell track-cell"><button class="track-dot dot-${esc(t.color)}" data-action="track-detail" title="${tooltip}" aria-label="${tooltip}"></button></td>`;
+    // Status — colored dot, hover tooltip, double-click → dropdown
+    if (col.kind === 'status') {
+      const s = statusFor(row.operationalStatus);
+      // DelayPredict tracking still available — hint about it in the
+      // tooltip when there's data, otherwise just show the status label.
+      const dpBits = [];
+      if (row.tracking?.data?.eta) dpBits.push(`ETA ${row.tracking.data.eta}`);
+      if (row.tracking?.data?.vessel_name) dpBits.push(row.tracking.data.vessel_name);
+      const tooltip = [s.label, ...dpBits].filter(Boolean).join(' · ');
+      return `<td class="cell track-cell" data-field="operationalStatus" data-kind="status"><span class="track-dot dot-${esc(s.color)}" title="${esc(tooltip)}" aria-label="${esc(tooltip)}"></span></td>`;
     }
+
+    // Merged Cargo — show "type — name (truncated)" preview, click for modal.
+    if (col.kind === 'cargo-modal') {
+      const t = row.cargoType || '';
+      const n = row.cargoName || '';
+      const display = [t, n].filter(Boolean).join(' — ');
+      const cls = ['cell', 'cell-cargo'];
+      if (!display) cls.push('cell-empty');
+      return `<td class="${cls.join(' ')}" data-field="cargo" data-kind="cargo-modal" title="Double-click to edit">${esc(truncate(display, 40))}</td>`;
+    }
+
+    // Notes — preview only, click/double-click for modal with full text.
+    if (col.kind === 'notes-modal') {
+      const v = row.notes || '';
+      const cls = ['cell', 'cell-notes'];
+      if (!v) cls.push('cell-empty');
+      return `<td class="${cls.join(' ')}" data-field="notes" data-kind="notes-modal" title="Double-click to edit">${esc(truncate(v, 50))}</td>`;
+    }
+
+    // Long-text fields like Loading address — also expand on double-click.
+    if (col.kind === 'short-modal') {
+      const v = row[col.key] || '';
+      const cls = ['cell', col.editable ? 'cell-editable' : ''];
+      if (!v) cls.push('cell-empty');
+      return `<td class="${cls.join(' ')}" data-field="${col.key}" data-kind="short-modal" data-type="${col.type || 'text'}">${esc(truncate(v, 35))}</td>`;
+    }
+
+    // Shipment Type — special: small enum, double-click → dropdown.
+    if (col.kind === 'shipment-type') {
+      const v = row.shipmentType || '';
+      const cls = ['cell', 'cell-editable', 'cell-shipment-type'];
+      if (!v) cls.push('cell-empty');
+      return `<td class="${cls.join(' ')}" data-field="shipmentType" data-kind="shipment-type">${esc(v)}</td>`;
+    }
+
+    // Generic
     const raw = row[col.key];
     let display;
     if (col.key === 'createdAt' && raw) {
@@ -3666,13 +3934,13 @@ const SHIP_COLS = [
     } else {
       display = String(raw);
     }
-    const editableAttr = col.editable
-      ? ' contenteditable="true" data-field="' + col.key + '" data-type="' + (col.type || 'text') + '"'
-      : '';
     const cls = ['cell', col.editable ? 'cell-editable' : ''];
     if (col.cls) cls.push(col.cls);
     if (display === '') cls.push('cell-empty');
-    return `<td class="${cls.filter(Boolean).join(' ')}"${editableAttr}>${esc(display)}</td>`;
+    const editAttrs = col.editable
+      ? ` data-field="${col.key}" data-type="${col.type || 'text'}"`
+      : '';
+    return `<td class="${cls.filter(Boolean).join(' ')}"${editAttrs}>${esc(display)}</td>`;
   }
 
   function wireCellEditors() {
@@ -3752,6 +4020,137 @@ const SHIP_COLS = [
           alert(err.message);
         }
       });
+    });
+  }
+
+  // ──── Modals: long-text editor + Cargo (type+name) editor ────────────
+  function openTextModal(title, value, onSave) {
+    const modal = document.getElementById('cell-edit-modal');
+    const titleEl = document.getElementById('cell-edit-title');
+    const ta = document.getElementById('cell-edit-textarea');
+    const cargoFields = document.getElementById('cell-edit-cargo-fields');
+    const saveBtn = document.getElementById('cell-edit-save');
+    const cancelBtn = document.getElementById('cell-edit-cancel');
+    const closeBtn = document.getElementById('cell-edit-close');
+    if (!modal) return;
+    titleEl.textContent = title;
+    ta.hidden = false;
+    cargoFields.hidden = true;
+    ta.value = value ?? '';
+    modal.hidden = false;
+    setTimeout(() => ta.focus(), 30);
+
+    function close() {
+      modal.hidden = true;
+      saveBtn.removeEventListener('click', save);
+      cancelBtn.removeEventListener('click', close);
+      closeBtn.removeEventListener('click', close);
+      modal.querySelector('.image-modal-backdrop')?.removeEventListener('click', close);
+    }
+    async function save() {
+      saveBtn.disabled = true;
+      try {
+        await onSave(ta.value.trim() || null);
+        close();
+      } catch (err) {
+        alert('Save failed: ' + err.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+    saveBtn.addEventListener('click', save);
+    cancelBtn.addEventListener('click', close);
+    closeBtn.addEventListener('click', close);
+    modal.querySelector('.image-modal-backdrop')?.addEventListener('click', close);
+  }
+
+  function openCargoModal(row, refId) {
+    const modal = document.getElementById('cell-edit-modal');
+    const titleEl = document.getElementById('cell-edit-title');
+    const ta = document.getElementById('cell-edit-textarea');
+    const cargoFields = document.getElementById('cell-edit-cargo-fields');
+    const cargoTypeIn = document.getElementById('cell-edit-cargo-type');
+    const cargoNameIn = document.getElementById('cell-edit-cargo-name');
+    const saveBtn = document.getElementById('cell-edit-save');
+    const cancelBtn = document.getElementById('cell-edit-cancel');
+    const closeBtn = document.getElementById('cell-edit-close');
+    if (!modal) return;
+    titleEl.textContent = 'Cargo (type + description)';
+    ta.hidden = true;
+    cargoFields.hidden = false;
+    cargoTypeIn.value = row.cargoType || '';
+    cargoNameIn.value = row.cargoName || '';
+    modal.hidden = false;
+    setTimeout(() => cargoNameIn.focus(), 30);
+
+    function close() {
+      modal.hidden = true;
+      saveBtn.removeEventListener('click', save);
+      cancelBtn.removeEventListener('click', close);
+      closeBtn.removeEventListener('click', close);
+      modal.querySelector('.image-modal-backdrop')?.removeEventListener('click', close);
+    }
+    async function save() {
+      saveBtn.disabled = true;
+      try {
+        const t = cargoTypeIn.value.trim() || null;
+        const n = cargoNameIn.value.trim() || null;
+        await patchField(refId, 'cargoType', t);
+        await patchField(refId, 'cargoName', n);
+        await loadList();
+        close();
+      } catch (err) {
+        alert('Save failed: ' + err.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+    saveBtn.addEventListener('click', save);
+    cancelBtn.addEventListener('click', close);
+    closeBtn.addEventListener('click', close);
+    modal.querySelector('.image-modal-backdrop')?.addEventListener('click', close);
+  }
+
+  // Drag-to-pan on the table wrapper — palm cursor on hover, fist
+  // while dragging. Only kicks in when the user grabs whitespace
+  // between rows, headers, or non-interactive cells (we don't fight
+  // text selection inside an editing cell or interfere with buttons).
+  const wrap = document.getElementById('ship-table-wrap');
+  if (wrap) {
+    let isDown = false;
+    let startX = 0;
+    let startY = 0;
+    let scrollX = 0;
+    let scrollY = 0;
+    wrap.addEventListener('mousedown', (e) => {
+      // Don't start a drag from interactive elements.
+      if (
+        e.target.closest(
+          '.ship-delete-btn, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"]'
+        )
+      ) {
+        return;
+      }
+      isDown = true;
+      wrap.classList.add('is-dragging');
+      startX = e.pageX - wrap.offsetLeft;
+      startY = e.pageY - wrap.offsetTop;
+      scrollX = wrap.scrollLeft;
+      scrollY = wrap.scrollTop;
+    });
+    function endDrag() {
+      isDown = false;
+      wrap.classList.remove('is-dragging');
+    }
+    wrap.addEventListener('mouseleave', endDrag);
+    wrap.addEventListener('mouseup', endDrag);
+    wrap.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const dx = (e.pageX - wrap.offsetLeft) - startX;
+      const dy = (e.pageY - wrap.offsetTop) - startY;
+      wrap.scrollLeft = scrollX - dx;
+      wrap.scrollTop = scrollY - dy;
     });
   }
 

@@ -756,7 +756,10 @@
           <button id="ship-refresh-btn" class="btn-sm">Refresh</button>
         </div>
         <input id="ship-search" type="search" placeholder="Filter by ref / shipper / receiver / customer / POL / POD / cargo / carrier..." class="full" />
-        <div class="table-wrap">
+        <p class="muted small" style="margin: 4px 0 8px 0">
+          <strong>Tips:</strong> click a row to select · double-click any cell to edit · double-click <em>Notes</em> or <em>Cargo</em> to open a full editor · click-and-drag the table to pan when content overflows
+        </p>
+        <div id="ship-table-wrap" class="ship-table-wrap">
           <table id="ship-table" class="ship-table"></table>
         </div>
       </div>
@@ -814,6 +817,34 @@
       </div>
     </section>
   </main>
+
+  <!-- Shipment cell-edit modal — used for long fields (Notes, Loading
+       address) and the merged Cargo (type + name) editor. -->
+  <div id="cell-edit-modal" class="image-modal" hidden>
+    <div class="image-modal-backdrop"></div>
+    <div class="image-modal-frame clarify-frame">
+      <div class="image-modal-toolbar">
+        <strong id="cell-edit-title">Edit</strong>
+        <span class="image-modal-spacer"></span>
+        <button id="cell-edit-close" class="btn-sm" title="Close (Esc)">✕</button>
+      </div>
+      <div class="image-modal-body clarify-body">
+        <textarea id="cell-edit-textarea" rows="10" placeholder="Type or paste here…"></textarea>
+        <div id="cell-edit-cargo-fields" hidden>
+          <label class="full">Cargo type
+            <input id="cell-edit-cargo-type" placeholder="general / hazmat / reefer / high_value / oog" />
+          </label>
+          <label class="full">Cargo description
+            <textarea id="cell-edit-cargo-name" rows="6" placeholder="What's being shipped (free text)"></textarea>
+          </label>
+        </div>
+        <div class="row" style="justify-content: flex-end; margin-top: 14px;">
+          <button id="cell-edit-cancel" class="btn-sm">Cancel</button>
+          <button id="cell-edit-save" class="primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- DelayPredict tracking detail modal -->
   <div id="track-detail-modal" class="image-modal" hidden>

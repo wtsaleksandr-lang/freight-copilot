@@ -75,6 +75,8 @@ export async function createShipment(
     soldRate: patch.soldRate ?? null,
     soldCurrency: patch.soldCurrency ?? 'USD',
     carrierPreference: patch.carrierPreference ?? null,
+    shipmentType: patch.shipmentType ?? null,
+    operationalStatus: patch.operationalStatus ?? null,
     notes: patch.notes ?? null,
     artifactsJson: patch.artifactsJson ?? null,
   };
@@ -98,6 +100,8 @@ const EDITABLE_FIELDS = new Set<keyof ShipmentRow>([
   'soldRate',
   'soldCurrency',
   'carrierPreference',
+  'shipmentType',
+  'operationalStatus',
   'notes',
 ]);
 

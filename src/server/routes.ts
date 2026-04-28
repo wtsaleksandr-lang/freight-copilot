@@ -1575,8 +1575,15 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
 
-      // Create the row with extracted fields. Ref id is auto-allocated.
-      const row = await createShipment({
+      // If the email mentions an existing freight-copilot ref (S0xxxx),
+      // honour it: update the existing row in place if it exists, or
+      // create a new row with that ref. Otherwise auto-allocate as
+      // before. Anything not matching the S0xxxx pattern is ignored
+      // here — carrier booking numbers / customer POs go in `notes`.
+      const extractedRef = (briefing.our_reference_number ?? '').trim();
+      const refMatchesPattern = /^S\d{3,}$/i.test(extractedRef);
+      let row;
+      const fieldsFromBriefing = {
         shipperName: briefing.shipper_name ?? null,
         receiverName: briefing.receiver_name ?? null,
         customerName: briefing.customer_name ?? null,
@@ -1591,8 +1598,27 @@ export function registerApiRoutes(app: Express): void {
         soldRate: briefing.sold_rate ?? null,
         soldCurrency: briefing.sold_currency ?? 'USD',
         carrierPreference: briefing.carrier_preference ?? null,
+        shipmentType: briefing.shipment_type ?? null,
         notes: briefing.notes ?? null,
-      });
+      };
+      if (refMatchesPattern) {
+        const normalized = extractedRef.toUpperCase();
+        const existing = await getShipment(normalized);
+        if (existing) {
+          // Merge: only overwrite fields the AI extracted with a value;
+          // keep whatever the user has already typed in for the rest.
+          const patch: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(fieldsFromBriefing)) {
+            if (v != null && v !== '') patch[k] = v;
+          }
+          await updateShipment(normalized, patch);
+          row = (await getShipment(normalized))!;
+        } else {
+          row = await createShipment({ refId: normalized, ...fieldsFromBriefing });
+        }
+      } else {
+        row = await createShipment(fieldsFromBriefing);
+      }
 
       // Save source files unless the user opted into ephemeral mode.
       let artifacts: Array<{

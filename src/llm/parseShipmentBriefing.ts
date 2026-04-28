@@ -24,6 +24,10 @@ Target fields (all optional — leave null if not stated):
 - sold_rate: the price quoted to the customer in numeric form (no currency symbol). If multiple rates appear (e.g. one per container size), pick the one that's clearly "the agreed rate" or highest-priority — use notes for the rest.
 - sold_currency: 'USD' / 'CAD' / 'EUR' / 'GBP' / etc. Default 'USD'.
 - carrier_preference: which ocean carrier was preferred or selected (Maersk, MSC, CMA CGM, Hapag-Lloyd, ONE, OOCL, ZIM, COSCO, etc.). Use the carrier's full name or 3-letter code (MSK/MSC/CMA/HLC/ONE/OOC/ZIM/COS).
+
+- shipment_type: 'FCL' (full container load, ocean) / 'LCL' (less than container load, ocean) / 'Road' (truck only — no ocean leg). Default null if not stated. If the document mentions a container type or ocean carrier, infer FCL unless LCL is explicit.
+
+- our_reference_number: any reference number that already identifies THIS shipment in our system, in the S0xxxx format (e.g. S00045, S00123). Look in subject lines, email signatures, and quoted thread text. Leave null if no S0xxxx-style ref appears. Do NOT invent a reference. Do NOT use carrier booking numbers, customer POs, or any other format here.
 - notes: anything else worth keeping — secondary rates, ready dates, reefer temp, special instructions, document references. Keep concise (2-3 sentences max).
 
 - questions: when the document contains MULTIPLE plausible candidates for a field that you cannot disambiguate yourself, populate this array instead of guessing. The dashboard will surface each question to the user with clickable answer buttons, then re-call you with the user's answers as authoritative.
@@ -67,6 +71,8 @@ const ShipmentSchema = z.object({
   sold_rate: z.number().nullable().optional(),
   sold_currency: z.string().nullable().optional(),
   carrier_preference: z.string().nullable().optional(),
+  shipment_type: z.string().nullable().optional(),
+  our_reference_number: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   questions: z.array(QuestionSchema).default([]).optional(),
 });
@@ -90,6 +96,11 @@ const TOOL_SCHEMA = {
     sold_rate: { type: ['number', 'null'] },
     sold_currency: { type: ['string', 'null'] },
     carrier_preference: { type: ['string', 'null'] },
+    shipment_type: {
+      type: ['string', 'null'],
+      enum: ['FCL', 'LCL', 'Road', null],
+    },
+    our_reference_number: { type: ['string', 'null'] },
     notes: { type: ['string', 'null'] },
     questions: {
       type: 'array',
