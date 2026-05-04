@@ -3,7 +3,8 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { z } from 'zod';
 import { loadEnv } from '../config.js';
 
-const MODEL = 'claude-sonnet-4-6';
+import { getModel } from './model.js';
+// MODEL resolved per-call below (async)
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const RATE_SHEET_SYSTEM_PROMPT = `You read freight rate sheets — PDFs, screenshots, or scanned documents — that ocean carriers send to forwarders, and you extract every rate they contain into a clean structured form.
@@ -249,7 +250,7 @@ export async function parseRateSheet(
   );
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 4096,
     system: [
       {

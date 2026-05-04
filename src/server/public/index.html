@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>Freight Copilot</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/icon-512.svg">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Freight Copilot">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -23,6 +27,9 @@
       <button class="tab" data-tab="drayage">Drayage</button>
       <button class="tab" data-tab="trucking">Trucking</button>
       <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="delaypredict" title="Open DelayPredict shipment tracker">📡 DelayPredict</button>
+      <button class="tab" data-tab="intellcluster" title="Open IntellCluster decision intelligence">🧠 IntellCluster</button>
+      <button id="help-btn" class="tab" title="Keyboard shortcuts (press ?)" style="margin-left: auto;">?</button>
     </nav>
   </header>
 
@@ -350,9 +357,77 @@
         <div id="agent-transcript-meta" class="muted"></div>
         <ol id="agent-transcript"></ol>
       </div>
+
+      <!-- Scheduled agents — recurring goal+URL tasks. Background
+           tick fires due ones once/minute. -->
+      <div class="card">
+        <h2>Schedule a recurring agent <span class="muted-inline">— runs in the background</span></h2>
+        <p class="muted">Save a goal so it runs automatically every N minutes. Examples: poll a carrier portal for new tariffs, watch a tracking page, scrape a daily report. The interval is the minimum gap between runs — if a previous run is still in flight when the next is due, the system waits until the in-flight one finishes.</p>
+        <div class="grid">
+          <label>Name<input id="sched-name" placeholder="e.g. MSC tariff watch" /></label>
+          <label>Interval (minutes)<input id="sched-interval" type="number" min="5" value="60" /></label>
+          <label class="full">URL<input id="sched-url" placeholder="https://..." /></label>
+          <label class="full">Goal<textarea id="sched-goal" rows="2" placeholder="What should the agent do each run?"></textarea></label>
+        </div>
+        <div class="row">
+          <button id="sched-save-btn" class="primary">Save schedule</button>
+          <input type="hidden" id="sched-edit-id" />
+          <button id="sched-clear-btn" class="btn-sm" hidden>Clear form</button>
+          <div id="sched-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Saved schedules</h2>
+          <button id="sched-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <div class="table-wrap"><table id="sched-list-table"></table></div>
+      </div>
     </section>
 
     <section id="tab-drayage" class="tab-pane">
+      <!-- Rate library card — top of the Drayage tab. AI extracts every
+           rate from a dropped/pasted file and APPENDS to the database
+           (price-history preserved). User filters / searches below. -->
+      <div class="card">
+        <h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2>
+        <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Claude extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
+        <div id="dr-lib-dropzone" class="sheet-dropzone">
+          <div class="sheet-drop-prompt">
+            <strong>📂 Drop files here, or click to browse</strong>
+            <span class="muted small">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT — multiple lanes per file are extracted automatically</span>
+          </div>
+          <input id="dr-lib-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+        </div>
+        <div id="dr-lib-paste-zone" class="attachments-paste-zone" tabindex="0" contenteditable="true" spellcheck="false">
+          <span class="attachments-paste-prompt">📋 Click here, then press Ctrl+V to paste a screenshot</span>
+        </div>
+        <ul id="dr-lib-pending-files" class="ship-pending-files" hidden></ul>
+        <div class="row" style="gap: 12px; flex-wrap: wrap; margin-top: 8px;">
+          <button id="dr-lib-parse-btn" class="primary" disabled>Extract for review</button>
+          <div id="dr-lib-status" class="status-inline"></div>
+        </div>
+
+        <!-- Editable preview area shown after extract, before save. -->
+        <div id="dr-lib-preview" hidden style="margin-top: 14px;">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong id="dr-lib-preview-title">Review extracted rates</strong>
+            <div class="row" style="gap: 8px;">
+              <button id="dr-lib-preview-cancel" class="btn-sm">Cancel</button>
+              <button id="dr-lib-preview-save" class="primary">💾 Save to library</button>
+            </div>
+          </div>
+          <!-- Plain wrapper (NOT .ship-table-wrap — that class sets
+               user-select:none for drag-to-pan on the Shipments tab,
+               which would block typing inside these inputs). -->
+          <div style="overflow: auto; max-height: 480px;">
+            <table id="dr-lib-preview-table" class="ship-table"></table>
+          </div>
+          <p class="muted small" style="margin-top: 6px;">Edit any field directly. Use ✕ to drop a row. Hit Save when ready — every kept row is appended to the library.</p>
+        </div>
+      </div>
+
       <!-- Intake card -->
       <div class="card">
         <h2>Drayage intake <span class="muted-inline">— paste a client request</span></h2>
@@ -470,34 +545,24 @@
           </div>
         </div>
 
-        <div class="grid" style="margin-top: 14px">
-          <label>Pickup date<input id="dr-pickup-date" type="date" /></label>
-          <label>Delivery date<input id="dr-delivery-date" type="date" /></label>
-          <label>Client (optional)<input id="dr-client" placeholder="Acme Corp" /></label>
-          <label class="full">Notes<input id="dr-notes" placeholder="overweight permit needed, residential delivery, etc." /></label>
-        </div>
-
-        <div class="grid">
-          <label>Special equipment
-            <div id="dr-special-dd"></div>
-          </label>
-          <label>Accessorials
-            <div id="dr-accessorials-dd"></div>
-          </label>
-        </div>
-
         <div class="row">
-          <button id="dr-save-btn">Save (no automation run)</button>
-          <button id="dr-run-btn" class="primary">⚡ Save + Run rate retrieval</button>
+          <button id="dr-clear-btn" class="btn-sm">Clear</button>
+          <button id="dr-run-btn" class="primary">⚡ Run — find matching rates</button>
           <div id="dr-status" class="status-inline"></div>
         </div>
       </div>
 
-      <!-- Result -->
-      <div id="dr-result-card" class="card" hidden>
-        <h2 id="dr-result-title"></h2>
-        <div id="dr-result-meta" class="muted"></div>
-        <div id="dr-result-msg" class="muted small"></div>
+      <!-- Always-visible matching rates panel under the calculator.
+           Filled by clicking Run; auto-refreshes when new rates land
+           in the library above. -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Matching rates <span class="muted-inline" id="dr-matches-count">— click Run after editing the form</span></h2>
+          <button id="dr-matches-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <div id="dr-matches-wrap" class="ship-table-wrap" style="max-height: 460px; overflow: auto;">
+          <table id="dr-matches-table" class="ship-table"></table>
+        </div>
       </div>
 
       <!-- History -->
@@ -507,6 +572,19 @@
           <button id="dr-refresh-btn" class="btn-sm">Refresh</button>
         </div>
         <div class="table-wrap"><table id="dr-list-table"></table></div>
+      </div>
+
+      <!-- Saved rates database — every rate ever saved, per-column
+           filters, append-only history. -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Saved drayage rates database <span class="muted-inline" id="dr-lib-count"></span></h2>
+          <button id="dr-lib-refresh-btn" class="btn-sm">↻ Refresh</button>
+        </div>
+        <p class="muted small">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
+        <div class="ship-table-wrap" style="max-height: 540px;">
+          <table id="dr-lib-table" class="ship-table"></table>
+        </div>
       </div>
     </section>
 
@@ -738,6 +816,7 @@
           </div>
           <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
         </div>
+        <ul id="ship-pending-files" class="ship-pending-files" hidden></ul>
 
         <div class="row" style="gap: 12px; flex-wrap: wrap;">
           <button id="ship-parse-btn" class="primary" disabled>Extract &amp; create shipment</button>
@@ -753,7 +832,10 @@
       <div class="card">
         <div class="card-header">
           <h2>All shipments</h2>
-          <button id="ship-refresh-btn" class="btn-sm">Refresh</button>
+          <div class="row" style="gap: 6px;">
+            <button id="ship-export-csv-btn" class="btn-sm" title="Download visible rows as CSV">⬇ Export CSV</button>
+            <button id="ship-refresh-btn" class="btn-sm">Refresh</button>
+          </div>
         </div>
         <input id="ship-search" type="search" placeholder="Filter by ref / shipper / receiver / customer / POL / POD / cargo / carrier..." class="full" />
         <p class="muted small" style="margin: 4px 0 8px 0">
@@ -761,6 +843,14 @@
         </p>
         <div id="ship-table-wrap" class="ship-table-wrap">
           <table id="ship-table" class="ship-table"></table>
+        </div>
+        <div class="status-legend" aria-label="Status legend">
+          <span class="status-legend-title">Status legend:</span>
+          <span class="status-legend-item"><span class="status-icon">📝</span> Booking in progress</span>
+          <span class="status-legend-item"><span class="status-icon">⚓</span> Loaded — awaiting sailing</span>
+          <span class="status-legend-item"><span class="status-icon">🚢</span> Sailed — invoice due</span>
+          <span class="status-legend-item"><span class="status-icon">🧾</span> Invoiced — awaiting payment</span>
+          <span class="status-legend-item muted"><span class="status-icon">⚪</span> No status set</span>
         </div>
       </div>
     </section>
@@ -792,6 +882,123 @@
           <table id="cred-list-table"></table>
         </div>
       </div>
+
+      <!-- DelayPredict integration URL — shown as an iframe on the
+           DelayPredict tab. Plain text setting (not encrypted). -->
+      <div class="card">
+        <h2>DelayPredict integration <span class="muted-inline">— shipment tracker URL</span></h2>
+        <p class="muted">Where DelayPredict is running. Used to embed it on the DelayPredict tab and to join Shipments-table tracking status by <code>personal_ref</code> → <code>refId</code>.</p>
+        <div class="grid">
+          <label class="full">DelayPredict URL
+            <input id="dp-url-input" type="url" placeholder="http://localhost:5001  or  https://delaypredict.tail50246d.ts.net" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="dp-url-save-btn" class="primary">Save</button>
+          <button id="dp-url-clear-btn" class="btn-sm">Clear</button>
+          <div id="dp-url-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <!-- IntellCluster integration URL — embedded as iframe on the
+           IntellCluster tab. Plain text setting (not encrypted). -->
+      <div class="card">
+        <h2>IntellCluster integration <span class="muted-inline">— decision-intelligence URL</span></h2>
+        <p class="muted">Where IntellCluster is running. Used to embed it on the IntellCluster tab.</p>
+        <div class="grid">
+          <label class="full">IntellCluster URL
+            <input id="ic-url-input" type="url" placeholder="http://localhost:5002  or  https://freight-copilot-pc.tail50246d.ts.net:8444" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="ic-url-save-btn" class="primary">Save</button>
+          <button id="ic-url-clear-btn" class="btn-sm">Clear</button>
+          <div id="ic-url-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <!-- AI orchestration mode toggle. Curated presets pick the
+           best model per task at the chosen cost ceiling. Custom
+           mode reveals manual provider/model selectors. -->
+      <div class="card">
+        <h2>AI mode <span class="muted-inline">— pick a preset, or customize</span></h2>
+        <div class="ai-mode-toggle" role="radiogroup" aria-label="AI mode">
+          <button type="button" class="ai-mode-btn" data-mode="default">
+            <strong>⚡ Default</strong>
+            <span class="muted small">Cheapest capable models. Target &lt;$5/mo.</span>
+            <span class="muted small">Gemini Flash (parsing) · Haiku (agent)</span>
+          </button>
+          <button type="button" class="ai-mode-btn" data-mode="power">
+            <strong>💎 Power</strong>
+            <span class="muted small">Best quality regardless of cost.</span>
+            <span class="muted small">Sonnet (parsing + agent) · Opus fallback</span>
+          </button>
+          <button type="button" class="ai-mode-btn" data-mode="custom">
+            <strong>🛠 Custom</strong>
+            <span class="muted small">Hand-pick each model.</span>
+            <span class="muted small">For experimenting only.</span>
+          </button>
+        </div>
+        <p class="muted small" id="ai-cfg-current" style="margin: 10px 0 0;"></p>
+
+        <!-- Custom-mode picker (hidden unless mode=custom). -->
+        <div id="ai-cfg-custom" hidden style="margin-top: 14px;">
+          <h3 class="bd-title">Custom configuration</h3>
+          <div class="grid">
+            <label>Provider
+              <select id="ai-cfg-provider">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="gemini">Google (Gemini)</option>
+              </select>
+            </label>
+            <label>Primary model
+              <select id="ai-cfg-model"></select>
+            </label>
+            <label>Fallback model <span class="muted small">(used on math errors)</span>
+              <select id="ai-cfg-fallback"></select>
+            </label>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <button id="ai-cfg-save-btn" class="primary">Save</button>
+          <div id="ai-cfg-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <!-- AI provider API keys vault (encrypted at rest, same scheme
+           as carrier credentials above). -->
+      <div class="card">
+        <h2>AI provider keys <span class="muted-inline">— encrypted</span></h2>
+        <p class="muted">API keys for the AI extractor. Encrypted at rest (AES-256-GCM, key in <code>.secrets/secrets.key</code>). Saved keys take precedence over <code>.env</code>, so you can update them from any device — including this phone. Pick which provider runs the extractor in <code>.env</code> via <code>AI_PROVIDER=anthropic</code> or <code>AI_PROVIDER=gemini</code>.</p>
+        <h3 class="bd-title">Add or update a key</h3>
+        <div class="grid">
+          <label>Provider
+            <select id="ai-key-provider">
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (future)</option>
+              <option value="deepseek">DeepSeek (future)</option>
+              <option value="grok">xAI / Grok (future)</option>
+            </select>
+          </label>
+          <label>API key<input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /></label>
+          <label class="full">Label (optional)<input id="ai-key-label" placeholder="e.g. personal account, team key, etc." /></label>
+        </div>
+        <div class="row">
+          <button id="ai-key-save-btn" class="primary">Save</button>
+          <div id="ai-key-status" class="status-inline"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Stored AI keys</h2>
+          <button id="ai-key-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table id="ai-key-list-table"></table>
+        </div>
+      </div>
     </section>
 
     <section id="tab-history" class="tab-pane">
@@ -814,6 +1021,58 @@
         <div class="table-wrap">
           <table id="quote-detail-table"></table>
         </div>
+      </div>
+    </section>
+
+    <!-- DelayPredict — embedded as iframe of the running DelayPredict
+         server. URL is configurable via the DELAYPREDICT_URL setting
+         in the Carrier secrets page. -->
+    <section id="tab-delaypredict" class="tab-pane">
+      <div id="dp-empty" class="card" hidden>
+        <h2>DelayPredict <span class="muted-inline">— shipment tracker</span></h2>
+        <p class="muted">No DelayPredict URL configured. To embed it here:</p>
+        <ol class="muted small" style="margin: 0 0 12px 1.2em;">
+          <li>Start the DelayPredict server (typically <code>pnpm dev</code> in its repo, default port 5001).</li>
+          <li>Open <strong>Carrier secrets</strong> tab and set <strong>DelayPredict URL</strong> (e.g. <code>http://localhost:5001</code>).</li>
+          <li>Come back to this tab.</li>
+        </ol>
+        <a class="btn-sm" data-tab="secrets" href="#" id="dp-go-secrets">Go to secrets →</a>
+      </div>
+      <div id="dp-frame-wrap" class="card" hidden style="padding: 0; overflow: hidden;">
+        <div class="card-header" style="padding: 8px 14px;">
+          <h2 style="margin: 0; font-size: 14px;">📡 DelayPredict</h2>
+          <div class="row" style="gap: 6px;">
+            <a id="dp-open-new-tab" class="btn-sm" href="#" target="_blank" rel="noopener" title="Open in a new browser tab">↗ New tab</a>
+            <button id="dp-reload-btn" class="btn-sm" title="Reload the iframe">↻ Reload</button>
+          </div>
+        </div>
+        <iframe id="dp-frame" title="DelayPredict" style="width: 100%; height: calc(100vh - 200px); min-height: 600px; border: 0; display: block;" referrerpolicy="no-referrer"></iframe>
+      </div>
+    </section>
+
+    <!-- IntellCluster — embedded as iframe of the running IntellCluster
+         server. URL is configurable via the INTELLCLUSTER_URL setting on
+         the Carrier secrets page. -->
+    <section id="tab-intellcluster" class="tab-pane">
+      <div id="ic-empty" class="card" hidden>
+        <h2>IntellCluster <span class="muted-inline">— decision intelligence</span></h2>
+        <p class="muted">No IntellCluster URL configured. To embed it here:</p>
+        <ol class="muted small" style="margin: 0 0 12px 1.2em;">
+          <li>Start the IntellCluster server (FastAPI/uvicorn, default port 5002).</li>
+          <li>Open <strong>Carrier secrets</strong> tab and set <strong>IntellCluster URL</strong> (e.g. <code>http://localhost:5002</code>).</li>
+          <li>Come back to this tab.</li>
+        </ol>
+        <a class="btn-sm" data-tab="secrets" href="#" id="ic-go-secrets">Go to secrets →</a>
+      </div>
+      <div id="ic-frame-wrap" class="card" hidden style="padding: 0; overflow: hidden;">
+        <div class="card-header" style="padding: 8px 14px;">
+          <h2 style="margin: 0; font-size: 14px;">🧠 IntellCluster</h2>
+          <div class="row" style="gap: 6px;">
+            <a id="ic-open-new-tab" class="btn-sm" href="#" target="_blank" rel="noopener" title="Open in a new browser tab">↗ New tab</a>
+            <button id="ic-reload-btn" class="btn-sm" title="Reload the iframe">↻ Reload</button>
+          </div>
+        </div>
+        <iframe id="ic-frame" title="IntellCluster" style="width: 100%; height: calc(100vh - 200px); min-height: 600px; border: 0; display: block;" referrerpolicy="no-referrer"></iframe>
       </div>
     </section>
   </main>
@@ -872,11 +1131,17 @@
         <button id="clarify-cancel" class="btn-sm" title="Cancel">✕</button>
       </div>
       <div class="image-modal-body clarify-body">
-        <p class="muted small">Claude found multiple plausible values and isn't sure which is yours. Pick one for each, or type a different answer.</p>
+        <p class="muted small">Claude found multiple plausible values and isn't sure which is yours. Pick one for each, or type your own answer. You can also drop / paste / browse additional files below to give Claude more context before re-running.</p>
         <div id="clarify-questions"></div>
-        <div class="row" style="justify-content: flex-end; margin-top: 14px;">
+        <div id="clarify-uploader" class="clarify-uploader">
+          <span class="clarify-uploader-prompt">📎 Drop files, click to browse, or press Ctrl+V to paste a screenshot</span>
+          <span class="clarify-uploader-hint">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT</span>
+          <input id="clarify-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+          <div id="clarify-attached" class="clarify-attached"></div>
+        </div>
+        <div class="row" style="justify-content: flex-end;">
           <button id="clarify-cancel-btn" class="btn-sm">Cancel</button>
-          <button id="clarify-submit" class="primary" disabled>Apply &amp; create shipment</button>
+          <button id="clarify-submit" class="primary" disabled>Apply &amp; re-run</button>
         </div>
       </div>
     </div>

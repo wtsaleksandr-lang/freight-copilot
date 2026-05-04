@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable: solid background fills the full canvas; text sits inside
+       the 80% safe zone so OS-specific masks (circle, squircle, etc.)
+       don't clip it. -->
+  <rect width="512" height="512" fill="#0f172a"/>
+  <text x="256" y="328" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="220" font-weight="800" fill="#ffffff" text-anchor="middle">FC</text>
+</svg>

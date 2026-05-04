@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { writeFile } from 'node:fs/promises';
 import { loadEnv } from '../config.js';
 
-const MODEL = 'claude-sonnet-4-6';
+import { getModel } from './model.js';
+// MODEL resolved per-call below (async)
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const SYSTEM_PROMPT = `You convert raw browser-automation recordings into a clean, human-readable workflow plus the structured information our system needs to replay it later.
@@ -148,7 +149,7 @@ export async function analyzeRecording(
 
   console.log('[analyzeRecording] Sending recording to Claude...');
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 4096,
     system: [
       { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },

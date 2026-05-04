@@ -2,7 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { loadEnv } from '../config.js';
 import type { RankedRateOption } from '../types.js';
 
-const MODEL = 'claude-sonnet-4-6';
+import { getModel } from './model.js';
+// MODEL resolved per-call below (async)
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const REPLY_SYSTEM_PROMPT = `You compose short, professional ocean freight quote replies on behalf of a freight forwarder.
@@ -112,7 +113,7 @@ ${rateSummary}`;
   console.log('[generateReply] Asking Claude to compose client reply...');
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 1024,
     system: [
       {
@@ -203,7 +204,7 @@ export async function generateBundleReply(
   console.log('[generateBundleReply] Asking Claude to compose bundle reply...');
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 1500,
     system: [
       {
@@ -357,7 +358,7 @@ export async function generateSheetReply(
   );
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 1500,
     system: [
       {

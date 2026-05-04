@@ -28,6 +28,42 @@ const envSchema = z.object({
    * If unset, the status column shows "Not tracked" for every row.
    */
   DELAYPREDICT_URL: z.string().optional(),
+  /**
+   * AI provider. 'anthropic' (default) or 'gemini'. Decides which API
+   * the parse pipelines hit. Both share the same prompt-shape — the
+   * adapter layer translates tool-use, file format, and response
+   * parsing per provider. Set the matching API key:
+   *   AI_PROVIDER=anthropic  (default)  → ANTHROPIC_API_KEY
+   *   AI_PROVIDER=gemini                → GEMINI_API_KEY
+   */
+  AI_PROVIDER: z
+    .enum(['anthropic', 'gemini'])
+    .default('anthropic'),
+  /**
+   * Primary model. Default = Claude Haiku 4.5 — cheap & fast, vision-
+   * capable, handles 95%+ of this app's workload. The validator-and-
+   * retry loop (validateExtraction.ts) automatically falls back to
+   * AI_MODEL_FALLBACK when math doesn't reconcile, so the tail of
+   * tricky multi-page rate sheets still gets Sonnet-quality output.
+   *
+   * Per-provider examples:
+   *   AI_PROVIDER=anthropic AI_MODEL=claude-haiku-4-5-20251001
+   *   AI_PROVIDER=anthropic AI_MODEL=claude-sonnet-4-6
+   *   AI_PROVIDER=anthropic AI_MODEL=claude-opus-4-7
+   *   AI_PROVIDER=gemini    AI_MODEL=gemini-2.0-flash
+   *   AI_PROVIDER=gemini    AI_MODEL=gemini-1.5-pro
+   */
+  AI_MODEL: z.string().min(1).default('claude-haiku-4-5-20251001'),
+  /**
+   * Fallback model — used only when the validator catches a math /
+   * consistency error in the primary's output. Should be stronger
+   * than AI_MODEL. Default = Sonnet 4.6.
+   *
+   * Setting equal to AI_MODEL disables the fallback (single-pass).
+   */
+  AI_MODEL_FALLBACK: z.string().min(1).default('claude-sonnet-4-6'),
+  /** Google AI Studio key (for AI_PROVIDER=gemini). */
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

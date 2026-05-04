@@ -3,7 +3,8 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { z } from 'zod';
 import { loadEnv } from '../config.js';
 
-const MODEL = 'claude-sonnet-4-6';
+import { getModel } from './model.js';
+// MODEL resolved per-call below (async)
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const SYSTEM_PROMPT = `You are an intake assistant for an ocean freight forwarder, parsing drayage requests
@@ -187,7 +188,7 @@ export async function parseDrayageIntake(
 
   console.log('[parseDrayageIntake] Calling Claude...');
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 1500,
     system: [
       { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },

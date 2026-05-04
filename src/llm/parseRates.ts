@@ -8,7 +8,8 @@ import {
   PARSE_RATES_TOOL_SCHEMA,
 } from './prompts.js';
 
-const MODEL = 'claude-sonnet-4-6';
+import { getModel } from './model.js';
+// MODEL resolved per-call below (async)
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const ChargeSchema = z.object({
@@ -55,7 +56,7 @@ export async function parseRates(ariaTree: string): Promise<RateOption[]> {
   console.log('[parseRates] Calling Claude to parse aria tree...');
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: await getModel(),
     max_tokens: 4096,
     system: [
       {

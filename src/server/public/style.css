@@ -76,12 +76,17 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
 }
 
 main {
-  max-width: 1120px;
+  max-width: 1600px;
   margin: 24px auto 64px;
   padding: 0 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* Shipments tab benefits from the full viewport — many columns. */
+body:has(#tab-shipments.active) main {
+  max-width: none;
+  padding: 0 16px;
 }
 .tab-pane { display: none; flex-direction: column; gap: 16px; }
 .tab-pane.active { display: flex; }
@@ -1109,14 +1114,16 @@ label.check-line input[type="checkbox"] {
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12.5px;
-  table-layout: auto;
+  /* fixed = honour <colgroup><col> widths exactly; auto would let
+     content silently expand columns past the user's drag-resize. */
+  table-layout: fixed;
 }
 .ship-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  /* Flat white header — high contrast against dark cells */
-  background: #ffffff;
+  /* Subtle gray tint distinguishes the header band from data cells. */
+  background: #f3f4f6;
   color: #111827;
   text-align: left;
   padding: 9px 10px;
@@ -1125,15 +1132,100 @@ label.check-line input[type="checkbox"] {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-bottom: 2px solid #111827;
+  /* Vertical divider between header columns — visible on white. */
+  border-right: 1px solid rgba(17, 24, 39, 0.20);
+  white-space: nowrap;
+  /* Container for the absolutely-positioned resize handle. */
+  position: sticky;
+  position: -webkit-sticky;
+  /* Use the standard relative on top of sticky — sticky is positioned
+     relative to scroll container, but absolute children still anchor
+     to the th itself because position is non-static. */
+}
+/* Drag handle on the right edge of every header cell. */
+.ship-table thead th .col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 4;
+  user-select: none;
+}
+.ship-table thead th .col-resize-handle:hover,
+.ship-table thead th .col-resize-handle:active {
+  background: #58a6ff;
+  opacity: 0.5;
+}
+body.is-col-resizing,
+body.is-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.ship-table thead th:last-child { border-right: 0; }
+
+/* Per-column filter band — small inputs + selects directly under the
+   header labels. Inherits horizontal stickiness from the generic
+   sticky-column rule (first 2 columns pin to the left). */
+.ship-table thead tr.ship-filter-row th {
+  background: #fafafa;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.14);
+  border-right: 1px solid rgba(17, 24, 39, 0.10);
+  /* Override the uppercase/letter-spacing inherited from header. */
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+/* Pinned filter cells must match the same background as their header
+   counterparts so the sticky column reads as a single band. */
+.ship-table thead tr.ship-filter-row th:nth-child(1),
+.ship-table thead tr.ship-filter-row th:nth-child(2) {
+  background: #fafafa;
+  z-index: 3;
+}
+.ship-table .filter-input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  border: 1px solid rgba(17, 24, 39, 0.18);
+  border-radius: 3px;
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.ship-table .filter-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.4);
+}
+.ship-table select.filter-input {
+  cursor: pointer;
+  appearance: auto;
+}
+.ship-clear-filters {
+  font-size: 10.5px;
+  font-weight: 600;
+  background: #ef4444;
+  color: #fff;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
   white-space: nowrap;
 }
+.ship-clear-filters:hover { background: #dc2626; }
 .ship-table tbody td {
-  padding: 7px 10px;
-  /* Subtle dividers — both row and column lines */
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 6px 8px;
+  /* Light-theme dividers — dark rgba so they show on white cells.
+     Were invisible before because they were white on white. */
+  border-bottom: 1px solid rgba(17, 24, 39, 0.10);
+  border-right: 1px solid rgba(17, 24, 39, 0.08);
   vertical-align: middle;
-  min-width: 80px;
+  min-width: 60px;
   max-width: 240px;
   /* Single-line cells by default (truncation for the rare long ones) */
   white-space: nowrap;
@@ -1141,19 +1233,33 @@ label.check-line input[type="checkbox"] {
   text-overflow: ellipsis;
 }
 .ship-table tbody td:last-child { border-right: 0; }
+.ship-table tbody tr:last-child td { border-bottom: 0; }
 .ship-table tbody tr {
   transition: background 0.08s;
 }
-.ship-table tbody tr:hover {
-  background: rgba(88, 166, 255, 0.04);
+/* Zebra striping — every-other row gets a near-imperceptible tint so
+   the eye can track left-to-right across many columns. */
+.ship-table tbody tr:nth-child(even) td {
+  background: rgba(17, 24, 39, 0.025);
+}
+.ship-table tbody tr:hover td {
+  background: rgba(88, 166, 255, 0.06);
+}
+.ship-table tbody tr.is-selected td {
+  background: rgba(88, 166, 255, 0.14);
 }
 .ship-table tbody tr.is-selected {
-  background: rgba(88, 166, 255, 0.14);
   box-shadow: inset 3px 0 0 #58a6ff;
 }
-.ship-table tbody td.cell-editable {
-  cursor: text;
+/* Subtle per-cell hover — slightly stronger than the row tint, so the
+   active cell stands out under the mouse without pulling attention
+   away from the rest of the row. */
+.ship-table tbody td:hover {
+  background: rgba(88, 166, 255, 0.10);
 }
+/* By default cells inherit the table-wrap's grab cursor — typing
+   cursor shows up only after a double-click puts the cell into edit
+   mode. Hover hint is a subtle dashed outline. */
 .ship-table tbody td.cell-editable:hover {
   outline: 1px dashed rgba(88, 166, 255, 0.4);
 }
@@ -1169,14 +1275,50 @@ label.check-line input[type="checkbox"] {
   background: rgba(46, 160, 67, 0.18);
   transition: background 0.6s ease-out;
 }
+/* Active cell — last clicked, target of Cmd/Ctrl+C copy. Distinct
+   blue inset border so it's clearly the focused cell. */
+.ship-table tbody td.is-active-cell {
+  box-shadow: inset 0 0 0 2px #58a6ff;
+}
+/* Copy flash — quick green pulse confirms a successful copy. */
+.ship-table tbody td.is-copied {
+  background: rgba(46, 160, 67, 0.28) !important;
+  transition: background 0.7s ease-out;
+}
+
+/* Right-click context menu on cells. */
+.cell-context-menu {
+  position: absolute;
+  z-index: 11000;
+  background: #ffffff;
+  border: 1px solid rgba(17, 24, 39, 0.18);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+}
+.cell-context-menu button {
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: #111827;
+  font: inherit;
+}
+.cell-context-menu button:hover {
+  background: rgba(88, 166, 255, 0.14);
+}
 .ship-table .cell-empty::before {
   content: '—';
   color: var(--muted);
 }
-.ship-table .cell-notes,
-.ship-table .cell-cargo {
-  cursor: pointer;
-}
+/* Notes/Cargo are pannable like everything else; subtle hover tint
+   hints at the double-click-to-expand affordance. */
 .ship-table .cell-notes:hover,
 .ship-table .cell-cargo:hover {
   background: rgba(88, 166, 255, 0.06);
@@ -1190,21 +1332,96 @@ label.check-line input[type="checkbox"] {
   color: white;
   border-radius: 3px;
 }
+/* Ref — primary identifier on the left edge. Bold + monospaced so it
+   pops as the row's anchor when scanning. Click-to-copy: cursor is a
+   "copy" indicator, hover tints in blue. */
 .ship-table .ref-cell {
   font-family: var(--mono, ui-monospace, monospace);
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
   min-width: 80px;
+  cursor: copy;
 }
+.ship-table .ref-cell:hover {
+  background: rgba(88, 166, 255, 0.18) !important;
+  color: #0d57b5;
+}
+/* Created — secondary metadata, muted. */
 .ship-table .when-cell {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+/* Notes preview — secondary, less prominent than primary fields. */
+.ship-table .cell-notes {
+  color: var(--muted);
   font-size: 11.5px;
 }
+/* Actions cell (attachments badge + delete) — supporting metadata,
+   stays subtle so it doesn't fight with row data. */
 .ship-table .actions-cell {
   white-space: nowrap;
   text-align: right;
+  font-size: 11px;
+}
+
+/* Sticky left columns — Status and Ref stay visible during horizontal
+   scroll. Background must be opaque or right-side content shows
+   through. We re-paint the row hover/zebra/selected states on the
+   sticky cells so the row visually stays in sync. */
+.ship-table thead th:nth-child(1),
+.ship-table thead th:nth-child(2) {
+  position: sticky;
+  z-index: 2;
+  background: #f3f4f6;
+}
+.ship-table tbody td:nth-child(1),
+.ship-table tbody td:nth-child(2) {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+.ship-table thead th:nth-child(1),
+.ship-table tbody td:nth-child(1) { left: 0; }
+.ship-table thead th:nth-child(2),
+.ship-table tbody td:nth-child(2) { left: 40px; }
+.ship-table thead th:nth-child(2) { z-index: 3; }
+.ship-table thead th:nth-child(1) { z-index: 3; }
+/* Right shadow on the second sticky column = visual edge between the
+   pinned anchors and the scrolling content. */
+.ship-table tbody td:nth-child(2),
+.ship-table thead th:nth-child(2) {
+  box-shadow: 4px 0 6px -4px rgba(17, 24, 39, 0.18);
+}
+/* Re-paint zebra/hover/selected on sticky cells (the position:sticky
+   layer needs explicit backgrounds — body row backgrounds don't bleed
+   through). */
+.ship-table tbody tr:nth-child(even) td:nth-child(1),
+.ship-table tbody tr:nth-child(even) td:nth-child(2) {
+  background: #f6f6f7;
+}
+.ship-table tbody tr:hover td:nth-child(1),
+.ship-table tbody tr:hover td:nth-child(2) {
+  background: #ebf3ff;
+}
+.ship-table tbody tr.is-selected td:nth-child(1),
+.ship-table tbody tr.is-selected td:nth-child(2) {
+  background: #d6e6ff;
+}
+
+/* Money block (Sell / Cost / Profit) gets a subtle warm tint so the
+   eye knows where to look for the bottom-line numbers. */
+.ship-table .cell-money,
+.ship-table .cell-cost,
+.ship-table .cell-profit {
+  background: rgba(245, 158, 11, 0.05);
+}
+.ship-table tbody tr:nth-child(even) .cell-money,
+.ship-table tbody tr:nth-child(even) .cell-cost,
+.ship-table tbody tr:nth-child(even) .cell-profit {
+  background: rgba(245, 158, 11, 0.07);
 }
 .ship-table .ship-delete-btn {
   background: transparent;
@@ -1228,6 +1445,920 @@ label.check-line input[type="checkbox"] {
 }
 .ship-table .ship-source-link:hover { text-decoration: underline; }
 
+/* Single attachments badge — replaces the row of 📎 icons. */
+.ship-table .ship-attach-badge {
+  background: rgba(88, 166, 255, 0.10);
+  border: 1px solid rgba(88, 166, 255, 0.28);
+  color: #58a6ff;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  margin-right: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ship-table .ship-attach-badge:hover {
+  background: rgba(88, 166, 255, 0.20);
+  border-color: rgba(88, 166, 255, 0.55);
+}
+
+/* Cargo icon — sized to match the row line-height; helps the eye
+   match patterns at a glance without dominating the cell. */
+.ship-table .cargo-icon {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: -2px;
+}
+.ship-table .cell-shipment-type {
+  text-align: center;
+  min-width: 56px;
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+}
+
+/* Money cells (Sell / Cost / Profit) — right-aligned, tabular nums. */
+.ship-table .cell-cost,
+.ship-table .cell-profit,
+.ship-table .cell-money {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.ship-table .cell-cost:hover {
+  background: rgba(88, 166, 255, 0.08);
+}
+.ship-table .cell-profit { cursor: default; }
+.ship-table .cell-profit.profit-positive { color: #3fb950; font-weight: 700; }
+.ship-table .cell-profit.profit-negative { color: #f85149; font-weight: 700; }
+.ship-table .cell-profit.profit-zero     { color: var(--muted); }
+
+/* Per-row drop target — file/email dragged onto a shipment row.
+   Green tint = full extraction (default).
+   Amber tint = money-only extraction (cursor over Sell/Cost/Profit).
+   The targeted cell within the row gets a stronger highlight so the
+   user sees exactly which cell will receive the drop.
+   Highlight is set via a single dragover listener on <tbody> in JS,
+   so it tracks the cursor exactly. */
+.ship-table tbody tr.is-drop-target td,
+.ship-table tbody tr.is-drop-target td:hover {
+  background: rgba(63, 185, 80, 0.22) !important;
+}
+.ship-table tbody tr.is-drop-target {
+  box-shadow: inset 0 0 0 2px #3fb950;
+}
+/* Money-only mode — the row tints amber instead of green. */
+.ship-table tbody tr.is-drop-target-money td,
+.ship-table tbody tr.is-drop-target-money td:hover {
+  background: rgba(245, 158, 11, 0.18) !important;
+}
+.ship-table tbody tr.is-drop-target-money {
+  box-shadow: inset 0 0 0 2px #f59e0b;
+}
+/* Targeted cell — stronger amber inside the money-mode row. */
+.ship-table tbody tr.is-drop-target-money td.is-drop-target-cell,
+.ship-table tbody tr.is-drop-target-money td.is-drop-target-cell:hover {
+  background: rgba(245, 158, 11, 0.50) !important;
+  box-shadow: inset 0 0 0 2px #d97706;
+}
+.ship-table tbody tr.is-updating {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Re-check button inside the cost-breakdown compact panel. */
+.cost-recheck-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f59e0b;
+  color: #ffffff;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cost-recheck-btn:hover { background: #d97706; }
+.cost-recheck-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Notes / Cargo / Loading-address inline editor — same compact feel
+   as the attachments / cost-breakdown panels (no full-screen frame,
+   no backdrop dim). */
+#cell-edit-modal {
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 70px 24px 24px;
+}
+#cell-edit-modal .image-modal-backdrop {
+  background: transparent;
+  pointer-events: none;
+}
+#cell-edit-modal .image-modal-frame {
+  width: min(420px, 90vw);
+  height: auto;
+  max-height: min(70vh, 540px);
+  pointer-events: auto;
+}
+#cell-edit-modal .image-modal-body {
+  padding: 12px 14px;
+  background: transparent;
+  display: block;
+}
+#cell-edit-modal #cell-edit-textarea {
+  width: 100%;
+  min-height: 160px;
+  font-size: 13px;
+  resize: vertical;
+}
+#cell-edit-modal #cell-edit-cargo-fields .full {
+  margin-bottom: 8px;
+}
+#cell-edit-modal #cell-edit-cargo-fields textarea {
+  min-height: 100px;
+}
+
+/* Compact, non-blocking floating panel — used for cost breakdown,
+   attachments list, and any other "give me a peek without dimming
+   the dashboard" interaction. */
+.compact-panel {
+  position: absolute;
+  z-index: 10000;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  min-width: 320px;
+  max-width: min(540px, 92vw);
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  color: #e6e6e6;
+}
+.compact-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 12px;
+  user-select: none;
+}
+/* Drag affordance: the title bar is the handle. Cursor changes to a
+   move icon on hover; switches to "grabbing" while dragging. */
+.compact-panel-head.is-draggable {
+  cursor: grab;
+}
+.compact-panel-head.is-draggable:active {
+  cursor: grabbing;
+}
+body.is-panel-dragging,
+body.is-panel-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.compact-panel-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.compact-panel-close:hover { color: #fff; background: rgba(255,255,255,0.06); }
+.compact-panel-body {
+  padding: 10px 12px;
+  overflow: auto;
+}
+
+/* Breakdown rows — used by both Cost and Sell panels.
+   Flex (not grid) so the optional sourceFile pill can sit next to the
+   amount without bumping the ✕ button onto a second row. */
+.cost-breakdown .cost-lines { display: flex; flex-direction: column; gap: 2px; }
+.cost-breakdown .cost-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-variant-numeric: tabular-nums;
+}
+.cost-breakdown .cost-line .cost-line-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cost-breakdown .cost-line .cost-line-amount {
+  flex-shrink: 0;
+  color: #f0f0f0;
+  margin-left: auto;
+}
+.cost-breakdown .cost-line > .muted.small {
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+.cost-breakdown .cost-line-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted, #8a8a8a);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.cost-breakdown .cost-line-remove:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+/* Existing line in click-to-edit mode. */
+.cost-breakdown .cost-line-clickable {
+  cursor: pointer;
+}
+.cost-breakdown .cost-line-clickable:hover {
+  background: rgba(88, 166, 255, 0.06);
+}
+/* Edit form swapped in for a single line — name + amount + buttons +
+   optional × N toggle on a wrap row. */
+.cost-breakdown .cost-line-editing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  background: rgba(88, 166, 255, 0.06);
+  border-radius: 4px;
+}
+.cost-breakdown .bd-edit-name,
+.cost-breakdown .bd-edit-amount {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  background: #161616;
+  color: #e6e6e6;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.cost-breakdown .bd-edit-name { flex: 1 1 130px; min-width: 0; }
+.cost-breakdown .bd-edit-amount { flex: 0 0 100px; text-align: right; font-variant-numeric: tabular-nums; }
+.cost-breakdown .bd-edit-name:focus,
+.cost-breakdown .bd-edit-amount:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.cost-breakdown .bd-edit-save,
+.cost-breakdown .bd-edit-cancel {
+  background: transparent;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 4px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #e6e6e6;
+  font-weight: 600;
+}
+.cost-breakdown .bd-edit-save { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+.cost-breakdown .bd-edit-save:hover { background: #1d4ed8; }
+.cost-breakdown .bd-edit-cancel:hover { background: rgba(255, 107, 107, 0.1); color: #ff6b6b; }
+/* × N toggle — wraps to its own row beneath the inputs when narrow. */
+.cost-breakdown .bd-edit-multiply {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted, #8a8a8a);
+  cursor: pointer;
+  user-select: none;
+}
+.cost-breakdown .bd-edit-multiply input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+.cost-breakdown .bd-edit-multiply:hover { color: #c5d6ee; }
+.cost-breakdown .cost-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2a2a;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* "Add line item" form inside the breakdown panel.
+   Columns: name (flex) · amount (90) · currency (70) · button (auto). */
+.cost-breakdown .bd-add-form {
+  display: grid;
+  grid-template-columns: 1fr 90px 70px auto;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #2a2a2a;
+}
+.cost-breakdown .bd-add-name,
+.cost-breakdown .bd-add-amount,
+.cost-breakdown .bd-add-currency {
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  background: #161616;
+  color: #e6e6e6;
+  font-family: inherit;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.cost-breakdown .bd-add-currency {
+  cursor: pointer;
+  appearance: auto;
+  padding: 5px 4px;
+}
+.cost-breakdown .bd-add-name:focus,
+.cost-breakdown .bd-add-amount:focus,
+.cost-breakdown .bd-add-currency:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+/* Multiply-by-qty toggle row — sits below the form inputs, spans the
+   full grid width. Visible only when row has 2+ containers. */
+.cost-breakdown .bd-add-multiply-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted, #8a8a8a);
+  cursor: pointer;
+  user-select: none;
+}
+.cost-breakdown .bd-add-multiply-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+.cost-breakdown .bd-add-multiply-row:hover { color: #c5d6ee; }
+.cost-breakdown .bd-add-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cost-breakdown .bd-add-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cost-breakdown .bd-add-btn:hover { background: #1d4ed8; }
+.cost-breakdown.is-busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Attachments list inside compact panel */
+.attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.attachments-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* One row per attachment: filename (preview button) · timestamp · ↗ · ✕. */
+.attachments-list .attachment-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.attachments-list .attachment-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: #c5d6ee;
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  overflow: hidden;
+}
+.attachments-list .attachment-link:hover {
+  color: #58a6ff;
+  text-decoration: underline;
+}
+.attachments-list .attachment-open {
+  color: var(--muted, #8a8a8a);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.attachments-list .attachment-open:hover {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.10);
+}
+.attachments-list .attachment-row:hover {
+  background: rgba(88, 166, 255, 0.08);
+}
+.attachments-list .attachment-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #c5d6ee;
+  font-size: 12.5px;
+  overflow: hidden;
+}
+.attachments-list .attachment-link:hover {
+  color: #58a6ff;
+}
+.attachments-list .attachment-icon { font-size: 13px; flex-shrink: 0; }
+.attachments-list .attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachments-list .attachment-time {
+  color: #6b7280;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.attachments-list .attachment-remove {
+  background: transparent;
+  border: 0;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.attachments-list .attachment-remove:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.10);
+}
+
+/* Drop zone — drop or click-to-browse. */
+.attachments-dropzone {
+  padding: 12px;
+  border: 2px dashed #3a3a3a;
+  border-radius: 6px;
+  background: #161616;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.attachments-dropzone:hover {
+  border-color: #58a6ff;
+  background: #1c2837;
+}
+.attachments-dropzone.is-drag {
+  border-color: #2563eb;
+  background: #1c2c4a;
+}
+.attachments-dropzone-prompt {
+  display: block;
+  font-size: 12px;
+  color: #c5d6ee;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.attachments-dropzone-hint {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* Paste zone — distinct from the drop zone so the user knows where
+   to paste. Solid (not dashed) border, different colour, focus-ring
+   on click so it's obvious which target captures Ctrl+V. */
+.attachments-paste-zone {
+  padding: 12px;
+  border: 1.5px solid #3a3a3a;
+  border-radius: 6px;
+  background: #161616;
+  text-align: center;
+  cursor: text;
+  transition: border-color 0.1s, background 0.1s, box-shadow 0.1s;
+  outline: none;
+  /* Caret would otherwise blink inside the contenteditable. */
+  caret-color: transparent;
+  user-select: none;
+}
+.attachments-paste-zone:hover {
+  border-color: #58a6ff;
+  background: #1a2535;
+}
+.attachments-paste-zone:focus,
+.attachments-paste-zone:focus-visible {
+  border-color: #2563eb;
+  background: #1c2c4a;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.30);
+}
+.attachments-paste-prompt {
+  display: block;
+  font-size: 12px;
+  color: #c5d6ee;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.compact-panel.is-uploading {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* AI mode toggle — 3 large cards (default / power / custom). The
+   selected one gets a blue ring + tinted background; the others
+   stay subtle so the choice is unambiguous. */
+.ai-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 8px 0 0;
+}
+.ai-mode-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  color: #111827;
+  transition: border-color 0.1s, background 0.1s, box-shadow 0.1s;
+}
+.ai-mode-btn strong { font-size: 14px; }
+.ai-mode-btn:hover {
+  border-color: #58a6ff;
+  background: #f6faff;
+}
+.ai-mode-btn.is-selected {
+  border-color: #2563eb;
+  background: #ebf3ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+@media (max-width: 720px) {
+  .ai-mode-toggle { grid-template-columns: 1fr; }
+}
+
+/* Toast notifications — bottom-right stack of auto-dismissing cards. */
+.toast-stack {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100100;
+  pointer-events: none;
+}
+.toast {
+  background: #1f2937;
+  color: #f9fafb;
+  border-left: 3px solid #58a6ff;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.30);
+  padding: 10px 32px 10px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  max-width: 380px;
+  position: relative;
+  pointer-events: auto;
+  animation: toast-in 0.18s ease-out;
+}
+.toast.toast-success { border-left-color: #3fb950; }
+.toast.toast-error   { border-left-color: #f85149; background: #2c1216; }
+.toast.toast-info    { border-left-color: #58a6ff; }
+.toast.is-out { animation: toast-out 0.22s ease-in forwards; }
+.toast-msg { white-space: pre-line; }
+.toast-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: transparent;
+  border: 0;
+  color: #c7c7c7;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.toast-close:hover { color: #fff; background: rgba(255,255,255,0.08); }
+@keyframes toast-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(20px); opacity: 0; }
+}
+
+/* Keyboard-shortcuts help overlay. */
+.shortcuts-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shortcuts-help-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+}
+.shortcuts-help-frame {
+  position: relative;
+  width: min(440px, 92vw);
+  max-height: 88vh;
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.40);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.shortcuts-help-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.shortcuts-help-toolbar strong { font-size: 13px; }
+.shortcuts-help-close {
+  background: transparent;
+  border: 0;
+  color: #6b7280;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.shortcuts-help-close:hover { color: #111827; background: rgba(0,0,0,0.06); }
+.shortcuts-help-body {
+  padding: 14px 18px 18px;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+.shortcuts-help-body h4 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+  margin: 14px 0 4px 0;
+}
+.shortcuts-help-body h4:first-child { margin-top: 0; }
+/* Friendlier empty-state cells. Single-line cells get a more
+   structured layout with an icon + message + optional CTA hint. */
+td.empty {
+  text-align: center;
+  padding: 28px 16px !important;
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.015);
+  white-space: normal !important;
+  max-width: none !important;
+}
+
+.shortcuts-help-body kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid #d1d5db;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #f3f4f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #111827;
+  vertical-align: 1px;
+}
+
+/* Drayage rate-library preview — editable cells in a table-row layout. */
+#dr-lib-preview .prev-input {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+#dr-lib-preview .prev-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+}
+#dr-lib-preview .prev-input.prev-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* In-app file preview overlay — opens when clicking an attachment.
+   Light theme matching the dashboard; dark backdrop dimming the page. */
+.file-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.file-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.70);
+}
+.file-preview-frame {
+  position: relative;
+  width: min(92vw, 1100px);
+  height: min(92vh, 820px);
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.file-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 13px;
+}
+.file-preview-toolbar strong { font-weight: 600; }
+.file-preview-spacer { flex: 1; }
+.file-preview-open {
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+}
+.file-preview-open:hover {
+  background: #ebf3ff;
+  border-color: #58a6ff;
+}
+.file-preview-close {
+  background: transparent;
+  border: 0;
+  color: #6b7280;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.file-preview-close:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+.file-preview-body {
+  flex: 1;
+  overflow: auto;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.file-preview-body.preview-image {
+  padding: 16px;
+}
+.file-preview-body.preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.file-preview-body.preview-pdf,
+.file-preview-body.preview-html {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #ffffff;
+}
+.file-preview-body.preview-pdf iframe,
+.file-preview-body.preview-html iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.file-preview-body.preview-text {
+  padding: 16px 20px;
+  background: #ffffff;
+  align-items: stretch;
+  justify-content: stretch;
+}
+.file-preview-body.preview-text pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #111827;
+}
+.file-preview-body.preview-unsupported {
+  flex-direction: column;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 13px;
+  padding: 24px;
+}
+.file-preview-body.preview-unsupported a {
+  color: #2563eb;
+}
+
+/* Queued files in the top dropzone — name, type, size, remove. */
+.ship-pending-files {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ship-pending-files .pending-file {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(88, 166, 255, 0.06);
+  border: 1px solid rgba(88, 166, 255, 0.18);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.ship-pending-files .pending-file-icon { font-size: 14px; }
+.ship-pending-files .pending-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e6e6e6;
+}
+.ship-pending-files .pending-file-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ship-pending-files .pending-file-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.ship-pending-files .pending-file-remove:hover {
+  color: #d44a4a;
+  background: rgba(212, 74, 74, 0.10);
+}
+
 .ship-ephemeral-toggle {
   display: inline-flex;
   flex-direction: row; /* override label{flex-direction:column} */
@@ -1244,65 +2375,270 @@ label.check-line input[type="checkbox"] {
   margin: 0;
 }
 
-/* Clarification modal */
+/* Clarification modal — light theme matching the rest of the dashboard.
+   Override the dark image-modal-frame defaults explicitly so the
+   modal reads clearly. */
+#clarify-modal .image-modal-backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
 .clarify-frame {
-  width: min(560px, 92vw);
+  width: min(620px, 92vw);
   height: auto;
-  max-height: 92vh;
+  max-height: 88vh;
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  color: #111827;
+}
+#clarify-modal .image-modal-toolbar {
+  background: #f9fafb;
+  color: #111827;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 14px;
+}
+#clarify-modal .image-modal-toolbar strong {
+  font-size: 13px;
+  font-weight: 700;
 }
 .clarify-body {
-  padding: 18px 22px 16px;
+  padding: 16px 18px 18px;
   display: block;
   overflow-y: auto;
+  background: #ffffff;
+  color: #111827;
 }
+.clarify-body > p.muted.small {
+  margin: 0 0 14px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.45;
+}
+/* One question card */
 .clarify-q {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--card-border, #2a2a2a);
-  border-radius: 6px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 .clarify-q .clarify-q-text {
   font-size: 13.5px;
-  margin-bottom: 8px;
-  font-weight: 500;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
 .clarify-q .clarify-options {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
+/* Option buttons — full-width clickable rows, easy to tap, clear hover. */
 .clarify-option {
-  padding: 5px 10px;
-  background: transparent;
-  color: white;
-  border: 1px solid var(--card-border, #2a2a2a);
-  border-radius: 4px;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12.5px;
+  font-family: inherit;
+  line-height: 1.35;
+  transition: background 0.08s, border-color 0.08s;
 }
 .clarify-option:hover {
   border-color: #58a6ff;
-  background: rgba(88, 166, 255, 0.08);
+  background: #ebf3ff;
 }
 .clarify-option.is-picked {
   background: #2ea043;
-  border-color: #2ea043;
+  border-color: #1f7a32;
+  color: #ffffff;
+  font-weight: 600;
+}
+.clarify-option.is-picked:hover {
+  background: #2c9b40;
 }
 .clarify-other {
   width: 100%;
   margin-top: 6px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   font-size: 12.5px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #111827;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.clarify-other:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
+}
+/* Footer button row — Cancel + Apply */
+#clarify-modal .image-modal-body .row {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+  margin-top: 10px !important;
+  gap: 8px;
+}
+#clarify-modal .btn-sm {
+  background: #ffffff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+}
+#clarify-modal .btn-sm:hover { background: #f3f4f6; }
+#clarify-modal .primary {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #1d4ed8;
+  padding: 6px 16px;
+  font-size: 12.5px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 600;
+}
+#clarify-modal .primary:hover:not(:disabled) { background: #1d4ed8; }
+#clarify-modal .primary:disabled {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  cursor: not-allowed;
 }
 
-/* DelayPredict tracking dots on the Shipments grid */
+/* Inline file-upload zone inside the clarify modal — accepts paste,
+   drag-drop, and click-to-browse. Lets the user attach more context
+   right in the question modal. */
+.clarify-uploader {
+  margin-top: 4px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.clarify-uploader:hover {
+  border-color: #58a6ff;
+  background: #f0f7ff;
+}
+.clarify-uploader.is-drag {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+.clarify-uploader-prompt {
+  display: block;
+  font-size: 12.5px;
+  color: #374151;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.clarify-uploader-hint {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+}
+.clarify-attached {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.clarify-attached-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.clarify-attached-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #111827;
+}
+.clarify-attached-meta {
+  color: #6b7280;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.clarify-attached-remove {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.clarify-attached-remove:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* Status icon column on the Shipments grid */
 .ship-table .track-cell {
   text-align: center;
   vertical-align: middle;
   min-width: 40px;
   width: 40px;
+  cursor: pointer;
+}
+.ship-table .track-cell .status-icon {
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+}
+.ship-table .track-cell:hover {
+  background: rgba(88, 166, 255, 0.10);
+}
+
+/* Status legend strip below the table — quick reference. */
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #374151;
+}
+.status-legend-title {
+  font-weight: 600;
+  color: #111827;
+  margin-right: 4px;
+}
+.status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.status-legend-item .status-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.status-legend-item.muted {
+  color: #6b7280;
 }
 .track-dot {
   display: inline-block;

@@ -205,3 +205,98 @@ function stripProc(r: ActiveRecording): RecordingMeta {
   const { proc, ...meta } = r;
   return meta;
 }
+
+// ---- Replay --------------------------------------------------------
+//
+// Re-execute a previously-saved recording. Recordings are Playwright
+// scripts (codegen output is JS-syntax, saved with .ts extension) or
+// uploaded files. We spawn `pnpm exec tsx <file>` so the user's local
+// node + bundled Playwright browsers handle execution.
+
+export interface ReplayMeta {
+  id: string;
+  recordingId: string;
+  outFile: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  status: 'running' | 'finished' | 'failed';
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+interface ActiveReplay extends ReplayMeta {
+  proc: ChildProcess | null;
+}
+
+const replays = new Map<string, ActiveReplay>();
+
+export function replayRecording(recordingId: string): ReplayMeta {
+  const rec = recordings.get(recordingId);
+  if (!rec) throw new Error(`Recording ${recordingId} not found`);
+  if (rec.status === 'running') {
+    throw new Error('Recording is still being captured — cannot replay yet');
+  }
+  const replayId = randomUUID();
+  // tsx handles both JS and TS files transparently. The file might be
+  // codegen output (JS-in-.ts) or a real .ts. Either works.
+  const proc = spawn(
+    'pnpm',
+    ['exec', 'tsx', rec.outFile],
+    { stdio: 'pipe', shell: true, detached: false }
+  );
+  const meta: ActiveReplay = {
+    id: replayId,
+    recordingId,
+    outFile: rec.outFile,
+    startedAt: new Date(),
+    finishedAt: null,
+    status: 'running',
+    exitCode: null,
+    stdout: '',
+    stderr: '',
+    proc,
+  };
+  replays.set(replayId, meta);
+  proc.stdout?.on('data', (chunk) => {
+    const s = chunk.toString();
+    meta.stdout += s;
+    // Cap to ~8 KB so a chatty script doesn't balloon memory.
+    if (meta.stdout.length > 8192) meta.stdout = meta.stdout.slice(-8192);
+  });
+  proc.stderr?.on('data', (chunk) => {
+    const s = chunk.toString();
+    meta.stderr += s;
+    if (meta.stderr.length > 8192) meta.stderr = meta.stderr.slice(-8192);
+  });
+  proc.on('close', (code) => {
+    meta.finishedAt = new Date();
+    meta.exitCode = code;
+    meta.status = code === 0 ? 'finished' : 'failed';
+    meta.proc = null;
+    console.log(
+      `[replay ${replayId}] exited (code ${code}) — recording ${recordingId}`
+    );
+  });
+  proc.on('error', (err) => {
+    meta.stderr += `\n[spawn error] ${err.message}`;
+    meta.status = 'failed';
+    meta.proc = null;
+  });
+  return stripReplayProc(meta);
+}
+
+export function getReplay(replayId: string): ReplayMeta | null {
+  const r = replays.get(replayId);
+  return r ? stripReplayProc(r) : null;
+}
+
+export function listReplays(): ReplayMeta[] {
+  return Array.from(replays.values()).map(stripReplayProc);
+}
+
+function stripReplayProc(r: ActiveReplay): ReplayMeta {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { proc, ...meta } = r;
+  return meta as ReplayMeta;
+}

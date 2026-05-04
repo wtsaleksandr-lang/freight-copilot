@@ -48,6 +48,11 @@ export function createApp(): express.Express {
   const shipmentsDir = resolve(process.cwd(), 'shipments-files');
   app.use('/shipments-files', express.static(shipmentsDir));
 
+  // Source files for the drayage rate library — provider rate sheets,
+  // emails, screenshots the user uploaded for the AI to extract from.
+  const drayageRatesDir = resolve(process.cwd(), 'drayage-rates-files');
+  app.use('/drayage-rates-files', express.static(drayageRatesDir));
+
   // Real Chrome mode: start the keep-alive pinger that probes each
   // carrier's quote URL every 10 min. Two effects:
   //  - Navigation alone counts as portal activity → idle timer resets,
@@ -57,6 +62,19 @@ export function createApp(): express.Express {
   //    /api/sessions/probe so the dashboard's per-carrier badges
   //    reflect live reality (not just the stored expires_at).
   // No tokens, no LLM — pure Playwright nav + selector check.
+  // Background tick that fires due scheduled-agent tasks. Cheap —
+  // one DB scan per minute, no AI work unless something is due.
+  void (async () => {
+    try {
+      const { startScheduledAgentTick } = await import(
+        './scheduledAgentsService.js'
+      );
+      startScheduledAgentTick();
+    } catch (err) {
+      console.warn('[app] scheduled-agents tick failed to start:', err);
+    }
+  })();
+
   if (env.USE_REAL_CHROME) {
     // 5-min cadence — ONE Line's idle timeout is shorter than 10 min in
     // practice (we observed it logged out between 10-min probes). At 5

@@ -4,7 +4,9 @@ import { loadEnv } from '../config.js';
 import { AGENT_TOOL_DEFS, isDangerous } from './tools.js';
 import { createBrowserContext } from '../carriers/browserContext.js';
 
-const MODEL = 'claude-sonnet-4-6';
+// MODEL is resolved per-call inside runAgent — picks Haiku in default
+// mode, Sonnet in power mode (see model.ts getAgentModel).
+import { getAgentModel } from '../llm/model.js';
 const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
 
 const SYSTEM_PROMPT = `You are a careful web-automation agent.
@@ -121,12 +123,24 @@ async function executeTool(
 
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
+  // Prefer the encrypted vault key (Carrier secrets → AI keys) over
+  // .env. The agent always uses Anthropic — its vision/aria-tree
+  // loop is shaped around Claude's tool-use; Gemini support for it
+  // would be a separate port.
+  const { loadAiKey } = await import('../server/apiKeysService.js');
+  const apiKey =
+    (await loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey === PLACEHOLDER_KEY) {
+    throw new Error(
+      'No Anthropic API key set. Add one in the Carrier secrets page or set ANTHROPIC_API_KEY in .env.'
+    );
   }
-
   const maxIterations = opts.maxIterations ?? 25;
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey });
+  // Resolve the agent's model once per run (preset-driven: Haiku in
+  // default mode, Sonnet in power mode).
+  const MODEL = await getAgentModel();
+  console.log(`[agent] using model ${MODEL}`);
 
   const ctxResult = await createBrowserContext();
   const { context, close, usingRealChrome } = ctxResult;

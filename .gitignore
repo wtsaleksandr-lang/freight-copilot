@@ -12,3 +12,9 @@ quotes/
 .DS_Store
 .secrets/
 .chrome-profile/
+
+# user data — local only
+drayage-rates-files/
+parsed-sheets/
+shipments-files/
+scripts/audit-output/

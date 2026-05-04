@@ -43,6 +43,8 @@ import {
   stopRecording,
   readRecordingFile,
   saveUploadedRecording,
+  replayRecording,
+  getReplay,
 } from './recordingService.js';
 import { analyzeRecording } from '../llm/analyzeRecording.js';
 import {
@@ -79,8 +81,10 @@ import {
   parseShipmentBriefing,
   detectMediaType,
   isMsgFile,
+  type BriefingFile,
   type BriefingMediaType,
 } from '../llm/parseShipmentBriefing.js';
+import { toUsd, conversionAnnotation } from './fxRates.js';
 import { convertMsgToEmailText } from '../llm/msgToText.js';
 import {
   getDelayPredictBadgeMap,
@@ -1065,6 +1069,41 @@ export function registerApiRoutes(app: Express): void {
     res.json({ recordings: listRecordings() });
   });
 
+  // Replay a saved recording — spawns `tsx <file>` and returns a
+  // replay id. Caller polls /api/record/replay/status/:id for live
+  // stdout/stderr until status flips to finished/failed.
+  app.post('/api/record/replay/:id', (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ error: 'recording id required' });
+      return;
+    }
+    try {
+      const meta = replayRecording(id);
+      res.json(meta);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.get('/api/record/replay/status/:id', (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      res.status(400).json({ error: 'replay id required' });
+      return;
+    }
+    const meta = getReplay(id);
+    if (!meta) {
+      res.status(404).json({ error: 'replay not found' });
+      return;
+    }
+    res.json(meta);
+  });
+
   /**
    * Upload an existing recording file (Chrome DevTools Recorder JSON,
    * Playwright Codegen .ts, or Puppeteer .js). Saves it to disk, registers
@@ -1106,6 +1145,85 @@ export function registerApiRoutes(app: Express): void {
   });
 
   // Generic web agent — Claude drives a browser to complete a goal on any site.
+  // ---- Scheduled web-agent tasks ----
+  app.get('/api/scheduled-agents', async (_req: Request, res: Response) => {
+    try {
+      const { listScheduledAgents } = await import('./scheduledAgentsService.js');
+      res.json({ agents: await listScheduledAgents() });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.post('/api/scheduled-agents', async (req: Request, res: Response) => {
+    try {
+      const { upsertScheduledAgent } = await import('./scheduledAgentsService.js');
+      const body = (req.body ?? {}) as {
+        id?: number;
+        name?: string;
+        url?: string;
+        goal?: string;
+        intervalMinutes?: number;
+        enabled?: boolean;
+        maxIterations?: number;
+      };
+      if (!body.name || !body.url || !body.goal) {
+        res.status(400).json({ error: 'name, url and goal are required' });
+        return;
+      }
+      const row = await upsertScheduledAgent({
+        id: body.id,
+        name: body.name,
+        url: body.url,
+        goal: body.goal,
+        intervalMinutes: body.intervalMinutes,
+        enabled: body.enabled,
+        maxIterations: body.maxIterations,
+      });
+      res.json(row);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.delete('/api/scheduled-agents/:id', async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        res.status(400).json({ error: 'invalid id' });
+        return;
+      }
+      const { deleteScheduledAgent } = await import('./scheduledAgentsService.js');
+      const ok = await deleteScheduledAgent(id);
+      res.json({ ok });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.post('/api/scheduled-agents/:id/run', async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        res.status(400).json({ error: 'invalid id' });
+        return;
+      }
+      const { runScheduledAgent } = await import('./scheduledAgentsService.js');
+      const result = await runScheduledAgent(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   app.post('/api/agent', async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as {
       url?: string;
@@ -1488,6 +1606,756 @@ export function registerApiRoutes(app: Express): void {
   });
 
   /**
+   * Drop-on-row update: AI-extract from a file dropped onto an existing
+   * shipment row. Fills in any missing fields without overwriting fields
+   * the user has already populated, and APPENDS cost line-items to the
+   * existing breakdown (recalculating ourCost as the sum). Source files
+   * are appended to the row's artifactsJson.
+   */
+  app.post(
+    '/api/shipments/:refId/parse',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      const existing = await getShipment(refId);
+      if (!existing) {
+        res.status(404).json({ error: 'Shipment not found' });
+        return;
+      }
+      const body = (req.body ?? {}) as {
+        files?: Array<{
+          filename?: string;
+          contentBase64: string;
+          mediaType?: BriefingMediaType;
+        }>;
+        ephemeral?: boolean;
+        userAnswers?: Array<{ question: string; answer: string }>;
+        /**
+         * 'money' = user dropped on / clicked Sell/Cost/Profit cell.
+         * AI focuses on cost_items / sold_rate / container_quantity
+         * only; merge step skips routing/cargo/parties/notes etc.
+         * 'all' (default) = full extraction.
+         */
+        mode?: 'money' | 'all';
+        /**
+         * When true, ignore body.files and re-run extraction against
+         * the row's already-saved artifacts. Used by the "Re-check
+         * from saved files" button — lets the AI take another pass
+         * at money math without re-dropping anything.
+         */
+        useExistingFiles?: boolean;
+        /**
+         * Override map for FX conversion: { CAD: 0.73, EUR: 1.08, ... }
+         * Each rate is "1 unit = N USD". Used to normalise non-USD
+         * cost / sold line items to USD before persistence. Falls back
+         * to the built-in defaults in fxRates.ts.
+         */
+        fxRates?: Record<string, number>;
+      };
+      const mode = body.mode === 'money' ? 'money' : 'all';
+      const fxRates = body.fxRates || {};
+      const files = Array.isArray(body.files) ? body.files : [];
+      if (!body.useExistingFiles && files.length === 0) {
+        res.status(400).json({ error: 'No files provided.' });
+        return;
+      }
+      if (
+        body.useExistingFiles &&
+        (!existing.artifactsJson || existing.artifactsJson.length === 0)
+      ) {
+        res.status(400).json({
+          error: 'No saved files for this shipment. Drop a file first.',
+        });
+        return;
+      }
+      try {
+        // Two sources of files:
+        //   - body.files (newly uploaded — drop / paste / browse)
+        //   - useExistingFiles → load from disk (artifactsJson)
+        // When both are set (e.g. user attached new files inside the
+        // clarify modal during a recheck), they're concatenated so the
+        // AI sees the full context.
+        const briefingFiles: BriefingFile[] = [];
+        if (body.useExistingFiles) {
+          const { readFile } = await import('node:fs/promises');
+          const arts = existing.artifactsJson ?? [];
+          const fromDisk = await Promise.all(
+            arts.map(async (a) => {
+              // a.url is "/shipments-files/<refId>/<n>-<filename>" — map
+              // back to the on-disk path under shipments-files/.
+              const rel = a.url.replace(/^\/shipments-files\//, '');
+              const disk = resolve(`./shipments-files/${rel}`);
+              const buf = await readFile(disk);
+              const filename = a.filename || rel.split('/').pop() || 'file';
+              if (isMsgFile(filename)) {
+                const ab = new ArrayBuffer(buf.byteLength);
+                new Uint8Array(ab).set(buf);
+                return {
+                  mediaType: 'text/plain' as BriefingMediaType,
+                  filename,
+                  textContent: convertMsgToEmailText(ab),
+                };
+              }
+              const inferred =
+                (a.mediaType as BriefingMediaType) ||
+                detectMediaType(filename);
+              if (!inferred) {
+                throw new Error(`Unknown media type for saved file ${filename}`);
+              }
+              if (
+                inferred === 'message/rfc822' ||
+                inferred === 'text/html' ||
+                inferred === 'text/plain'
+              ) {
+                return {
+                  mediaType: inferred,
+                  filename,
+                  textContent: buf.toString('utf8'),
+                };
+              }
+              return {
+                mediaType: inferred,
+                filename,
+                fileBase64: buf.toString('base64'),
+              };
+            })
+          );
+          briefingFiles.push(...fromDisk);
+        }
+        if (files.length > 0) {
+          const fromUpload = files.map((f) => {
+            if (isMsgFile(f.filename)) {
+              const buf = Buffer.from(f.contentBase64, 'base64');
+              const ab = new ArrayBuffer(buf.byteLength);
+              new Uint8Array(ab).set(buf);
+              return {
+                mediaType: 'text/plain' as BriefingMediaType,
+                filename: f.filename,
+                textContent: convertMsgToEmailText(ab),
+              };
+            }
+            const inferred =
+              f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
+            if (!inferred) {
+              throw new Error(
+                `Could not detect media type for ${f.filename ?? 'file'}`
+              );
+            }
+            if (
+              inferred === 'message/rfc822' ||
+              inferred === 'text/html' ||
+              inferred === 'text/plain'
+            ) {
+              return {
+                mediaType: inferred,
+                filename: f.filename,
+                textContent: Buffer.from(f.contentBase64, 'base64').toString('utf8'),
+              };
+            }
+            return {
+              mediaType: inferred,
+              filename: f.filename,
+              fileBase64: f.contentBase64,
+            };
+          });
+          briefingFiles.push(...fromUpload);
+        }
+
+        // Money-mode directive: tell the AI to ignore everything except
+        // money math, and to ALWAYS surface multiple-choice options
+        // when 2+ totals are plausible (the bar is intentionally low).
+        const directive =
+          mode === 'money'
+            ? 'MONEY-FOCUSED EXTRACTION: the user dropped these files specifically on the cost / sell / profit cell, OR clicked "Re-check from saved files". Extract ONLY cost_items, sold_rate, sold_currency, container_quantity. Leave shipper_name, receiver_name, customer_name, loading_address, fpol, pol, pod, container_type, cargo_type, cargo_name, carrier_preference, booking_ref, shipment_type, notes ALL set to null — they are not requested. ALWAYS surface multiple-choice questions whenever the document supports 2+ plausible interpretations of the total cost or the sold rate (per-container vs all-in, pre- vs post-discount, with vs without surcharges). The user wants to pick from candidates — do not silently choose for them.'
+            : null;
+
+        const briefing = await parseShipmentBriefing(
+          briefingFiles,
+          body.userAnswers ?? [],
+          directive
+        );
+
+        // If the AI returned clarification questions and the user
+        // hasn't yet answered them, surface them to the dashboard
+        // (same pattern as the new-shipment /parse endpoint).
+        const hasAnswers = (body.userAnswers ?? []).length > 0;
+        if (
+          !hasAnswers &&
+          Array.isArray(briefing.questions) &&
+          briefing.questions.length > 0
+        ) {
+          res.json({
+            pendingClarification: true,
+            questions: briefing.questions,
+          });
+          return;
+        }
+
+        // Merge: only fill in fields the row doesn't already have a
+        // value for. Don't clobber user edits.
+        // In money mode the field map is narrowed to just the money-
+        // adjacent fields; everything else is left alone.
+        const isEmpty = (v: unknown) => v == null || v === '';
+        const fullFieldMap: Array<[keyof typeof existing, unknown]> = [
+          ['shipperName', briefing.shipper_name ?? null],
+          ['receiverName', briefing.receiver_name ?? null],
+          ['customerName', briefing.customer_name ?? null],
+          ['loadingAddress', briefing.loading_address ?? null],
+          ['fpol', briefing.fpol ?? null],
+          ['fpolCode', briefing.fpol_code ?? null],
+          ['pol', briefing.pol ?? null],
+          ['polCode', briefing.pol_code ?? null],
+          ['pod', briefing.pod ?? null],
+          ['podCode', briefing.pod_code ?? null],
+          ['containerType', briefing.container_type ?? null],
+          ['containerQuantity', briefing.container_quantity ?? null],
+          ['cargoType', briefing.cargo_type ?? null],
+          ['cargoName', briefing.cargo_name ?? null],
+          ['carrierPreference', briefing.carrier_preference ?? null],
+          ['bookingRef', briefing.booking_ref ?? null],
+          ['shipmentType', briefing.shipment_type ?? null],
+          ['soldRate', briefing.sold_rate ?? null],
+          ['soldCurrency', briefing.sold_currency ?? null],
+        ];
+        const moneyFieldMap: Array<[keyof typeof existing, unknown]> = [
+          ['containerQuantity', briefing.container_quantity ?? null],
+          ['soldRate', briefing.sold_rate ?? null],
+          ['soldCurrency', briefing.sold_currency ?? null],
+        ];
+        const fieldMap = mode === 'money' ? moneyFieldMap : fullFieldMap;
+
+        const patch: Record<string, unknown> = {};
+        for (const [key, val] of fieldMap) {
+          if (val != null && val !== '' && isEmpty(existing[key])) {
+            patch[key] = val;
+          }
+        }
+        // In money mode, also OVERWRITE soldRate/containerQuantity even
+        // if the row already has values — the user explicitly asked us
+        // to re-check the figures, so the user-confirmed answer should
+        // win over any stale value. Only re-apply if the AI returned
+        // something (don't blank out a good value with null).
+        if (mode === 'money') {
+          for (const [key, val] of moneyFieldMap) {
+            if (val != null && val !== '') patch[key] = val;
+          }
+        }
+
+        // Append briefing notes to existing notes (don't overwrite).
+        // Skipped in money mode — the user isn't asking about notes.
+        if (
+          mode !== 'money' &&
+          briefing.notes &&
+          briefing.notes.trim().length > 0
+        ) {
+          patch.notes = existing.notes
+            ? `${existing.notes}\n\n${briefing.notes.trim()}`
+            : briefing.notes.trim();
+        }
+
+        // Cost breakdown: append new line items (positive AND negative —
+        // negative items represent discounts/credits like "1031 nautical
+        // miles spent (-774 USD)"). Total ALWAYS equals sum(items).
+        // If the row had a prior manual override (ourCost > sum of old
+        // items), that delta is snapshotted as a "Previous adjustment"
+        // item so the override is preserved AND visible in the panel.
+        const newCostItems = (briefing.cost_items ?? []).filter(
+          (c) => Number.isFinite(c.amount) && c.amount !== 0
+        );
+        const oldCostSum = (existing.costBreakdownJson ?? []).reduce(
+          (s, c) => s + (c.amount || 0),
+          0
+        );
+        const oldOurCost =
+          typeof existing.ourCost === 'number' ? existing.ourCost : oldCostSum;
+        const orphanCost = oldOurCost - oldCostSum;
+        let costBreakdown = (existing.costBreakdownJson ?? []).slice();
+        let costCurrency = existing.ourCostCurrency ?? null;
+        if (
+          costBreakdown.length > 0 &&
+          Math.abs(orphanCost) > 0.005 &&
+          newCostItems.length > 0
+        ) {
+          costBreakdown.push({
+            name: 'Previous adjustment',
+            amount: Math.round(orphanCost * 100) / 100,
+            currency: costCurrency || 'USD',
+            sourceFile: 'reconciled',
+            addedAt: new Date().toISOString(),
+          });
+        }
+        if (newCostItems.length > 0) {
+          const sourceFile = files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+          const stamped = newCostItems.map((c) => {
+            const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+            const note = conversionAnnotation(conv);
+            return {
+              name: note ? `${c.name} ${note}` : c.name,
+              amount: conv.amount,
+              currency: 'USD',
+              sourceFile,
+              addedAt: new Date().toISOString(),
+            };
+          });
+          costBreakdown = [...costBreakdown, ...stamped];
+          costCurrency = 'USD';
+        }
+        const ourCost = costBreakdown.reduce(
+          (s, c) => s + (c.amount || 0),
+          0
+        );
+        if (newCostItems.length > 0) {
+          // Direct DB write — these aren't on EDITABLE_FIELDS allow-list.
+          const db = createDbClient();
+          const { shipments: shipmentsTbl } = await import('../db/schema.js');
+          await db
+            .update(shipmentsTbl)
+            .set({
+              costBreakdownJson: costBreakdown,
+              ourCost,
+              ourCostCurrency: costCurrency || 'USD',
+              updatedAt: new Date(),
+            })
+            .where(eq(shipmentsTbl.refId, refId));
+        }
+
+        // Same invariant for the sell side: total ALWAYS = sum(items).
+        // Any prior manual override is snapshotted as a visible item.
+        const newSoldItems = (briefing.sold_items ?? []).filter(
+          (c) => Number.isFinite(c.amount) && c.amount !== 0
+        );
+        const oldSoldSum = (existing.soldBreakdownJson ?? []).reduce(
+          (s, c) => s + (c.amount || 0),
+          0
+        );
+        const oldSoldRate =
+          typeof existing.soldRate === 'number' ? existing.soldRate : oldSoldSum;
+        const orphanSold = oldSoldRate - oldSoldSum;
+        let soldBreakdown = (existing.soldBreakdownJson ?? []).slice();
+        let soldCurrency = existing.soldCurrency ?? null;
+        if (
+          soldBreakdown.length > 0 &&
+          Math.abs(orphanSold) > 0.005 &&
+          newSoldItems.length > 0
+        ) {
+          soldBreakdown.push({
+            name: 'Previous adjustment',
+            amount: Math.round(orphanSold * 100) / 100,
+            currency: soldCurrency || 'USD',
+            sourceFile: 'reconciled',
+            addedAt: new Date().toISOString(),
+          });
+        }
+        if (newSoldItems.length > 0) {
+          const sourceFile =
+            files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+          const stamped = newSoldItems.map((c) => {
+            const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+            const note = conversionAnnotation(conv);
+            return {
+              name: note ? `${c.name} ${note}` : c.name,
+              amount: conv.amount,
+              currency: 'USD',
+              sourceFile,
+              addedAt: new Date().toISOString(),
+            };
+          });
+          soldBreakdown = [...soldBreakdown, ...stamped];
+          soldCurrency = 'USD';
+        }
+        const newSoldRate = soldBreakdown.reduce(
+          (s, c) => s + (c.amount || 0),
+          0
+        );
+        if (newSoldItems.length > 0) {
+          const db = createDbClient();
+          const { shipments: shipmentsTbl } = await import('../db/schema.js');
+          await db
+            .update(shipmentsTbl)
+            .set({
+              soldBreakdownJson: soldBreakdown,
+              soldRate: newSoldRate,
+              soldCurrency: soldCurrency || 'USD',
+              updatedAt: new Date(),
+            })
+            .where(eq(shipmentsTbl.refId, refId));
+        }
+
+        if (Object.keys(patch).length > 0) {
+          await updateShipment(refId, patch);
+        }
+
+        // Save and append source files unless ephemeral, or unless
+        // we're re-running against already-saved files (nothing new
+        // to write to disk in that case).
+        if (!body.ephemeral && !body.useExistingFiles) {
+          const { mkdir, writeFile } = await import('node:fs/promises');
+          const outDir = resolve(`./shipments-files/${refId}`);
+          await mkdir(outDir, { recursive: true });
+          const newArtifacts: Array<{
+            filename: string;
+            url: string;
+            mediaType: string;
+            addedAt: string;
+          }> = [];
+          const startIdx = (existing.artifactsJson?.length ?? 0) + 1;
+          const stamp = new Date().toISOString();
+          for (let i = 0; i < files.length; i++) {
+            const f = files[i]!;
+            const safe = (f.filename ?? `file-${startIdx + i}`).replace(
+              /[^a-z0-9._-]/gi,
+              '_'
+            );
+            const fp = resolve(outDir, `${startIdx + i}-${safe}`);
+            await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+            newArtifacts.push({
+              filename: f.filename ?? safe,
+              url: `/shipments-files/${refId}/${startIdx + i}-${safe}`,
+              mediaType: briefingFiles[i]!.mediaType,
+              addedAt: stamp,
+            });
+          }
+          const allArtifacts = [
+            ...(existing.artifactsJson ?? []),
+            ...newArtifacts,
+          ];
+          const db = createDbClient();
+          const { shipments: shipmentsTbl } = await import('../db/schema.js');
+          await db
+            .update(shipmentsTbl)
+            .set({ artifactsJson: allArtifacts, updatedAt: new Date() })
+            .where(eq(shipmentsTbl.refId, refId));
+        }
+
+        const final = await getShipment(refId);
+        res.json({
+          shipment: final,
+          briefing,
+          fieldsFilled: Object.keys(patch).length,
+          costItemsAdded: newCostItems.length,
+        });
+      } catch (err) {
+        console.error('[api/shipments/:refId/parse] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  /**
+   * Manual edit of cost or sold breakdowns. Used by the breakdown
+   * panels to add a new line item, remove an existing one by index,
+   * or update one in place. Whenever the breakdown changes, the
+   * corresponding total (ourCost or soldRate) is recomputed as
+   *   sum(breakdown) + manualDelta
+   * where manualDelta preserves any direct cell-edit override the
+   * user typed previously.
+   */
+  app.post(
+    '/api/shipments/:refId/breakdown',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      const existing = await getShipment(refId);
+      if (!existing) {
+        res.status(404).json({ error: 'Shipment not found' });
+        return;
+      }
+      const body = (req.body ?? {}) as {
+        side?: 'cost' | 'sold';
+        op?: 'add' | 'remove' | 'update' | 'set-total';
+        index?: number;
+        item?: { name?: string; amount?: number; currency?: string };
+        amount?: number; // for set-total
+        fxRates?: Record<string, number>;
+      };
+      const side = body.side === 'sold' ? 'sold' : 'cost';
+      const op = body.op;
+      const fxRates = body.fxRates || {};
+      if (
+        op !== 'add' &&
+        op !== 'remove' &&
+        op !== 'update' &&
+        op !== 'set-total'
+      ) {
+        res.status(400).json({
+          error: 'op must be add | remove | update | set-total',
+        });
+        return;
+      }
+
+      const breakdownKey =
+        side === 'cost' ? 'costBreakdownJson' : 'soldBreakdownJson';
+      const totalKey = side === 'cost' ? 'ourCost' : 'soldRate';
+      const currencyKey =
+        side === 'cost' ? 'ourCostCurrency' : 'soldCurrency';
+      const oldBreakdown = (existing[breakdownKey] ?? []) as Array<{
+        name: string;
+        amount: number;
+        currency: string;
+        sourceFile?: string | null;
+        addedAt?: string;
+      }>;
+      const oldSum = oldBreakdown.reduce((s, c) => s + (c.amount || 0), 0);
+      const oldTotal =
+        typeof existing[totalKey] === 'number'
+          ? (existing[totalKey] as number)
+          : oldSum;
+      const defaultCurrency =
+        (existing[currencyKey] as string | null) || 'USD';
+
+      // Before any mutation, reconcile prior orphan totals: if the
+      // stored total used to exceed sum(items) (legacy manualDelta from
+      // older code), snapshot the difference as a visible line item so
+      // historic overrides are preserved as the user starts editing.
+      let next = oldBreakdown.slice();
+      const orphanDelta = oldTotal - oldSum;
+      if (
+        next.length > 0 &&
+        Math.abs(orphanDelta) > 0.005 &&
+        op !== 'set-total'
+      ) {
+        next.push({
+          name: 'Previous adjustment',
+          amount: Math.round(orphanDelta * 100) / 100,
+          currency: defaultCurrency,
+          sourceFile: 'reconciled',
+          addedAt: new Date().toISOString(),
+        });
+      }
+
+      if (op === 'add') {
+        const name = (body.item?.name ?? '').trim();
+        const amount = Number(body.item?.amount);
+        const currencyIn = (body.item?.currency || 'USD').toUpperCase();
+        if (!name || !Number.isFinite(amount) || amount === 0) {
+          res.status(400).json({
+            error: 'add requires a non-empty name and a non-zero amount',
+          });
+          return;
+        }
+        // Convert non-USD amounts to USD using the same FX path as
+        // AI-extracted items. Annotate the item name with the original
+        // currency / rate so the user can audit the conversion later.
+        const conv = toUsd(amount, currencyIn, fxRates);
+        const note = conversionAnnotation(conv);
+        next.push({
+          name: note ? `${name} ${note}` : name,
+          amount: conv.amount,
+          currency: 'USD',
+          sourceFile: 'manual',
+          addedAt: new Date().toISOString(),
+        });
+      } else if (op === 'remove') {
+        const idx = Number(body.index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= oldBreakdown.length) {
+          res.status(400).json({ error: 'invalid index' });
+          return;
+        }
+        // Index is into the ORIGINAL (pre-reconcile) array. Translate.
+        const reconciled = next.length > oldBreakdown.length;
+        next.splice(idx, 1);
+        // If reconcile pushed an item, it's still at the end — keep it.
+        // (Removing a real item shouldn't drop the reconcile entry.)
+        void reconciled;
+      } else if (op === 'update') {
+        const idx = Number(body.index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= oldBreakdown.length) {
+          res.status(400).json({ error: 'invalid index' });
+          return;
+        }
+        const cur = next[idx]!;
+        const name =
+          typeof body.item?.name === 'string'
+            ? body.item.name.trim()
+            : cur.name;
+        const amount =
+          body.item?.amount != null && Number.isFinite(Number(body.item.amount))
+            ? Number(body.item.amount)
+            : cur.amount;
+        const currency = body.item?.currency || cur.currency;
+        next[idx] = { ...cur, name, amount, currency };
+      } else if (op === 'set-total') {
+        // User typed a new total directly into the cell. Replace the
+        // entire breakdown with a single override item so the panel
+        // always shows items that sum to the displayed total.
+        const amount = Number(body.amount);
+        if (!Number.isFinite(amount)) {
+          res.status(400).json({ error: 'set-total requires a numeric amount' });
+          return;
+        }
+        if (amount === 0) {
+          next = [];
+        } else {
+          next = [
+            {
+              name: 'Manual total',
+              amount,
+              currency: defaultCurrency,
+              sourceFile: 'manual',
+              addedAt: new Date().toISOString(),
+            },
+          ];
+        }
+      }
+
+      // Invariant: total ALWAYS equals sum(breakdown). No hidden delta.
+      const newTotal = next.reduce((s, c) => s + (c.amount || 0), 0);
+
+      const db = createDbClient();
+      const { shipments: shipmentsTbl } = await import('../db/schema.js');
+      await db
+        .update(shipmentsTbl)
+        .set({
+          [breakdownKey]: next.length > 0 ? next : null,
+          [totalKey]: next.length > 0 ? newTotal : null,
+          [currencyKey]: defaultCurrency,
+          updatedAt: new Date(),
+        })
+        .where(eq(shipmentsTbl.refId, refId));
+
+      const final = await getShipment(refId);
+      res.json({ shipment: final });
+    }
+  );
+
+  /**
+   * Read the text body of an attachment for in-app preview.
+   * Used for .msg (decoded via msgreader), .eml (raw RFC 822),
+   * .html (raw markup), and .txt (raw text). For PDFs / images,
+   * the dashboard previews the file URL directly via iframe/img
+   * and doesn't hit this endpoint.
+   */
+  app.get(
+    '/api/shipments/:refId/artifacts/:index/text',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      const idx = Number(req.params.index);
+      const existing = await getShipment(refId);
+      if (!existing) {
+        res.status(404).json({ error: 'Shipment not found' });
+        return;
+      }
+      const arts = existing.artifactsJson ?? [];
+      if (!Number.isInteger(idx) || idx < 0 || idx >= arts.length) {
+        res.status(400).json({ error: 'invalid index' });
+        return;
+      }
+      const a = arts[idx]!;
+      const rel = (a.url ?? '').replace(/^\/shipments-files\//, '');
+      if (!rel) {
+        res.status(400).json({ error: 'artifact has no on-disk path' });
+        return;
+      }
+      try {
+        const { readFile } = await import('node:fs/promises');
+        const buf = await readFile(resolve(`./shipments-files/${rel}`));
+        const filename = a.filename || rel.split('/').pop() || 'file';
+        if (isMsgFile(filename)) {
+          const ab = new ArrayBuffer(buf.byteLength);
+          new Uint8Array(ab).set(buf);
+          res.json({
+            filename,
+            mediaType: 'text/plain',
+            text: convertMsgToEmailText(ab),
+          });
+          return;
+        }
+        const lower = filename.toLowerCase();
+        const isText =
+          /\.(eml|html?|txt)$/.test(lower) ||
+          a.mediaType === 'message/rfc822' ||
+          a.mediaType === 'text/html' ||
+          a.mediaType === 'text/plain';
+        if (!isText) {
+          res.status(400).json({
+            error: 'this file type is binary — preview directly via the URL',
+          });
+          return;
+        }
+        res.json({
+          filename,
+          mediaType: a.mediaType || 'text/plain',
+          text: buf.toString('utf8'),
+        });
+      } catch (err) {
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  /**
+   * Delete a single attachment from a shipment by its index in
+   * artifactsJson. Removes from the JSON array AND unlinks the
+   * file from disk. Returns the updated row.
+   */
+  app.delete(
+    '/api/shipments/:refId/artifacts/:index',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      const idx = Number(req.params.index);
+      if (!Number.isInteger(idx) || idx < 0) {
+        res.status(400).json({ error: 'invalid index' });
+        return;
+      }
+      const existing = await getShipment(refId);
+      if (!existing) {
+        res.status(404).json({ error: 'Shipment not found' });
+        return;
+      }
+      const arts = (existing.artifactsJson ?? []).slice();
+      if (idx >= arts.length) {
+        res.status(400).json({ error: 'index out of range' });
+        return;
+      }
+      const [removed] = arts.splice(idx, 1);
+      // Best-effort disk cleanup. Don't fail the request if the file
+      // is already gone (it might have been manually deleted).
+      try {
+        const { unlink } = await import('node:fs/promises');
+        const rel = (removed?.url ?? '').replace(/^\/shipments-files\//, '');
+        if (rel) {
+          await unlink(resolve(`./shipments-files/${rel}`)).catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
+      const db = createDbClient();
+      const { shipments: shipmentsTbl } = await import('../db/schema.js');
+      await db
+        .update(shipmentsTbl)
+        .set({
+          artifactsJson: arts.length > 0 ? arts : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(shipmentsTbl.refId, refId));
+      const final = await getShipment(refId);
+      res.json({ shipment: final });
+    }
+  );
+
+  /**
    * AI-extract from email screenshots / PDFs and create a new shipment row
    * pre-filled with the extracted fields. The user can then edit cells
    * inline. Original files are saved under shipments-files/<refId>/ for
@@ -1506,6 +2374,8 @@ export function registerApiRoutes(app: Express): void {
       /** When the previous call returned questions[], the dashboard
        *  resends the same files plus the user's answers here. */
       userAnswers?: Array<{ question: string; answer: string }>;
+      /** FX overrides: { CAD: 0.73, EUR: 1.08, ... } — see fxRates.ts. */
+      fxRates?: Record<string, number>;
     };
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
@@ -1514,6 +2384,7 @@ export function registerApiRoutes(app: Express): void {
     }
     const ephemeral = !!body.ephemeral;
     const userAnswers = Array.isArray(body.userAnswers) ? body.userAnswers : [];
+    const fxRates = body.fxRates || {};
     try {
       // Resolve media type per file. If the client supplied one, use it;
       // otherwise infer from filename. Then route text vs vision.
@@ -1583,21 +2454,76 @@ export function registerApiRoutes(app: Express): void {
       const extractedRef = (briefing.our_reference_number ?? '').trim();
       const refMatchesPattern = /^S\d{3,}$/i.test(extractedRef);
       let row;
+      // Initial cost breakdown from any line items the AI found.
+      // Allow negative amounts (discounts / loyalty credits) — only
+      // exclude zeros and NaN.
+      const initialCostItems = (briefing.cost_items ?? []).filter(
+        (c) => Number.isFinite(c.amount) && c.amount !== 0
+      );
+      const stampedCosts = initialCostItems.map((c) => {
+        const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+        const note = conversionAnnotation(conv);
+        return {
+          name: note ? `${c.name} ${note}` : c.name,
+          amount: conv.amount,
+          currency: 'USD',
+          sourceFile: files.map((f) => f.filename).filter(Boolean).join(', ') || null,
+          addedAt: new Date().toISOString(),
+        };
+      });
+      const initialOurCost = stampedCosts.reduce(
+        (s, c) => s + (c.amount || 0),
+        0
+      );
+      // Same pattern for the sell side.
+      const initialSoldItems = (briefing.sold_items ?? []).filter(
+        (c) => Number.isFinite(c.amount) && c.amount !== 0
+      );
+      const stampedSold = initialSoldItems.map((c) => {
+        const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+        const note = conversionAnnotation(conv);
+        return {
+          name: note ? `${c.name} ${note}` : c.name,
+          amount: conv.amount,
+          currency: 'USD',
+          sourceFile:
+            files.map((f) => f.filename).filter(Boolean).join(', ') || null,
+          addedAt: new Date().toISOString(),
+        };
+      });
+      const initialSoldFromItems = stampedSold.reduce(
+        (s, c) => s + (c.amount || 0),
+        0
+      );
+      // If both AI sold_rate and sold_items are present, prefer the
+      // sum of items (it's the breakdown the user can edit).
+      const initialSoldRate =
+        stampedSold.length > 0
+          ? initialSoldFromItems
+          : (briefing.sold_rate ?? null);
       const fieldsFromBriefing = {
         shipperName: briefing.shipper_name ?? null,
         receiverName: briefing.receiver_name ?? null,
         customerName: briefing.customer_name ?? null,
         loadingAddress: briefing.loading_address ?? null,
+        fpol: briefing.fpol ?? null,
+        fpolCode: briefing.fpol_code ?? null,
         pol: briefing.pol ?? null,
         polCode: briefing.pol_code ?? null,
         pod: briefing.pod ?? null,
         podCode: briefing.pod_code ?? null,
         containerType: briefing.container_type ?? null,
+        containerQuantity: briefing.container_quantity ?? null,
         cargoType: briefing.cargo_type ?? null,
         cargoName: briefing.cargo_name ?? null,
-        soldRate: briefing.sold_rate ?? null,
-        soldCurrency: briefing.sold_currency ?? 'USD',
+        soldRate: initialSoldRate,
+        soldCurrency: 'USD',
+        soldBreakdownJson: stampedSold.length > 0 ? stampedSold : null,
+        ourCost: stampedCosts.length > 0 ? initialOurCost : null,
+        ourCostCurrency: 'USD',
+        costBreakdownJson: stampedCosts.length > 0 ? stampedCosts : null,
         carrierPreference: briefing.carrier_preference ?? null,
+        bookingRef: briefing.booking_ref ?? null,
         shipmentType: briefing.shipment_type ?? null,
         notes: briefing.notes ?? null,
       };
@@ -1625,11 +2551,13 @@ export function registerApiRoutes(app: Express): void {
         filename: string;
         url: string;
         mediaType: string;
+        addedAt: string;
       }> = [];
       if (!ephemeral) {
         const { mkdir, writeFile } = await import('node:fs/promises');
         const outDir = resolve(`./shipments-files/${row.refId}`);
         await mkdir(outDir, { recursive: true });
+        const stamp = new Date().toISOString();
         for (let i = 0; i < files.length; i++) {
           const f = files[i]!;
           const safe = (f.filename ?? `file-${i + 1}`).replace(
@@ -1642,6 +2570,7 @@ export function registerApiRoutes(app: Express): void {
             filename: f.filename ?? safe,
             url: `/shipments-files/${row.refId}/${i + 1}-${safe}`,
             mediaType: briefingFiles[i]!.mediaType,
+            addedAt: stamp,
           });
         }
         // Direct DB write — artifactsJson isn't on the EDITABLE_FIELDS allow-list.
@@ -1667,6 +2596,147 @@ export function registerApiRoutes(app: Express): void {
   // Local-only: passwords are AES-256-GCM encrypted at rest with a key in
   // .secrets/secrets.key (gitignored). The dashboard never returns plaintext
   // unless /reveal is called explicitly.
+
+  // ---- App-level settings (DB-backed, beats .env) ----
+  app.get('/api/settings', async (_req: Request, res: Response) => {
+    try {
+      const { listSettings } = await import('./appSettingsService.js');
+      const stored = await listSettings();
+      // Surface the resolved (DB OR env) view so the dashboard can show
+      // "current value" alongside "saved override".
+      const envView = {
+        AI_PROVIDER: process.env.AI_PROVIDER ?? null,
+        AI_MODEL: process.env.AI_MODEL ?? null,
+        AI_MODEL_FALLBACK: process.env.AI_MODEL_FALLBACK ?? null,
+        DELAYPREDICT_URL: process.env.DELAYPREDICT_URL ?? null,
+        INTELLCLUSTER_URL: process.env.INTELLCLUSTER_URL ?? null,
+      };
+      res.json({ settings: stored, env: envView });
+    } catch (err) {
+      console.error('[api/settings] list error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.put('/api/settings/:key', async (req: Request, res: Response) => {
+    const rawKey = req.params.key;
+    const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+    if (!key) {
+      res.status(400).json({ error: 'key is required' });
+      return;
+    }
+    const body = (req.body ?? {}) as { value?: string };
+    if (typeof body.value !== 'string' || body.value.trim() === '') {
+      res.status(400).json({ error: 'value is required' });
+      return;
+    }
+    // Allow-list — only specific keys are settable from the UI.
+    const ALLOWED = new Set([
+      'AI_MODE',
+      'AI_PROVIDER',
+      'AI_MODEL',
+      'AI_MODEL_FALLBACK',
+      'DELAYPREDICT_URL',
+      'INTELLCLUSTER_URL',
+    ]);
+    if (!ALLOWED.has(key)) {
+      res.status(400).json({ error: `setting "${key}" is not user-editable` });
+      return;
+    }
+    try {
+      const { setSetting } = await import('./appSettingsService.js');
+      await setSetting(key, body.value.trim());
+      res.json({ ok: true, key, value: body.value.trim() });
+    } catch (err) {
+      console.error('[api/settings] put error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.delete('/api/settings/:key', async (req: Request, res: Response) => {
+    const rawKey = req.params.key;
+    const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+    if (!key) {
+      res.status(400).json({ error: 'key is required' });
+      return;
+    }
+    try {
+      const { deleteSetting } = await import('./appSettingsService.js');
+      const ok = await deleteSetting(key);
+      res.json({ ok });
+    } catch (err) {
+      console.error('[api/settings] delete error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ---- AI provider API keys (encrypted vault) ----
+  // GET returns masked summaries (last 4 chars). Plaintext keys never
+  // leave the server.
+  app.get('/api/ai-keys', async (_req: Request, res: Response) => {
+    try {
+      const { listApiKeys } = await import('./apiKeysService.js');
+      res.json({ keys: await listApiKeys() });
+    } catch (err) {
+      console.error('[api/ai-keys] list error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.put('/api/ai-keys/:provider', async (req: Request, res: Response) => {
+    const rawId = req.params.provider;
+    const provider = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!provider) {
+      res.status(400).json({ error: 'provider is required' });
+      return;
+    }
+    const body = (req.body ?? {}) as { key?: string; label?: string };
+    if (!body.key || typeof body.key !== 'string' || body.key.trim() === '') {
+      res.status(400).json({ error: 'key is required' });
+      return;
+    }
+    try {
+      const { upsertApiKey } = await import('./apiKeysService.js');
+      const summary = await upsertApiKey({
+        provider,
+        key: body.key,
+        label: body.label,
+      });
+      res.json(summary);
+    } catch (err) {
+      console.error('[api/ai-keys] upsert error:', err);
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  app.delete('/api/ai-keys/:provider', async (req: Request, res: Response) => {
+    const rawId = req.params.provider;
+    const provider = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!provider) {
+      res.status(400).json({ error: 'provider is required' });
+      return;
+    }
+    try {
+      const { deleteApiKey } = await import('./apiKeysService.js');
+      const ok = await deleteApiKey(provider);
+      res.json({ ok });
+    } catch (err) {
+      console.error('[api/ai-keys] delete error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 
   app.get('/api/credentials', async (_req: Request, res: Response) => {
     try {
@@ -1750,6 +2820,428 @@ export function registerApiRoutes(app: Express): void {
         res.json({ ok });
       } catch (err) {
         console.error('[api/credentials] delete error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  // =================================================================
+  // Drayage Rate Library — the user's archive of provider rate sheets.
+  // Append-only: every parse adds new rows, never overwrites old ones,
+  // so price history is preserved.
+  // =================================================================
+
+  app.post(
+    '/api/drayage-rate-library/parse',
+    async (req: Request, res: Response) => {
+      const body = (req.body ?? {}) as {
+        files?: Array<{
+          filename?: string;
+          contentBase64: string;
+          mediaType?: BriefingMediaType;
+        }>;
+        ephemeral?: boolean;
+        fxRates?: Record<string, number>;
+        /** When true, run AI + FX conversion only and return the
+         *  extracted rates for the user to review. No files are written
+         *  to disk and no rows are inserted. The user then edits and
+         *  POSTs the (possibly edited) rates to /save. */
+        dryRun?: boolean;
+      };
+      const files = Array.isArray(body.files) ? body.files : [];
+      if (files.length === 0) {
+        res.status(400).json({ error: 'No files provided.' });
+        return;
+      }
+      const fxRates = body.fxRates || {};
+      const dryRun = !!body.dryRun;
+      try {
+        // Same media-type routing as the shipment briefing path.
+        const briefingFiles: BriefingFile[] = files.map((f) => {
+          if (isMsgFile(f.filename)) {
+            const buf = Buffer.from(f.contentBase64, 'base64');
+            const ab = new ArrayBuffer(buf.byteLength);
+            new Uint8Array(ab).set(buf);
+            return {
+              mediaType: 'text/plain' as BriefingMediaType,
+              filename: f.filename,
+              textContent: convertMsgToEmailText(ab),
+            };
+          }
+          const inferred =
+            f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
+          if (!inferred) {
+            throw new Error(
+              `Could not detect media type for ${f.filename ?? 'file'}`
+            );
+          }
+          if (
+            inferred === 'message/rfc822' ||
+            inferred === 'text/html' ||
+            inferred === 'text/plain'
+          ) {
+            return {
+              mediaType: inferred,
+              filename: f.filename,
+              textContent: Buffer.from(f.contentBase64, 'base64').toString('utf8'),
+            };
+          }
+          return {
+            mediaType: inferred,
+            filename: f.filename,
+            fileBase64: f.contentBase64,
+          };
+        });
+
+        const { parseDrayageRates } = await import(
+          '../llm/parseDrayageRates.js'
+        );
+        const result = await parseDrayageRates(briefingFiles);
+        const rates = result.rates ?? [];
+        if (rates.length === 0) {
+          res.json({ inserted: 0, rates: [], message: 'No rates found in document.' });
+          return;
+        }
+
+        // Dry-run path — return the AI-extracted rates (FX-converted)
+        // without writing files or DB rows. The dashboard shows them
+        // for review/editing, then POSTs to /save when the user confirms.
+        if (dryRun) {
+          const previewRates = rates.map((r) => {
+            const baseConv = toUsd(r.base_rate ?? 0, r.currency || 'USD', fxRates);
+            const totalConv = toUsd(
+              r.total_rate ?? r.base_rate ?? 0,
+              r.currency || 'USD',
+              fxRates
+            );
+            const surchargesUsd = (r.surcharges ?? []).map((s) => {
+              const conv = toUsd(s.amount, s.currency || r.currency || 'USD', fxRates);
+              return { name: s.name, amount: conv.amount, currency: 'USD' };
+            });
+            return {
+              rateDate: r.rate_date ?? null,
+              providerName: r.provider_name ?? null,
+              pickupAddress: r.pickup_address ?? null,
+              pickupCity: r.pickup_city ?? null,
+              pickupState: r.pickup_state ?? null,
+              pickupZip: r.pickup_zip ?? null,
+              pickupCountry: r.pickup_country ?? 'US',
+              pickupLabel:
+                r.pickup_label ??
+                [r.pickup_city, r.pickup_state].filter(Boolean).join(', ') ??
+                null,
+              deliveryAddress: r.delivery_address ?? null,
+              deliveryCity: r.delivery_city ?? null,
+              deliveryState: r.delivery_state ?? null,
+              deliveryZip: r.delivery_zip ?? null,
+              deliveryCountry: r.delivery_country ?? 'US',
+              deliveryLabel:
+                r.delivery_label ??
+                [r.delivery_city, r.delivery_state].filter(Boolean).join(', ') ??
+                null,
+              totalMiles: r.total_miles ?? null,
+              containerType: r.container_type ?? null,
+              maxWeightKg: r.max_weight_kg ?? null,
+              baseRate: baseConv.amount,
+              totalRate: totalConv.amount,
+              surchargesJson: surchargesUsd.length > 0 ? surchargesUsd : null,
+              sourceCurrency: (r.currency || 'USD').toUpperCase(),
+              notes: r.notes ?? null,
+            };
+          });
+          res.json({ rates: previewRates });
+          return;
+        }
+
+        // Persist source files to disk (one folder per upload batch).
+        let sourceUrlBase: string | null = null;
+        let sourceFilename: string | null = null;
+        if (!body.ephemeral) {
+          const { mkdir, writeFile } = await import('node:fs/promises');
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const batchId = `${stamp}-${Math.random().toString(36).slice(2, 8)}`;
+          const outDir = resolve(`./drayage-rates-files/${batchId}`);
+          await mkdir(outDir, { recursive: true });
+          const stored: string[] = [];
+          for (let i = 0; i < files.length; i++) {
+            const f = files[i]!;
+            const safe = (f.filename ?? `file-${i + 1}`).replace(
+              /[^a-z0-9._-]/gi,
+              '_'
+            );
+            const fp = resolve(outDir, `${i + 1}-${safe}`);
+            await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+            stored.push(`/drayage-rates-files/${batchId}/${i + 1}-${safe}`);
+          }
+          sourceUrlBase = stored[0] ?? null;
+          sourceFilename = files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+        }
+
+        // Convert rates to USD + insert into DB.
+        const db = createDbClient();
+        const { drayageRateLibrary } = await import('../db/schema.js');
+        const inserts = rates.map((r) => {
+          const baseConv = toUsd(
+            r.base_rate ?? 0,
+            r.currency || 'USD',
+            fxRates
+          );
+          const totalConv = toUsd(
+            r.total_rate ?? r.base_rate ?? 0,
+            r.currency || 'USD',
+            fxRates
+          );
+          const surchargesUsd = (r.surcharges ?? []).map((s) => {
+            const conv = toUsd(s.amount, s.currency || r.currency || 'USD', fxRates);
+            return {
+              name: s.name,
+              amount: conv.amount,
+              currency: 'USD',
+            };
+          });
+          const searchKey = [
+            r.pickup_label,
+            r.pickup_city,
+            r.pickup_state,
+            r.pickup_zip,
+            r.delivery_label,
+            r.delivery_city,
+            r.delivery_state,
+            r.delivery_zip,
+            r.container_type,
+            r.provider_name,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return {
+            rateDate: r.rate_date ?? null,
+            providerName: r.provider_name ?? null,
+            pickupAddress: r.pickup_address ?? null,
+            pickupCity: r.pickup_city ?? null,
+            pickupState: r.pickup_state ?? null,
+            pickupZip: r.pickup_zip ?? null,
+            pickupCountry: r.pickup_country ?? 'US',
+            pickupLabel:
+              r.pickup_label ??
+              [r.pickup_city, r.pickup_state].filter(Boolean).join(', ') ??
+              null,
+            deliveryAddress: r.delivery_address ?? null,
+            deliveryCity: r.delivery_city ?? null,
+            deliveryState: r.delivery_state ?? null,
+            deliveryZip: r.delivery_zip ?? null,
+            deliveryCountry: r.delivery_country ?? 'US',
+            deliveryLabel:
+              r.delivery_label ??
+              [r.delivery_city, r.delivery_state].filter(Boolean).join(', ') ??
+              null,
+            totalMiles: r.total_miles ?? null,
+            containerType: r.container_type ?? null,
+            maxWeightKg: r.max_weight_kg ?? null,
+            baseRate: baseConv.amount,
+            totalRate: totalConv.amount,
+            surchargesJson: surchargesUsd.length > 0 ? surchargesUsd : null,
+            sourceCurrency: (r.currency || 'USD').toUpperCase(),
+            notes: r.notes ?? null,
+            sourceUrl: sourceUrlBase,
+            sourceFilename,
+            searchKey,
+          };
+        });
+        await db.insert(drayageRateLibrary).values(inserts);
+        res.json({ inserted: inserts.length });
+      } catch (err) {
+        console.error('[api/drayage-rate-library/parse] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  /**
+   * Save user-reviewed rates (after a dry-run /parse) into the
+   * library. Accepts an array of rate objects already in USD form,
+   * plus the original files to persist alongside them.
+   */
+  app.post(
+    '/api/drayage-rate-library/save',
+    async (req: Request, res: Response) => {
+      const body = (req.body ?? {}) as {
+        rates?: Array<Record<string, unknown>>;
+        files?: Array<{
+          filename?: string;
+          contentBase64: string;
+          mediaType?: string;
+        }>;
+        ephemeral?: boolean;
+      };
+      const rates = Array.isArray(body.rates) ? body.rates : [];
+      const files = Array.isArray(body.files) ? body.files : [];
+      if (rates.length === 0) {
+        res.status(400).json({ error: 'No rates provided.' });
+        return;
+      }
+      try {
+        // Persist files first if any.
+        let sourceUrlBase: string | null = null;
+        let sourceFilename: string | null = null;
+        if (!body.ephemeral && files.length > 0) {
+          const { mkdir, writeFile } = await import('node:fs/promises');
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const batchId = `${stamp}-${Math.random().toString(36).slice(2, 8)}`;
+          const outDir = resolve(`./drayage-rates-files/${batchId}`);
+          await mkdir(outDir, { recursive: true });
+          const stored: string[] = [];
+          for (let i = 0; i < files.length; i++) {
+            const f = files[i]!;
+            const safe = (f.filename ?? `file-${i + 1}`).replace(
+              /[^a-z0-9._-]/gi,
+              '_'
+            );
+            const fp = resolve(outDir, `${i + 1}-${safe}`);
+            await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+            stored.push(`/drayage-rates-files/${batchId}/${i + 1}-${safe}`);
+          }
+          sourceUrlBase = stored[0] ?? null;
+          sourceFilename =
+            files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+        }
+
+        const db = createDbClient();
+        const { drayageRateLibrary } = await import('../db/schema.js');
+        const inserts = rates.map((r) => {
+          const num = (v: unknown) =>
+            typeof v === 'number' && Number.isFinite(v)
+              ? v
+              : v != null && v !== '' && Number.isFinite(Number(v))
+                ? Number(v)
+                : null;
+          const str = (v: unknown) =>
+            typeof v === 'string' && v.trim() ? v.trim() : null;
+          const searchKey = [
+            str(r.pickupLabel),
+            str(r.pickupCity),
+            str(r.pickupState),
+            str(r.pickupZip),
+            str(r.deliveryLabel),
+            str(r.deliveryCity),
+            str(r.deliveryState),
+            str(r.deliveryZip),
+            str(r.containerType),
+            str(r.providerName),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return {
+            rateDate: str(r.rateDate),
+            providerName: str(r.providerName),
+            pickupAddress: str(r.pickupAddress),
+            pickupCity: str(r.pickupCity),
+            pickupState: str(r.pickupState),
+            pickupZip: str(r.pickupZip),
+            pickupCountry: str(r.pickupCountry) ?? 'US',
+            pickupLabel: str(r.pickupLabel),
+            deliveryAddress: str(r.deliveryAddress),
+            deliveryCity: str(r.deliveryCity),
+            deliveryState: str(r.deliveryState),
+            deliveryZip: str(r.deliveryZip),
+            deliveryCountry: str(r.deliveryCountry) ?? 'US',
+            deliveryLabel: str(r.deliveryLabel),
+            totalMiles: num(r.totalMiles),
+            containerType: str(r.containerType),
+            maxWeightKg: num(r.maxWeightKg),
+            baseRate: num(r.baseRate),
+            totalRate: num(r.totalRate),
+            surchargesJson: Array.isArray(r.surchargesJson)
+              ? (r.surchargesJson as Array<{
+                  name: string;
+                  amount: number;
+                  currency: string;
+                }>)
+              : null,
+            sourceCurrency: str(r.sourceCurrency) ?? 'USD',
+            notes: str(r.notes),
+            sourceUrl: sourceUrlBase,
+            sourceFilename,
+            searchKey,
+          };
+        });
+        await db.insert(drayageRateLibrary).values(inserts);
+        res.json({ inserted: inserts.length });
+      } catch (err) {
+        console.error('[api/drayage-rate-library/save] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  app.get(
+    '/api/drayage-rate-library',
+    async (req: Request, res: Response) => {
+      try {
+        const q = String(req.query.q ?? '').trim().toLowerCase();
+        const from = String(req.query.from ?? '').trim().toLowerCase();
+        const to = String(req.query.to ?? '').trim().toLowerCase();
+        const cntr = String(req.query.cntr ?? '').trim().toUpperCase();
+        const db = createDbClient();
+        const { drayageRateLibrary } = await import('../db/schema.js');
+        let rows = await db
+          .select()
+          .from(drayageRateLibrary)
+          .orderBy(desc(drayageRateLibrary.createdAt));
+        if (q) rows = rows.filter((r) => (r.searchKey ?? '').includes(q));
+        if (from) {
+          rows = rows.filter((r) =>
+            [r.pickupCity, r.pickupState, r.pickupZip, r.pickupLabel]
+              .filter(Boolean)
+              .some((s) => String(s).toLowerCase().includes(from))
+          );
+        }
+        if (to) {
+          rows = rows.filter((r) =>
+            [r.deliveryCity, r.deliveryState, r.deliveryZip, r.deliveryLabel]
+              .filter(Boolean)
+              .some((s) => String(s).toLowerCase().includes(to))
+          );
+        }
+        if (cntr) {
+          rows = rows.filter(
+            (r) => (r.containerType ?? '').toUpperCase() === cntr
+          );
+        }
+        res.json({ rates: rows });
+      } catch (err) {
+        console.error('[api/drayage-rate-library] list error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  app.delete(
+    '/api/drayage-rate-library/:id',
+    async (req: Request, res: Response) => {
+      try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) {
+          res.status(400).json({ error: 'invalid id' });
+          return;
+        }
+        const db = createDbClient();
+        const { drayageRateLibrary } = await import('../db/schema.js');
+        await db
+          .delete(drayageRateLibrary)
+          .where(eq(drayageRateLibrary.id, id));
+        res.json({ ok: true });
+      } catch (err) {
+        console.error('[api/drayage-rate-library] delete error:', err);
         res.status(500).json({
           error: err instanceof Error ? err.message : String(err),
         });

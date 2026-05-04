@@ -346,16 +346,58 @@ export const shipments = sqliteTable('shipments', {
   receiverName: text('receiver_name'),
   customerName: text('customer_name'),
   loadingAddress: text('loading_address'),
+  /** First port of loading — used for inland origins (Kansas City,
+   *  Chicago, etc.) where there's a rail/road leg before the actual
+   *  ocean POL. Distinct from `pol` which is the ocean port itself. */
+  fpol: text('fpol'),
+  fpolCode: text('fpol_code'),
   pol: text('pol'),
   polCode: text('pol_code'),
   pod: text('pod'),
   podCode: text('pod_code'),
   containerType: text('container_type'),
+  /** How many containers in this shipment (e.g. "3 x 40HC" → 3).
+   *  When set, every per-container line item in costBreakdownJson is
+   *  expected to ALREADY be multiplied by this quantity (the AI does
+   *  the math at extraction time so the breakdown sums to the all-in
+   *  total). Used by the UI to display "(x N)" next to container_type. */
+  containerQuantity: integer('container_quantity'),
   cargoType: text('cargo_type'),
   cargoName: text('cargo_name'),
   soldRate: real('sold_rate'),
   soldCurrency: text('sold_currency').default('USD'),
+  /** Same shape as costBreakdownJson but for the sell side — line
+   *  items the customer is being charged (base ocean freight, export
+   *  declaration fee, customer-side markup, etc.). soldRate equals
+   *  the sum of these items + any manual delta the user has typed. */
+  soldBreakdownJson: text('sold_breakdown_json', { mode: 'json' }).$type<
+    Array<{
+      name: string;
+      amount: number;
+      currency: string;
+      sourceFile?: string | null;
+      addedAt?: string;
+    }>
+  >(),
+  /** Total cost paid to ocean carrier / inland / etc. — sum of every
+   *  line item in costBreakdownJson. AI accumulates this across all
+   *  files dropped onto the row. Estimated profit = soldRate - ourCost
+   *  (computed at render time, not stored). */
+  ourCost: real('our_cost'),
+  ourCostCurrency: text('our_cost_currency').default('USD'),
+  costBreakdownJson: text('cost_breakdown_json', { mode: 'json' }).$type<
+    Array<{
+      name: string;
+      amount: number;
+      currency: string;
+      sourceFile?: string | null;
+      addedAt?: string;
+    }>
+  >(),
   carrierPreference: text('carrier_preference'),
+  /** Carrier booking reference (e.g. MSC-218754, MAEU-9032111). Stored
+   *  separately from refId because it's the carrier's number, not ours. */
+  bookingRef: text('booking_ref'),
   /** FCL / LCL / Road — shipment mode (extracted by AI when explicit in
    *  the email, otherwise null and editable inline). */
   shipmentType: text('shipment_type'),
@@ -365,10 +407,84 @@ export const shipments = sqliteTable('shipments', {
    *  status (which lives in shipment.tracking at render time). */
   operationalStatus: text('operational_status'),
   notes: text('notes'),
-  /** JSON list of uploaded source files (paths under /shipments-files/...). */
+  /** JSON list of uploaded source files (paths under /shipments-files/...).
+   *  addedAt is a server-stamped ISO timestamp; missing on legacy rows. */
   artifactsJson: text('artifacts_json', { mode: 'json' }).$type<
-    Array<{ filename: string; url: string; mediaType: string }>
+    Array<{
+      filename: string;
+      url: string;
+      mediaType: string;
+      addedAt?: string;
+    }>
   >(),
+});
+
+/**
+ * Drayage rate library — the user's archive of provider rate sheets.
+ * Distinct from `drayageQuotes` (which is the request side): this is
+ * a flat catalogue of every lane × container × surcharge bundle the
+ * user has ever uploaded. New entries are APPENDED on every parse —
+ * old rates are never replaced — so the user can see price history
+ * for the same lane over time.
+ *
+ * One physical PDF / screenshot / email can yield many rows here
+ * (multi-lane rate sheets are common).
+ *
+ * Lookup pattern: filter by pickup city/state and delivery city/state
+ * + container type to find historical rates for a lane.
+ */
+export const drayageRateLibrary = sqliteTable('drayage_rate_library', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** When the user uploaded the source file (server timestamp). */
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  /** Date the rate was quoted / valid (extracted by AI from the doc).
+   *  ISO date string (YYYY-MM-DD) for cheap range queries. */
+  rateDate: text('rate_date'),
+  /** Provider / vendor name (e.g. "Hub Group", "STG Logistics"). */
+  providerName: text('provider_name'),
+  /** Pickup origin — full breakdown so we can filter by city / state. */
+  pickupAddress: text('pickup_address'),
+  pickupCity: text('pickup_city'),
+  pickupState: text('pickup_state'),
+  pickupZip: text('pickup_zip'),
+  pickupCountry: text('pickup_country').default('US'),
+  /** Pickup as one display line, e.g. "Newark, NJ — APM Terminal". */
+  pickupLabel: text('pickup_label'),
+  /** Delivery destination. */
+  deliveryAddress: text('delivery_address'),
+  deliveryCity: text('delivery_city'),
+  deliveryState: text('delivery_state'),
+  deliveryZip: text('delivery_zip'),
+  deliveryCountry: text('delivery_country').default('US'),
+  deliveryLabel: text('delivery_label'),
+  /** Total quoted mileage (one-way). */
+  totalMiles: real('total_miles'),
+  /** Container type (40HC / 20GP / etc). */
+  containerType: text('container_type'),
+  /** Max cargo weight allowed at this rate (in kg). */
+  maxWeightKg: real('max_weight_kg'),
+  /** Base linehaul rate in USD (after FX conversion). */
+  baseRate: real('base_rate'),
+  /** All-in total in USD = base + sum(surcharges). */
+  totalRate: real('total_rate'),
+  /** Itemised surcharges (FSC, chassis, prepull, detention, etc.). */
+  surchargesJson: text('surcharges_json', { mode: 'json' }).$type<
+    Array<{ name: string; amount: number; currency: string }>
+  >(),
+  /** Currency the AMOUNTS were originally in — informational; storage
+   *  is always USD because of the FX normalisation in the route layer. */
+  sourceCurrency: text('source_currency').default('USD'),
+  /** Free-form notes from the AI extraction (validity period,
+   *  conditions, etc.). */
+  notes: text('notes'),
+  /** URL of the original file we extracted from, under
+   *  /drayage-rates-files/<id>/<filename>. */
+  sourceUrl: text('source_url'),
+  sourceFilename: text('source_filename'),
+  /** Pre-lowered concat of pickup + delivery + cntr for fast LIKE search. */
+  searchKey: text('search_key').notNull().default(''),
 });
 
 /**
@@ -377,6 +493,70 @@ export const shipments = sqliteTable('shipments', {
  * one place across devices, copy-paste them when logging in, and not have
  * to remember them. Passwords are AES-256-GCM encrypted via secretsCrypto.
  */
+/**
+ * Scheduled web-agent tasks. Background tick runs every minute,
+ * launches any task whose lastRunAt is older than intervalMinutes
+ * and which is enabled. Stores last-run status + a short result
+ * blob so the dashboard can show "ran 12m ago, succeeded".
+ */
+export const scheduledAgents = sqliteTable('scheduled_agents', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  goal: text('goal').notNull(),
+  /** How often to run, in minutes. Min 5, default 60. */
+  intervalMinutes: integer('interval_minutes').notNull().default(60),
+  /** When false, the tick loop skips this entry. */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  maxIterations: integer('max_iterations').notNull().default(25),
+  lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
+  lastRunStatus: text('last_run_status'),
+  /** Capped to ~2KB of stringified summary. */
+  lastRunResult: text('last_run_result'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/**
+ * Generic app-settings key/value store. Used for runtime config the
+ * user can change from the dashboard (no .env editing): AI_PROVIDER,
+ * AI_MODEL, AI_MODEL_FALLBACK, etc. DB values take precedence over
+ * env vars; missing keys fall through to env defaults in config.ts.
+ */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+/**
+ * API keys for third-party AI providers, stored encrypted at rest
+ * (same AES-256-GCM scheme as carrier credentials). Read by
+ * loadAiKey() in credentialsService.ts; takes precedence over the
+ * matching env var when both are set.
+ *
+ * provider values:
+ *   'anthropic' — ANTHROPIC_API_KEY equivalent
+ *   'gemini'    — GEMINI_API_KEY equivalent
+ *   'openai'    — OPENAI_API_KEY equivalent (future)
+ *   'deepseek'  — DEEPSEEK_API_KEY equivalent (future)
+ *   'grok'      — XAI_API_KEY equivalent (future)
+ */
+export const apiKeys = sqliteTable('api_keys', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  provider: text('provider').notNull().unique(),
+  /** "iv:tag:ct" base64 segments — same shape as passwordEncrypted. */
+  keyEncrypted: text('key_encrypted').notNull(),
+  /** Optional label so the user can remember which account/project. */
+  label: text('label'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 export const carrierCredentials = sqliteTable('carrier_credentials', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   carrierCode: text('carrier_code').notNull().unique(),
