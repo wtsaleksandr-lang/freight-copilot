@@ -39,3 +39,8 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[deployment]
+deploymentTarget = "vm"
+run = ["pnpm", "tsx", "src/index.ts", "serve", "--port", "5000", "--host", "0.0.0.0"]
+build = ["bash", "-c", "pnpm install && pnpm tsx src/db/seed.ts"]
