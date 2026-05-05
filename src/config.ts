@@ -3,7 +3,12 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
-  DATABASE_FILE: z.string().min(1).default('./data/freight-copilot.db'),
+  /**
+   * Postgres connection string (Neon). Required: data persists outside the
+   * server filesystem so redeploys don't wipe shipments / quotes / settings.
+   * Get one at https://neon.tech (free tier).
+   */
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required (Neon Postgres connection string)'),
   /**
    * If "true", record/quote/agent connect to a real Chrome you've launched
    * with --remote-debugging-port=9222 (use the "Chrome (Freight Copilot)"

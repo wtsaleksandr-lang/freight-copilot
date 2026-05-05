@@ -1,14 +1,13 @@
-import { sqliteTable, integer, text, real } from 'drizzle-orm/sqlite-core';
-import { sql } from 'drizzle-orm';
+import { pgTable, integer, serial, text, doublePrecision, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
-export const carriers = sqliteTable('carriers', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const carriers = pgTable('carriers', {
+  id: serial('id').primaryKey(),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
 });
 
-export const quoteBundles = sqliteTable('quote_bundles', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const quoteBundles = pgTable('quote_bundles', {
+  id: serial('id').primaryKey(),
   refId: text('ref_id').notNull().unique(),
   outputFolder: text('output_folder').notNull(),
   clientName: text('client_name'),
@@ -46,31 +45,31 @@ export const quoteBundles = sqliteTable('quote_bundles', {
   containerType: text('container_type').notNull(),
   cargoWeightKg: integer('cargo_weight_kg').notNull(),
   commodity: text('commodity'),
-  carrierCodes: text('carrier_codes', { mode: 'json' })
+  carrierCodes: jsonb('carrier_codes')
     .$type<string[]>()
     .notNull(),
-  markupPct: real('markup_pct').notNull().default(0),
-  markupFlat: real('markup_flat').notNull().default(0),
+  markupPct: doublePrecision('markup_pct').notNull().default(0),
+  markupFlat: doublePrecision('markup_flat').notNull().default(0),
   emailTemplate: text('email_template'),
   generatedEmail: text('generated_email'),
   status: text('status').notNull().default('pending'),
-  errors: text('errors', { mode: 'json' }).$type<
+  errors: jsonb('errors').$type<
     Array<{ carrier: string; reason: string }>
   >(),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const quotes = sqliteTable('quotes', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const quotes = pgTable('quotes', {
+  id: serial('id').primaryKey(),
   origin: text('origin').notNull(),
   destination: text('destination').notNull(),
   containerType: text('container_type').notNull(),
   requestedDate: text('requested_date').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
   notes: text('notes'),
   bundleId: integer('bundle_id').references(() => quoteBundles.id, {
     onDelete: 'set null',
@@ -88,8 +87,8 @@ export type StoredCharge = {
   currency: string;
 };
 
-export const rateSnapshots = sqliteTable('rate_snapshots', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const rateSnapshots = pgTable('rate_snapshots', {
+  id: serial('id').primaryKey(),
   quoteId: integer('quote_id')
     .notNull()
     .references(() => quotes.id, { onDelete: 'cascade' }),
@@ -103,21 +102,21 @@ export const rateSnapshots = sqliteTable('rate_snapshots', {
   validUntil: text('valid_until'),
   detentionFreetimeDays: integer('detention_freetime_days'),
   demurrageFreetimeDays: integer('demurrage_freetime_days'),
-  rollable: integer('rollable', { mode: 'boolean' }),
+  rollable: boolean('rollable'),
   baseFreightCents: integer('base_freight_cents').notNull(),
   /** Itemized "Freight charges" rows (our cost). */
-  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  charges: jsonb('charges').$type<StoredCharge[]>(),
   /** Itemized "Destination charges" (on-collect, informational). */
-  destinationCharges: text('destination_charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  destinationCharges: jsonb('destination_charges').$type<StoredCharge[]>(),
   totalCostCents: integer('total_cost_cents').notNull(),
   currency: text('currency').notNull(),
   destinationTotal: integer('destination_total'),
   destinationCurrency: text('destination_currency'),
-  headlineMismatch: integer('headline_mismatch', { mode: 'boolean' }),
+  headlineMismatch: boolean('headline_mismatch'),
   rawHtmlRef: text('raw_html_ref'),
-  parsedAt: integer('parsed_at', { mode: 'timestamp' })
+  parsedAt: timestamp('parsed_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
   rank: integer('rank'),
 });
 
@@ -127,8 +126,8 @@ export const rateSnapshots = sqliteTable('rate_snapshots', {
  * are wired in later. The schema is broad enough to cover both
  * import drayage (port → consignee) and export drayage (shipper → port).
  */
-export const drayageQuotes = sqliteTable('drayage_quotes', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const drayageQuotes = pgTable('drayage_quotes', {
+  id: serial('id').primaryKey(),
   refId: text('ref_id').notNull().unique(),
   outputFolder: text('output_folder').notNull(),
 
@@ -161,29 +160,29 @@ export const drayageQuotes = sqliteTable('drayage_quotes', {
 
   pickupDate: text('pickup_date'),
   deliveryDate: text('delivery_date'),
-  specialEquipment: text('special_equipment', { mode: 'json' }).$type<string[]>(),
-  accessorials: text('accessorials', { mode: 'json' }).$type<string[]>(),
+  specialEquipment: jsonb('special_equipment').$type<string[]>(),
+  accessorials: jsonb('accessorials').$type<string[]>(),
   clientName: text('client_name'),
   notes: text('notes'),
-  markupPct: real('markup_pct').notNull().default(0),
-  markupFlat: real('markup_flat').notNull().default(0),
+  markupPct: doublePrecision('markup_pct').notNull().default(0),
+  markupFlat: doublePrecision('markup_flat').notNull().default(0),
   status: text('status').notNull().default('pending'),
   /** Raw text/screenshot the user pasted as intake (kept for audit). */
   intakeText: text('intake_text'),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const drayageRates = sqliteTable('drayage_rates', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const drayageRates = pgTable('drayage_rates', {
+  id: serial('id').primaryKey(),
   drayageQuoteId: integer('drayage_quote_id')
     .notNull()
     .references(() => drayageQuotes.id, { onDelete: 'cascade' }),
   providerName: text('provider_name').notNull(),
   providerCode: text('provider_code'),
   /** Itemized charges (line haul, fuel surcharge, chassis, etc.). */
-  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  charges: jsonb('charges').$type<StoredCharge[]>(),
   baseRateCents: integer('base_rate_cents').notNull(),
   totalCostCents: integer('total_cost_cents').notNull(),
   currency: text('currency').notNull().default('USD'),
@@ -194,17 +193,17 @@ export const drayageRates = sqliteTable('drayage_rates', {
   rawSourcePath: text('raw_source_path'),
   notes: text('notes'),
   rank: integer('rank'),
-  parsedAt: integer('parsed_at', { mode: 'timestamp' })
+  parsedAt: timestamp('parsed_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
 /**
  * Trucking = ground freight without an ocean container (dryvan, flatbed, reefer,
  * step deck, etc.). Both FTL and LTL.
  */
-export const truckingQuotes = sqliteTable('trucking_quotes', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const truckingQuotes = pgTable('trucking_quotes', {
+  id: serial('id').primaryKey(),
   refId: text('ref_id').notNull().unique(),
   outputFolder: text('output_folder').notNull(),
   /** 'ftl' or 'ltl'. */
@@ -224,48 +223,48 @@ export const truckingQuotes = sqliteTable('trucking_quotes', {
   /** dryvan, flatbed, reefer, step_deck, conestoga, hotshot, etc. */
   equipmentType: text('equipment_type').notNull(),
   weightKg: integer('weight_kg'),
-  lengthFt: real('length_ft'),
-  widthFt: real('width_ft'),
-  heightFt: real('height_ft'),
+  lengthFt: doublePrecision('length_ft'),
+  widthFt: doublePrecision('width_ft'),
+  heightFt: doublePrecision('height_ft'),
   pieces: integer('pieces'),
-  hazmat: integer('hazmat', { mode: 'boolean' }).default(false),
-  tempControlled: integer('temp_controlled', { mode: 'boolean' }).default(false),
-  tempMinF: real('temp_min_f'),
-  tempMaxF: real('temp_max_f'),
+  hazmat: boolean('hazmat').default(false),
+  tempControlled: boolean('temp_controlled').default(false),
+  tempMinF: doublePrecision('temp_min_f'),
+  tempMaxF: doublePrecision('temp_max_f'),
   pickupDate: text('pickup_date'),
   deliveryDate: text('delivery_date'),
   commodity: text('commodity'),
   clientName: text('client_name'),
   notes: text('notes'),
-  markupPct: real('markup_pct').notNull().default(0),
-  markupFlat: real('markup_flat').notNull().default(0),
+  markupPct: doublePrecision('markup_pct').notNull().default(0),
+  markupFlat: doublePrecision('markup_flat').notNull().default(0),
   status: text('status').notNull().default('pending'),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const truckingRates = sqliteTable('trucking_rates', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const truckingRates = pgTable('trucking_rates', {
+  id: serial('id').primaryKey(),
   truckingQuoteId: integer('trucking_quote_id')
     .notNull()
     .references(() => truckingQuotes.id, { onDelete: 'cascade' }),
   providerName: text('provider_name').notNull(),
   providerCode: text('provider_code'),
-  charges: text('charges', { mode: 'json' }).$type<StoredCharge[]>(),
+  charges: jsonb('charges').$type<StoredCharge[]>(),
   baseRateCents: integer('base_rate_cents').notNull(),
   totalCostCents: integer('total_cost_cents').notNull(),
   currency: text('currency').notNull().default('USD'),
   transitDays: integer('transit_days'),
-  ratePerMile: real('rate_per_mile'),
+  ratePerMile: doublePrecision('rate_per_mile'),
   totalMiles: integer('total_miles'),
   validUntil: text('valid_until'),
   rawSourcePath: text('raw_source_path'),
   notes: text('notes'),
   rank: integer('rank'),
-  parsedAt: integer('parsed_at', { mode: 'timestamp' })
+  parsedAt: timestamp('parsed_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
 /**
@@ -274,27 +273,27 @@ export const truckingRates = sqliteTable('trucking_rates', {
  * Lets the user search past quotes by POL/POD without re-running Claude
  * over the same screenshots.
  */
-export const sheetUploads = sqliteTable('sheet_uploads', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const sheetUploads = pgTable('sheet_uploads', {
+  id: serial('id').primaryKey(),
   refId: text('ref_id').notNull().unique(),
   outputFolder: text('output_folder').notNull(),
   /** Most recently generated email body (replaces on each /api/sheets/reply). */
   generatedEmail: text('generated_email'),
-  markupPct: real('markup_pct').notNull().default(0),
-  markupFlat: real('markup_flat').notNull().default(0),
-  addExportDeclaration: integer('add_export_declaration', { mode: 'boolean' })
+  markupPct: doublePrecision('markup_pct').notNull().default(0),
+  markupFlat: doublePrecision('markup_flat').notNull().default(0),
+  addExportDeclaration: boolean('add_export_declaration')
     .notNull()
     .default(false),
-  exportDeclarationFee: real('export_declaration_fee').notNull().default(0),
+  exportDeclarationFee: doublePrecision('export_declaration_fee').notNull().default(0),
   /** Whatever JSON the original parse_sheet endpoint returned (keep for replay). */
-  rawResultsJson: text('raw_results_json', { mode: 'json' }).$type<unknown>(),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  rawResultsJson: jsonb('raw_results_json').$type<unknown>(),
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const sheetRates = sqliteTable('sheet_rates', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const sheetRates = pgTable('sheet_rates', {
+  id: serial('id').primaryKey(),
   uploadId: integer('upload_id')
     .notNull()
     .references(() => sheetUploads.id, { onDelete: 'cascade' }),
@@ -307,14 +306,14 @@ export const sheetRates = sqliteTable('sheet_rates', {
   transitDays: integer('transit_days'),
   detentionFreetimeDays: integer('detention_freetime_days'),
   demurrageFreetimeDays: integer('demurrage_freetime_days'),
-  freightTotal: real('freight_total').notNull(),
+  freightTotal: doublePrecision('freight_total').notNull(),
   freightCurrency: text('freight_currency').notNull(),
-  freightCharges: text('freight_charges', { mode: 'json' }).$type<
+  freightCharges: jsonb('freight_charges').$type<
     Array<{ name: string; amount: number; currency: string }>
   >(),
-  destinationTotal: real('destination_total'),
+  destinationTotal: doublePrecision('destination_total'),
   destinationCurrency: text('destination_currency'),
-  destinationCharges: text('destination_charges', { mode: 'json' }).$type<
+  destinationCharges: jsonb('destination_charges').$type<
     Array<{ name: string; amount: number; currency: string }>
   >(),
   validityFrom: text('validity_from'),
@@ -333,15 +332,15 @@ export const sheetRates = sqliteTable('sheet_rates', {
  * Cells are editable inline in the dashboard; AI extraction from email
  * screenshots / PDFs pre-fills new rows.
  */
-export const shipments = sqliteTable('shipments', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const shipments = pgTable('shipments', {
+  id: serial('id').primaryKey(),
   refId: text('ref_id').notNull().unique(),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
   shipperName: text('shipper_name'),
   receiverName: text('receiver_name'),
   customerName: text('customer_name'),
@@ -364,13 +363,13 @@ export const shipments = sqliteTable('shipments', {
   containerQuantity: integer('container_quantity'),
   cargoType: text('cargo_type'),
   cargoName: text('cargo_name'),
-  soldRate: real('sold_rate'),
+  soldRate: doublePrecision('sold_rate'),
   soldCurrency: text('sold_currency').default('USD'),
   /** Same shape as costBreakdownJson but for the sell side — line
    *  items the customer is being charged (base ocean freight, export
    *  declaration fee, customer-side markup, etc.). soldRate equals
    *  the sum of these items + any manual delta the user has typed. */
-  soldBreakdownJson: text('sold_breakdown_json', { mode: 'json' }).$type<
+  soldBreakdownJson: jsonb('sold_breakdown_json').$type<
     Array<{
       name: string;
       amount: number;
@@ -383,9 +382,9 @@ export const shipments = sqliteTable('shipments', {
    *  line item in costBreakdownJson. AI accumulates this across all
    *  files dropped onto the row. Estimated profit = soldRate - ourCost
    *  (computed at render time, not stored). */
-  ourCost: real('our_cost'),
+  ourCost: doublePrecision('our_cost'),
   ourCostCurrency: text('our_cost_currency').default('USD'),
-  costBreakdownJson: text('cost_breakdown_json', { mode: 'json' }).$type<
+  costBreakdownJson: jsonb('cost_breakdown_json').$type<
     Array<{
       name: string;
       amount: number;
@@ -409,7 +408,7 @@ export const shipments = sqliteTable('shipments', {
   notes: text('notes'),
   /** JSON list of uploaded source files (paths under /shipments-files/...).
    *  addedAt is a server-stamped ISO timestamp; missing on legacy rows. */
-  artifactsJson: text('artifacts_json', { mode: 'json' }).$type<
+  artifactsJson: jsonb('artifacts_json').$type<
     Array<{
       filename: string;
       url: string;
@@ -433,12 +432,12 @@ export const shipments = sqliteTable('shipments', {
  * Lookup pattern: filter by pickup city/state and delivery city/state
  * + container type to find historical rates for a lane.
  */
-export const drayageRateLibrary = sqliteTable('drayage_rate_library', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const drayageRateLibrary = pgTable('drayage_rate_library', {
+  id: serial('id').primaryKey(),
   /** When the user uploaded the source file (server timestamp). */
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
   /** Date the rate was quoted / valid (extracted by AI from the doc).
    *  ISO date string (YYYY-MM-DD) for cheap range queries. */
   rateDate: text('rate_date'),
@@ -460,17 +459,17 @@ export const drayageRateLibrary = sqliteTable('drayage_rate_library', {
   deliveryCountry: text('delivery_country').default('US'),
   deliveryLabel: text('delivery_label'),
   /** Total quoted mileage (one-way). */
-  totalMiles: real('total_miles'),
+  totalMiles: doublePrecision('total_miles'),
   /** Container type (40HC / 20GP / etc). */
   containerType: text('container_type'),
   /** Max cargo weight allowed at this rate (in kg). */
-  maxWeightKg: real('max_weight_kg'),
+  maxWeightKg: doublePrecision('max_weight_kg'),
   /** Base linehaul rate in USD (after FX conversion). */
-  baseRate: real('base_rate'),
+  baseRate: doublePrecision('base_rate'),
   /** All-in total in USD = base + sum(surcharges). */
-  totalRate: real('total_rate'),
+  totalRate: doublePrecision('total_rate'),
   /** Itemised surcharges (FSC, chassis, prepull, detention, etc.). */
-  surchargesJson: text('surcharges_json', { mode: 'json' }).$type<
+  surchargesJson: jsonb('surcharges_json').$type<
     Array<{ name: string; amount: number; currency: string }>
   >(),
   /** Currency the AMOUNTS were originally in — informational; storage
@@ -499,23 +498,23 @@ export const drayageRateLibrary = sqliteTable('drayage_rate_library', {
  * and which is enabled. Stores last-run status + a short result
  * blob so the dashboard can show "ran 12m ago, succeeded".
  */
-export const scheduledAgents = sqliteTable('scheduled_agents', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const scheduledAgents = pgTable('scheduled_agents', {
+  id: serial('id').primaryKey(),
   name: text('name').notNull(),
   url: text('url').notNull(),
   goal: text('goal').notNull(),
   /** How often to run, in minutes. Min 5, default 60. */
   intervalMinutes: integer('interval_minutes').notNull().default(60),
   /** When false, the tick loop skips this entry. */
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  enabled: boolean('enabled').notNull().default(true),
   maxIterations: integer('max_iterations').notNull().default(25),
-  lastRunAt: integer('last_run_at', { mode: 'timestamp' }),
+  lastRunAt: timestamp('last_run_at', { mode: 'date' }),
   lastRunStatus: text('last_run_status'),
   /** Capped to ~2KB of stringified summary. */
   lastRunResult: text('last_run_result'),
-  createdAt: integer('created_at', { mode: 'timestamp' })
+  createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
 /**
@@ -524,12 +523,12 @@ export const scheduledAgents = sqliteTable('scheduled_agents', {
  * AI_MODEL, AI_MODEL_FALLBACK, etc. DB values take precedence over
  * env vars; missing keys fall through to env defaults in config.ts.
  */
-export const appSettings = sqliteTable('app_settings', {
+export const appSettings = pgTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
 /**
@@ -545,39 +544,39 @@ export const appSettings = sqliteTable('app_settings', {
  *   'deepseek'  — DEEPSEEK_API_KEY equivalent (future)
  *   'grok'      — XAI_API_KEY equivalent (future)
  */
-export const apiKeys = sqliteTable('api_keys', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const apiKeys = pgTable('api_keys', {
+  id: serial('id').primaryKey(),
   provider: text('provider').notNull().unique(),
   /** "iv:tag:ct" base64 segments — same shape as passwordEncrypted. */
   keyEncrypted: text('key_encrypted').notNull(),
   /** Optional label so the user can remember which account/project. */
   label: text('label'),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const carrierCredentials = sqliteTable('carrier_credentials', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const carrierCredentials = pgTable('carrier_credentials', {
+  id: serial('id').primaryKey(),
   carrierCode: text('carrier_code').notNull().unique(),
   username: text('username').notNull(),
   /** "iv:tag:ct" base64 segments. */
   passwordEncrypted: text('password_encrypted').notNull(),
   notes: text('notes'),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
+  updatedAt: timestamp('updated_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
+    .defaultNow(),
 });
 
-export const sessions = sqliteTable('sessions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const sessions = pgTable('sessions', {
+  id: serial('id').primaryKey(),
   carrierId: integer('carrier_id')
     .notNull()
     .references(() => carriers.id)
     .unique(),
-  storageState: text('storage_state', { mode: 'json' }).notNull(),
-  lastUsedAt: integer('last_used_at', { mode: 'timestamp' })
+  storageState: jsonb('storage_state').notNull(),
+  lastUsedAt: timestamp('last_used_at', { mode: 'date' })
     .notNull()
-    .default(sql`(unixepoch())`),
-  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    .defaultNow(),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
 });
