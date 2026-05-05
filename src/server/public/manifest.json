@@ -1,31 +1,19 @@
 {
-  "name": "Freight Copilot",
-  "short_name": "Freight Copilot",
-  "description": "Personal freight forwarder dashboard — quotes, shipments, AI-extracted bookings.",
+  "name": "LoadMode",
+  "short_name": "LoadMode",
+  "description": "LoadMode — freight forwarder dashboard for quotes, shipments, and AI-extracted bookings.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "theme_color": "#0f172a",
-  "background_color": "#0f172a",
+  "theme_color": "#0b1426",
+  "background_color": "#0b1426",
   "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
     {
       "src": "/icon-512.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }
