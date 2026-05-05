@@ -9,8 +9,10 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-DATABASE_FILE = "./data/freight-copilot.db"
 USE_REAL_CHROME = "false"
+# DATABASE_URL is set as a Replit Secret on the deployment (Neon Postgres
+# connection string). Persists across redeploys — file-based storage was
+# wiped on every redeploy because Reserved VM disks don't persist.
 
 [workflows]
 runButton = "Project"

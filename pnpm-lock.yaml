@@ -14,9 +14,9 @@ importers:
       '@kenjiuno/msgreader':
         specifier: ^1.28.0
         version: 1.28.0
-      '@libsql/client':
-        specifier: ^0.17.2
-        version: 0.17.2
+      '@neondatabase/serverless':
+        specifier: ^1.1.0
+        version: 1.1.0
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -28,10 +28,10 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0)
+        version: 0.45.2(@libsql/client@0.17.2)(@neondatabase/serverless@1.1.0)(@types/pg@8.20.0)(pg@8.20.0)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.2(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0))(zod@4.3.6)
+        version: 0.8.3(drizzle-orm@0.45.2(@libsql/client@0.17.2)(@neondatabase/serverless@1.1.0)(@types/pg@8.20.0)(pg@8.20.0))(zod@4.3.6)
       express:
         specifier: ^5.2.1
         version: 5.2.1
@@ -594,6 +594,10 @@ packages:
 
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
+
+  '@neondatabase/serverless@1.1.0':
+    resolution: {integrity: sha512-r3ZZhRjEcfEdKIZnoB1RusNgvHuaBRqfCzV4Gi+5A9yUX0S4HTws/ASWqt13wL4y4I+0rqsWGdA2w7EQXHi3+Q==}
+    engines: {node: '>=19.0.0'}
 
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
@@ -1469,10 +1473,12 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
+    optional: true
 
   '@libsql/core@0.17.2':
     dependencies:
       js-base64: 3.7.8
+    optional: true
 
   '@libsql/darwin-arm64@0.5.29':
     optional: true
@@ -1490,6 +1496,7 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
+    optional: true
 
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
@@ -1498,6 +1505,7 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+    optional: true
 
   '@libsql/linux-arm-gnueabihf@0.5.29':
     optional: true
@@ -1520,7 +1528,10 @@ snapshots:
   '@libsql/win32-x64-msvc@0.5.29':
     optional: true
 
-  '@neon-rs/load@0.0.4': {}
+  '@neon-rs/load@0.0.4':
+    optional: true
+
+  '@neondatabase/serverless@1.1.0': {}
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -1573,6 +1584,7 @@ snapshots:
   '@types/ws@8.18.1':
     dependencies:
       '@types/node': 25.6.0
+    optional: true
 
   accepts@2.0.0:
     dependencies:
@@ -1622,8 +1634,10 @@ snapshots:
       node-fetch: 2.7.0
     transitivePeerDependencies:
       - encoding
+    optional: true
 
-  data-uri-to-buffer@4.0.1: {}
+  data-uri-to-buffer@4.0.1:
+    optional: true
 
   dayjs@1.11.20: {}
 
@@ -1633,7 +1647,8 @@ snapshots:
 
   depd@2.0.0: {}
 
-  detect-libc@2.0.2: {}
+  detect-libc@2.0.2:
+    optional: true
 
   dotenv@17.4.2: {}
 
@@ -1644,15 +1659,16 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0):
+  drizzle-orm@0.45.2(@libsql/client@0.17.2)(@neondatabase/serverless@1.1.0)(@types/pg@8.20.0)(pg@8.20.0):
     optionalDependencies:
       '@libsql/client': 0.17.2
+      '@neondatabase/serverless': 1.1.0
       '@types/pg': 8.20.0
       pg: 8.20.0
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0))(zod@4.3.6):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@libsql/client@0.17.2)(@neondatabase/serverless@1.1.0)(@types/pg@8.20.0)(pg@8.20.0))(zod@4.3.6):
     dependencies:
-      drizzle-orm: 0.45.2(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0)
+      drizzle-orm: 0.45.2(@libsql/client@0.17.2)(@neondatabase/serverless@1.1.0)(@types/pg@8.20.0)(pg@8.20.0)
       zod: 4.3.6
 
   dunder-proto@1.0.1:
@@ -1797,6 +1813,7 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
+    optional: true
 
   finalhandler@2.1.1:
     dependencies:
@@ -1812,6 +1829,7 @@ snapshots:
   formdata-polyfill@4.0.10:
     dependencies:
       fetch-blob: 3.2.0
+    optional: true
 
   forwarded@0.2.0: {}
 
@@ -1877,7 +1895,8 @@ snapshots:
 
   is-promise@4.0.0: {}
 
-  js-base64@3.7.8: {}
+  js-base64@3.7.8:
+    optional: true
 
   json-schema-to-ts@3.1.1:
     dependencies:
@@ -1898,6 +1917,7 @@ snapshots:
       '@libsql/linux-x64-gnu': 0.5.29
       '@libsql/linux-x64-musl': 0.5.29
       '@libsql/win32-x64-msvc': 0.5.29
+    optional: true
 
   math-intrinsics@1.1.0: {}
 
@@ -1915,17 +1935,20 @@ snapshots:
 
   negotiator@1.0.0: {}
 
-  node-domexception@1.0.0: {}
+  node-domexception@1.0.0:
+    optional: true
 
   node-fetch@2.7.0:
     dependencies:
       whatwg-url: 5.0.0
+    optional: true
 
   node-fetch@3.3.2:
     dependencies:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
+    optional: true
 
   object-inspect@1.13.4: {}
 
@@ -2005,7 +2028,8 @@ snapshots:
       xtend: 4.0.2
     optional: true
 
-  promise-limit@2.7.0: {}
+  promise-limit@2.7.0:
+    optional: true
 
   proxy-addr@2.0.7:
     dependencies:
@@ -2108,7 +2132,8 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  tr46@0.0.3: {}
+  tr46@0.0.3:
+    optional: true
 
   ts-algebra@2.0.0: {}
 
@@ -2133,18 +2158,22 @@ snapshots:
 
   vary@1.1.2: {}
 
-  web-streams-polyfill@3.3.3: {}
+  web-streams-polyfill@3.3.3:
+    optional: true
 
-  webidl-conversions@3.0.1: {}
+  webidl-conversions@3.0.1:
+    optional: true
 
   whatwg-url@5.0.0:
     dependencies:
       tr46: 0.0.3
       webidl-conversions: 3.0.1
+    optional: true
 
   wrappy@1.0.2: {}
 
-  ws@8.20.0: {}
+  ws@8.20.0:
+    optional: true
 
   xtend@4.0.2:
     optional: true

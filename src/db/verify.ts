@@ -1,31 +1,36 @@
-import { createClient } from '@libsql/client';
+import { createDbClient } from './client.js';
+import { sql } from 'drizzle-orm';
+import { carriers, sessions } from './schema.js';
 
 async function main() {
-  const client = createClient({ url: 'file:./data/freight-copilot.db' });
+  const db = createDbClient();
 
-  const tables = await client.execute(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+  const tables = await db.execute(
+    sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
   );
-  console.log('tables:', tables.rows.map((r) => r.name));
+  console.log('tables:', tables.rows.map((r: any) => r.table_name));
 
-  const carriers = await client.execute('SELECT * FROM carriers');
-  console.log('carriers:', carriers.rows);
+  const carrierRows = await db.select().from(carriers);
+  console.log('carriers:', carrierRows);
 
-  const sessions = await client.execute(
-    'SELECT id, carrier_id, last_used_at, expires_at, length(storage_state) AS json_size FROM sessions'
-  );
-  console.log('sessions (metadata):', sessions.rows);
+  const sessionRows = await db
+    .select({
+      id: sessions.id,
+      carrierId: sessions.carrierId,
+      lastUsedAt: sessions.lastUsedAt,
+      expiresAt: sessions.expiresAt,
+    })
+    .from(sessions);
+  console.log('sessions (metadata):', sessionRows);
 
-  // Parse the storage_state JSON and show a summary without leaking values
-  const raw = await client.execute('SELECT storage_state FROM sessions LIMIT 1');
-  const firstRow = raw.rows[0];
+  const firstRaw = await db.select({ storageState: sessions.storageState }).from(sessions).limit(1);
+  const firstRow = firstRaw[0];
   if (firstRow) {
-    const stateStr = firstRow.storage_state as string;
-    const state = JSON.parse(stateStr);
-    const cookies = state.cookies ?? [];
-    const origins = state.origins ?? [];
+    const state = firstRow.storageState as any;
+    const cookies = state?.cookies ?? [];
+    const origins = state?.origins ?? [];
     const maerskCookies = cookies.filter((c: { domain?: string }) =>
-      c.domain?.includes('maersk')
+      c.domain?.includes('maersk'),
     );
     console.log('session summary:');
     console.log('  total cookies:', cookies.length);
@@ -33,7 +38,7 @@ async function main() {
     console.log('  origins with localStorage:', origins.length);
     console.log(
       '  cookie domains (unique):',
-      Array.from(new Set(cookies.map((c: { domain?: string }) => c.domain))).sort()
+      Array.from(new Set(cookies.map((c: { domain?: string }) => c.domain))).sort(),
     );
   }
 }
