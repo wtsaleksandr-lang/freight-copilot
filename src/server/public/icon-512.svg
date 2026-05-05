@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Maskable: solid background fills the full canvas; text sits inside
-       the 80% safe zone so OS-specific masks (circle, squircle, etc.)
-       don't clip it. -->
-  <rect width="512" height="512" fill="#0f172a"/>
-  <text x="256" y="328" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-        font-size="220" font-weight="800" fill="#ffffff" text-anchor="middle">FC</text>
+  <!-- Maskable: gradient background fills full canvas; mark sits inside
+       the 80% safe zone so OS masks (circle/squircle) don't clip it. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <g stroke="#0b1426" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M138 140 L138 372 L234 372"/>
+    <path d="M270 372 L270 200 L334 296 L398 200 L398 372"/>
+  </g>
 </svg>

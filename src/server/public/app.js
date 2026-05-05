@@ -1615,7 +1615,7 @@ document.getElementById('run-btn').addEventListener('click', async () => {
         const proceed = confirm(
           `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
             loggedOut.map((c) => `  • ${c}`).join('\n') +
-            `\n\nThese carriers will fail. Log in to them in your "Chrome (Freight Copilot)" window first, then click "Re-check sessions now".\n\nProceed anyway?`
+            `\n\nThese carriers will fail. Log in to them in your "Chrome (LoadMode)" window first, then click "Re-check sessions now".\n\nProceed anyway?`
         );
         if (!proceed) return;
       }
