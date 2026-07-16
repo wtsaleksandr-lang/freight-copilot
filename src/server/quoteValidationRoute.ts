@@ -2,9 +2,10 @@ import type { Express, Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { createDbClient } from '../db/client.js';
 import { carriers, quotes, rateSnapshots } from '../db/schema.js';
-import { validateQuoteRate } from './quoteValidation.js';
+import { evaluateRateFreshness } from './quoteValidation.js';
 
 export function registerQuoteValidationRoute(app: Express): void {
+  // Kept at the existing URL for compatibility with any current callers.
   app.get('/api/quotes/:id/validation', async (req: Request, res: Response) => {
     const rawId = req.params.id;
     const id = Number.parseInt(Array.isArray(rawId) ? rawId[0] ?? '' : rawId ?? '', 10);
@@ -27,19 +28,8 @@ export function registerQuoteValidationRoute(app: Express): void {
           rank: rateSnapshots.rank,
           carrierCode: carriers.code,
           serviceName: rateSnapshots.serviceName,
-          sailingDate: rateSnapshots.sailingDate,
           validUntil: rateSnapshots.validUntil,
-          transitDays: rateSnapshots.transitDays,
-          detentionFreetimeDays: rateSnapshots.detentionFreetimeDays,
-          demurrageFreetimeDays: rateSnapshots.demurrageFreetimeDays,
-          currency: rateSnapshots.currency,
-          totalCostCents: rateSnapshots.totalCostCents,
-          charges: rateSnapshots.charges,
-          destinationCharges: rateSnapshots.destinationCharges,
-          destinationTotal: rateSnapshots.destinationTotal,
-          destinationCurrency: rateSnapshots.destinationCurrency,
-          headlineMismatch: rateSnapshots.headlineMismatch,
-          rawHtmlRef: rateSnapshots.rawHtmlRef,
+          parsedAt: rateSnapshots.parsedAt,
         })
         .from(rateSnapshots)
         .leftJoin(carriers, eq(carriers.id, rateSnapshots.carrierId))
@@ -50,16 +40,22 @@ export function registerQuoteValidationRoute(app: Express): void {
         rateSnapshotId: row.id,
         rank: row.rank,
         carrierCode: row.carrierCode,
-        validation: validateQuoteRate(row),
+        serviceName: row.serviceName,
+        freshness: evaluateRateFreshness({
+          validUntil: row.validUntil,
+          parsedAt: row.parsedAt,
+        }),
       }));
-      const readyCount = options.filter((option) => option.validation.ready).length;
 
       res.json({
         quoteId: quote.id,
-        ready: options.length > 0 && readyCount === options.length,
-        readyCount,
-        optionCount: options.length,
         options,
+        summary: {
+          green: options.filter((option) => option.freshness.color === 'green').length,
+          yellow: options.filter((option) => option.freshness.color === 'yellow').length,
+          red: options.filter((option) => option.freshness.color === 'red').length,
+          gray: options.filter((option) => option.freshness.color === 'gray').length,
+        },
       });
     } catch (err) {
       console.error('[api/quotes/:id/validation] error:', err);
