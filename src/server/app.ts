@@ -5,6 +5,7 @@ import { registerApiRoutes } from './routes.js';
 import { registerBundleDetailRoute } from './bundleDetailRoute.js';
 import { registerQuoteValidationRoute } from './quoteValidationRoute.js';
 import { registerShipmentReportRoute } from './shipmentReportRoute.js';
+import { registerShipmentEmailRoute } from './shipmentEmailRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -34,6 +35,7 @@ export function createApp(): express.Express {
   registerBundleDetailRoute(app);
   registerQuoteValidationRoute(app);
   registerShipmentReportRoute(app);
+  registerShipmentEmailRoute(app);
   registerApiRoutes(app);
 
   // Serve the single-page dashboard from /public. Small isolated UI layers are
@@ -51,7 +53,7 @@ export function createApp(): express.Express {
         )
         .replace(
           '<script src="/app.js"></script>',
-          '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/app.js"></script>'
+          '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/app.js"></script>'
         );
       res.type('html').send(html);
     } catch (err) {
