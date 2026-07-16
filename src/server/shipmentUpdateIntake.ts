@@ -32,8 +32,8 @@ export interface ShipmentUpdateProposal {
 const CARRIERS = [
   ['Maersk', /\b(?:maersk|maeu)\b/i],
   ['MSC', /\b(?:msc|mediterranean shipping)\b/i],
-  ['CMA CGM', /\b(?:cma\s*cgm|cmdU)\b/i],
-  ['Hapag-Lloyd', /\b(?:hapag[- ]?lloyd|hLCU)\b/i],
+  ['CMA CGM', /\b(?:cma\s*cgm|cmdu)\b/i],
+  ['Hapag-Lloyd', /\b(?:hapag[- ]?lloyd|hlcu)\b/i],
   ['OOCL', /\boocl\b/i],
   ['ONE', /\b(?:ocean network express|one line)\b/i],
   ['ZIM', /\bzim\b/i],
@@ -81,7 +81,7 @@ export function extractShipmentUpdateProposals(
   if (!source) return [];
   const proposals: ShipmentUpdateProposal[] = [];
 
-  const booking = /(?:booking(?:\s+(?:reference|ref|number|no\.?))?|bkg(?:\s*(?:ref|no\.?))?)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{5,24})/i.exec(source);
+  const booking = /(?:(?:booking\s+(?:reference|ref|number|no\.?|#)|bkg\s*(?:reference|ref|number|no\.?|#))\s*[:#-]?|booking\s*[:#-])\s*([A-Z0-9][A-Z0-9-]{5,24})/i.exec(source);
   if (booking?.[1]) {
     addProposal(proposals, current, 'bookingRef', booking[1].toUpperCase(), 'high', evidenceLine(source, booking.index));
   }
