@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { registerApiRoutes } from './routes.js';
 import { registerBundleDetailRoute } from './bundleDetailRoute.js';
 import { registerQuoteValidationRoute } from './quoteValidationRoute.js';
+import { registerShipmentReportRoute } from './shipmentReportRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -32,12 +33,12 @@ export function createApp(): express.Express {
   // Focused routes are registered before the legacy all-in-one route module.
   registerBundleDetailRoute(app);
   registerQuoteValidationRoute(app);
+  registerShipmentReportRoute(app);
   registerApiRoutes(app);
 
-  // Serve the single-page dashboard from /public. The root response injects
-  // the small freshness UI layer before app.js so it can observe quote API
-  // responses and decorate the existing rate tables without rewriting the
-  // large legacy dashboard script.
+  // Serve the single-page dashboard from /public. Small isolated UI layers are
+  // injected before app.js so they can extend the existing dashboard without
+  // increasing regression risk in the large legacy browser script.
   const publicDir = resolve(process.cwd(), 'src/server/public');
   app.get('/', async (_req, res, next) => {
     try {
@@ -50,7 +51,7 @@ export function createApp(): express.Express {
         )
         .replace(
           '<script src="/app.js"></script>',
-          '<script src="/freshness-ui.js"></script>\n  <script src="/app.js"></script>'
+          '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/app.js"></script>'
         );
       res.type('html').send(html);
     } catch (err) {
