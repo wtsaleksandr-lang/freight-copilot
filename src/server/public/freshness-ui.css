@@ -1,0 +1,49 @@
+.rate-freshness-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 6px 2px 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.rate-freshness-badge .freshness-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.freshness-green { color: #22c55e; }
+.freshness-yellow { color: #f59e0b; }
+.freshness-red { color: #ef4444; }
+.freshness-gray { color: #94a3b8; }
+
+#results-table tbody tr.freshness-row-green,
+#quote-detail-table tbody tr.freshness-row-green {
+  box-shadow: inset 3px 0 0 #22c55e;
+}
+
+#results-table tbody tr.freshness-row-yellow,
+#quote-detail-table tbody tr.freshness-row-yellow {
+  box-shadow: inset 3px 0 0 #f59e0b;
+  background: rgba(245, 158, 11, 0.045);
+}
+
+#results-table tbody tr.freshness-row-red,
+#quote-detail-table tbody tr.freshness-row-red {
+  box-shadow: inset 3px 0 0 #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+#results-table tbody tr.freshness-row-gray,
+#quote-detail-table tbody tr.freshness-row-gray {
+  box-shadow: inset 3px 0 0 #94a3b8;
+}
