@@ -40,6 +40,7 @@ jobs:
         run: |
           node --check src/server/public/freshness-ui.js
           node --check src/server/public/shipment-report-ui.js
+          node --check src/server/public/shipment-email-ui.js
 
       - name: TypeScript build
         run: pnpm build
