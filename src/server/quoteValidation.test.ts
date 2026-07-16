@@ -1,68 +1,51 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateQuoteRate } from './quoteValidation.js';
+import { evaluateRateFreshness } from './quoteValidation.js';
 
-const completeRate = {
-  carrierCode: 'MSK',
-  serviceName: 'Direct',
-  sailingDate: '2026-08-01',
-  validUntil: '2026-07-31',
-  transitDays: 18,
-  detentionFreetimeDays: 7,
-  demurrageFreetimeDays: 5,
-  currency: 'USD',
-  totalCostCents: 150000,
-  charges: [
-    {
-      name: 'Ocean freight',
-      basis: 'per container',
-      quantity: 1,
-      unit_price: 1500,
-      total: 1500,
-      currency: 'USD',
-    },
-  ],
-  destinationCharges: [],
-  destinationTotal: null,
-  destinationCurrency: null,
-  headlineMismatch: false,
-  rawHtmlRef: 'quotes/Q-1/result.html',
-};
+const now = new Date('2026-07-16T12:00:00Z');
 
-test('complete rate is ready', () => {
-  const result = validateQuoteRate(completeRate);
-  assert.equal(result.ready, true);
-  assert.equal(result.score, 100);
-  assert.deepEqual(result.issues, []);
+test('rate within stated validity is green', () => {
+  const result = evaluateRateFreshness({
+    validUntil: '2026-08-15',
+    parsedAt: '2026-07-15T12:00:00Z',
+    now,
+  });
+  assert.equal(result.status, 'fresh');
+  assert.equal(result.color, 'green');
 });
 
-test('missing commercial terms block readiness', () => {
-  const result = validateQuoteRate({
-    ...completeRate,
+test('rate expiring within seven days is yellow', () => {
+  const result = evaluateRateFreshness({
+    validUntil: '2026-07-20',
+    parsedAt: '2026-07-15T12:00:00Z',
+    now,
+  });
+  assert.equal(result.status, 'expiring_soon');
+  assert.equal(result.color, 'yellow');
+});
+
+test('expired rate is red', () => {
+  const result = evaluateRateFreshness({
+    validUntil: '2026-07-10',
+    parsedAt: '2026-07-01T12:00:00Z',
+    now,
+  });
+  assert.equal(result.status, 'expired');
+  assert.equal(result.color, 'red');
+});
+
+test('old source without validity is likely stale and red', () => {
+  const result = evaluateRateFreshness({
     validUntil: null,
-    rawHtmlRef: null,
+    parsedAt: '2026-05-01T12:00:00Z',
+    now,
   });
-  assert.equal(result.ready, false);
-  assert.ok(result.issues.some((issue) => issue.code === 'validity_missing'));
-  assert.ok(result.issues.some((issue) => issue.code === 'evidence_missing'));
+  assert.equal(result.status, 'likely_stale');
+  assert.equal(result.color, 'red');
 });
 
-test('charge mismatch is detected', () => {
-  const result = validateQuoteRate({
-    ...completeRate,
-    totalCostCents: 140000,
-  });
-  assert.equal(result.ready, false);
-  assert.ok(result.issues.some((issue) => issue.code === 'freight_sum_mismatch'));
-});
-
-test('missing free time is warning only', () => {
-  const result = validateQuoteRate({
-    ...completeRate,
-    detentionFreetimeDays: null,
-    demurrageFreetimeDays: null,
-  });
-  assert.equal(result.ready, true);
-  assert.equal(result.score, 90);
-  assert.equal(result.issues.filter((issue) => issue.severity === 'warning').length, 2);
+test('missing validity and source date is gray', () => {
+  const result = evaluateRateFreshness({ validUntil: null, parsedAt: null, now });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.color, 'gray');
 });
