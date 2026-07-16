@@ -1,6 +1,7 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { registerApiRoutes } from './routes.js';
+import { registerBundleDetailRoute } from './bundleDetailRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -26,6 +27,9 @@ export function createApp(): express.Express {
     console.log('[app] HTTP Basic auth enabled');
   }
 
+  // Register the corrected bundle-detail handler before the legacy route.
+  // Express stops at the first matching handler that sends a response.
+  registerBundleDetailRoute(app);
   registerApiRoutes(app);
 
   // Serve the single-page dashboard from /public.
