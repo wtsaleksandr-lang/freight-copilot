@@ -37,7 +37,9 @@ jobs:
         run: pnpm test
 
       - name: Browser script syntax
-        run: node --check src/server/public/freshness-ui.js
+        run: |
+          node --check src/server/public/freshness-ui.js
+          node --check src/server/public/shipment-report-ui.js
 
       - name: TypeScript build
         run: pnpm build
