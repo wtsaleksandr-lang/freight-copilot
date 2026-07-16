@@ -36,5 +36,8 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Browser script syntax
+        run: node --check src/server/public/freshness-ui.js
+
       - name: TypeScript build
         run: pnpm build
