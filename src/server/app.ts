@@ -1,4 +1,5 @@
 import express from 'express';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { registerApiRoutes } from './routes.js';
 import { registerBundleDetailRoute } from './bundleDetailRoute.js';
@@ -33,8 +34,29 @@ export function createApp(): express.Express {
   registerQuoteValidationRoute(app);
   registerApiRoutes(app);
 
-  // Serve the single-page dashboard from /public.
+  // Serve the single-page dashboard from /public. The root response injects
+  // the small freshness UI layer before app.js so it can observe quote API
+  // responses and decorate the existing rate tables without rewriting the
+  // large legacy dashboard script.
   const publicDir = resolve(process.cwd(), 'src/server/public');
+  app.get('/', async (_req, res, next) => {
+    try {
+      const indexPath = resolve(publicDir, 'index.html');
+      const source = await readFile(indexPath, 'utf8');
+      const html = source
+        .replace(
+          '<link rel="stylesheet" href="/style.css">',
+          '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">'
+        )
+        .replace(
+          '<script src="/app.js"></script>',
+          '<script src="/freshness-ui.js"></script>\n  <script src="/app.js"></script>'
+        );
+      res.type('html').send(html);
+    } catch (err) {
+      next(err);
+    }
+  });
   app.use(express.static(publicDir));
 
   // Serve bundle artifacts (screenshots, HTML proof, aria tree, parsed
