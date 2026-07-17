@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chooseShipmentMatch, rankShipmentMatches } from './shipmentDocumentMatcher.js';
 
+const updatedAt = new Date('2026-07-17T00:00:00.000Z');
 const rows = [
-  { refId: 'S00011', bookingRef: 'MAEU-9032111', customerName: 'Access Air', shipperName: 'ABC Machinery', receiverName: 'Port Client', carrierPreference: 'Maersk', pol: 'Montreal', pod: 'Antwerp', containerType: '40HC' },
-  { refId: 'S00012', bookingRef: 'MSC-218754', customerName: 'Other Customer', shipperName: 'ABC Machinery', receiverName: 'Port Client', carrierPreference: 'MSC', pol: 'Montreal', pod: 'Hamburg', containerType: '40HC' },
+  { refId: 'S00011', updatedAt, bookingRef: 'MAEU-9032111', customerName: 'Access Air', shipperName: 'ABC Machinery', receiverName: 'Port Client', carrierPreference: 'Maersk', pol: 'Montreal', pod: 'Antwerp', containerType: '40HC' },
+  { refId: 'S00012', updatedAt, bookingRef: 'MSC-218754', customerName: 'Other Customer', shipperName: 'ABC Machinery', receiverName: 'Port Client', carrierPreference: 'MSC', pol: 'Montreal', pod: 'Hamburg', containerType: '40HC' },
 ];
 
 test('internal shipment reference is decisive', () => {
