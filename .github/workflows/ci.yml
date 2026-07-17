@@ -42,6 +42,7 @@ jobs:
           node --check src/server/public/shipment-report-ui.js
           node --check src/server/public/shipment-email-ui.js
           node --check src/server/public/shipment-update-ui.js
+          node --check src/server/public/trucking-estimate-ui.js
 
       - name: TypeScript build
         run: pnpm build
