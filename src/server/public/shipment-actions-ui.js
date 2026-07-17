@@ -44,6 +44,7 @@
     wrap.innerHTML = `
       <button type="button" class="ship-row-action-trigger" aria-haspopup="menu" aria-expanded="false" title="Shipment actions">Actions</button>
       <div class="ship-row-action-menu" role="menu" hidden>
+        <button type="button" data-action="operations" role="menuitem">Containers & follow-ups</button>
         <button type="button" data-action="update" role="menuitem">Update from message</button>
         <button type="button" data-action="email" role="menuitem">Create email</button>
         <button type="button" data-action="report" role="menuitem">Create status report</button>
@@ -66,6 +67,10 @@
       const action = button.dataset.action;
       menu.hidden = true;
       trigger.setAttribute('aria-expanded', 'false');
+      if (action === 'operations') {
+        openShipmentTools();
+        document.dispatchEvent(new CustomEvent('shipment-operations-for-ref', { detail: { refId } }));
+      }
       if (action === 'update') focusCard('shipment-update-card', 'ship-update-ref', refId);
       if (action === 'email') focusCard('shipment-email-card', 'ship-email-ref', refId);
       if (action === 'report') {
@@ -107,7 +112,7 @@
     style.textContent = `
       .ship-row-actions{position:relative;display:inline-block}
       .ship-row-action-trigger{white-space:nowrap;border:1px solid rgba(148,163,184,.28);background:rgba(15,23,42,.72);color:inherit;border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px}
-      .ship-row-action-menu{position:absolute;right:0;top:calc(100% + 5px);z-index:120;min-width:190px;padding:6px;border:1px solid rgba(148,163,184,.28);border-radius:9px;background:#0f1b30;box-shadow:0 15px 40px rgba(0,0,0,.38)}
+      .ship-row-action-menu{position:absolute;right:0;top:calc(100% + 5px);z-index:120;min-width:205px;padding:6px;border:1px solid rgba(148,163,184,.28);border-radius:9px;background:#0f1b30;box-shadow:0 15px 40px rgba(0,0,0,.38)}
       .ship-row-action-menu button{display:block;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:9px;border-radius:6px;cursor:pointer}
       .ship-row-action-menu button:hover,.ship-row-action-menu button:focus-visible{background:rgba(56,189,248,.12);outline:none}
       .ship-row-actions-cell{overflow:visible!important}
