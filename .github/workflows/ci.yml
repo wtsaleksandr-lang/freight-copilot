@@ -29,7 +29,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --reporter=silent
       - name: TypeScript build
-        run: pnpm build
+        run: pnpm build > typecheck.log 2>&1
+      - name: Upload typecheck diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-diagnostics
+          path: typecheck.log
+          retention-days: 1
 
   build:
     runs-on: ubuntu-latest
