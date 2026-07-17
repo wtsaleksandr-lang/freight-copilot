@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const publicFile = (name: string) => resolve(process.cwd(), 'src/server/public', name);
 
 test('universal importer asks the user when classification is ambiguous', async ({ page }) => {
-  await page.setContent('<!doctype html><html><body></body></html>');
+  await page.setContent('<!doctype html><html><head><base href="http://freight.test/"></head><body></body></html>');
   await page.route('**/api/rates/classify', async (route) => {
     await route.fulfill({
       status: 200,
