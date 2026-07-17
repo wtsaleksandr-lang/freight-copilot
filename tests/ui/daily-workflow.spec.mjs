@@ -21,17 +21,34 @@ test('simple navigation exposes four daily choices and opens quote chooser', asy
 
 test('one compact action menu fills shipment tools without duplicate buttons', async ({ page }) => {
   await page.setContent(`<!doctype html><html><head></head><body>
-    <div id="shipment-report-card"></div><div id="shipment-email-card"><input id="ship-email-ref"><textarea></textarea></div><div id="shipment-update-card"><input id="ship-update-ref"><textarea></textarea></div>
+    <section id="tab-shipments"><div id="shipment-report-card" class="card"></div><div id="shipment-email-card" class="card"><input id="ship-email-ref"><textarea></textarea></div><div id="shipment-update-card" class="card"><input id="ship-update-ref"><textarea></textarea></div></section>
     <table id="ship-table"><thead><tr><th>Ref</th><th>Status</th></tr></thead><tbody><tr><td><code>S00042</code></td><td>Processing</td></tr></tbody></table>
   </body></html>`);
+  await page.addScriptTag({ path: publicFile('progressive-disclosure-ui.js') });
   await page.addScriptTag({ path: publicFile('shipment-actions-ui.js') });
+  await expect(page.locator('#shipment-tools-details')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Actions' })).toHaveCount(1);
   await page.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('menuitem', { name: 'Create email' }).click();
+  await expect(page.locator('#shipment-tools-details')).toHaveAttribute('open', '');
   await expect(page.locator('#ship-email-ref')).toHaveValue('S00042');
   await page.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('menuitem', { name: 'Update from message' }).click();
   await expect(page.locator('#ship-update-ref')).toHaveValue('S00042');
   await page.locator('#ship-table tbody').evaluate((body) => body.innerHTML = body.innerHTML);
   await expect(page.getByRole('button', { name: 'Actions' })).toHaveCount(1);
+});
+
+test('import cards stay hidden until that import workflow is selected', async ({ page }) => {
+  await page.setContent(`<!doctype html><html><head></head><body>
+    <div id="dr-ingest-card" class="card"><button>Upload drayage rates</button></div>
+    <div id="tr-ingest-card" class="card"><button>Upload trucking rates</button></div>
+  </body></html>`);
+  await page.addScriptTag({ path: publicFile('progressive-disclosure-ui.js') });
+  await expect(page.locator('#dr-ingest-card')).toHaveClass(/workflow-hidden/);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('workflow-selected', { detail: { kind: 'import', tab: 'drayage' } })));
+  await expect(page.locator('#dr-ingest-card')).not.toHaveClass(/workflow-hidden/);
+  await expect(page.locator('#tr-ingest-card')).toHaveClass(/workflow-hidden/);
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('workflow-show-all')));
+  await expect(page.locator('#tr-ingest-card')).not.toHaveClass(/workflow-hidden/);
 });

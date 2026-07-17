@@ -9,7 +9,7 @@
     ],
     import: [
       { label: 'Ocean rate files', detail: 'Carrier PDFs and screenshots', tab: 'new', focus: '#sheet-dropzone' },
-      { label: 'Drayage rate files', detail: 'Emails, PDFs, sheets and images', tab: 'drayage', focus: '#dr-ingest-card' },
+      { label: 'Drayage rate files', detail: 'Emails, PDFs, sheets and images', tab: 'drayage', focus: '#dr-ingest-card, #dr-lib-dropzone' },
       { label: 'Trucking rate files', detail: 'Emails, PDFs, sheets and images', tab: 'trucking', focus: '#tr-ingest-card' },
     ],
   };
@@ -43,11 +43,12 @@
       attempts += 1;
       if (target) {
         clearInterval(timer);
+        target.closest('details')?.setAttribute('open', '');
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         target.classList.add('simple-focus-ring');
         setTimeout(() => target.classList.remove('simple-focus-ring'), 1800);
         target.querySelector?.('input, textarea, select, button')?.focus?.({ preventScroll: true });
-      } else if (attempts > 12) clearInterval(timer);
+      } else if (attempts > 20) clearInterval(timer);
     }, 100);
   }
 
@@ -83,6 +84,7 @@
       button.addEventListener('click', () => {
         const item = items[Number(button.dataset.choice)];
         closeDialog();
+        document.dispatchEvent(new CustomEvent('workflow-selected', { detail: { kind, ...item } }));
         activateTab(item.tab);
         focusTarget(item.focus);
       });
@@ -109,6 +111,7 @@
           <button type="button" data-simple-tab="history">History</button>
           <button type="button" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" data-simple-tab="intellcluster">IntellCluster</button>
+          <button type="button" data-action="show-all">Show all tools</button>
           <button type="button" data-action="help">Help</button>
         </div>
       </div>`;
@@ -130,6 +133,10 @@
       event.stopPropagation();
       moreMenu.hidden = !moreMenu.hidden;
       moreButton.setAttribute('aria-expanded', String(!moreMenu.hidden));
+    });
+    nav.querySelector('[data-action="show-all"]').addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('workflow-show-all'));
+      moreMenu.hidden = true;
     });
     nav.querySelector('[data-action="help"]').addEventListener('click', () => {
       document.getElementById('help-btn')?.click();
