@@ -42,11 +42,18 @@ jobs:
           node --check src/server/public/shipment-report-ui.js
           node --check src/server/public/shipment-email-ui.js
           node --check src/server/public/shipment-update-ui.js
+          node --check src/server/public/shipment-actions-ui.js
           node --check src/server/public/trucking-estimate-ui.js
           node --check src/server/public/drayage-estimate-ui.js
           node --check src/server/public/trucking-ingestion-ui.js
           node --check src/server/public/drayage-ingestion-ui.js
           node --check src/server/public/usability-shell.js
+
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser workflow smoke tests
+        run: pnpm exec playwright test
 
       - name: TypeScript build
         run: pnpm build
