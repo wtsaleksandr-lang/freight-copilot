@@ -8,6 +8,7 @@ export function registerShipmentReportRoute(app: Express): void {
   app.get('/api/shipments/report', async (req: Request, res: Response) => {
     try {
       const customer = String(req.query.customer ?? '').trim();
+      const refId = String(req.query.refId ?? '').trim();
       const scope = String(req.query.scope ?? 'active').trim();
       const db = createDbClient();
 
@@ -32,17 +33,19 @@ export function registerShipmentReportRoute(app: Express): void {
         })
         .from(shipments)
         .where(
-          customer
-            ? or(
-                ilike(shipments.customerName, `%${customer}%`),
-                ilike(shipments.shipperName, `%${customer}%`),
-                ilike(shipments.receiverName, `%${customer}%`)
-              )
-            : undefined
+          refId
+            ? eq(shipments.refId, refId)
+            : customer
+              ? or(
+                  ilike(shipments.customerName, `%${customer}%`),
+                  ilike(shipments.shipperName, `%${customer}%`),
+                  ilike(shipments.receiverName, `%${customer}%`)
+                )
+              : undefined
         )
         .orderBy(asc(shipments.customerName), desc(shipments.updatedAt));
 
-      const filtered = scope === 'all'
+      const filtered = refId || scope === 'all'
         ? rows
         : rows.filter((row) => {
             const status = (row.operationalStatus ?? '').toLowerCase();
@@ -50,7 +53,7 @@ export function registerShipmentReportRoute(app: Express): void {
           });
 
       const report = buildShipmentStatusReport(filtered);
-      res.json({ scope, customer: customer || null, ...report });
+      res.json({ scope, customer: customer || null, refId: refId || null, ...report });
     } catch (err) {
       console.error('[api/shipments/report] error:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
