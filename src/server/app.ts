@@ -13,6 +13,7 @@ import { registerTruckingRateIngestionRoute } from './truckingRateIngestionRoute
 import { registerDrayageRateIngestionRoute } from './drayageRateIngestionRoute.js';
 import { registerUniversalRateIngestionRoute } from './universalRateIngestionRoute.js';
 import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
+import { registerClientQuoteRoute } from './clientQuoteRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -30,6 +31,7 @@ const CLIENT_SCRIPTS = [
   'app.js',
   'progressive-disclosure-ui.js',
   'universal-rate-ingestion-ui.js',
+  'client-quote-ui.js',
   'system-check-ui.js',
   'usability-shell.js',
 ] as const;
@@ -64,6 +66,7 @@ export function createApp(): express.Express {
   registerDrayageRateIngestionRoute(app);
   registerUniversalRateIngestionRoute(app);
   registerRuntimeHealthRoute(app);
+  registerClientQuoteRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
