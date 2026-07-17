@@ -11,8 +11,31 @@ import { registerShipmentOperationsRoute } from './shipmentOperationsRoute.js';
 import { registerTruckingRateIngestionRoute } from './truckingRateIngestionRoute.js';
 import { registerDrayageRateIngestionRoute } from './drayageRateIngestionRoute.js';
 import { registerUniversalRateIngestionRoute } from './universalRateIngestionRoute.js';
+import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
+
+const CLIENT_SCRIPTS = [
+  'freshness-ui.js',
+  'shipment-report-ui.js',
+  'shipment-email-ui.js',
+  'shipment-update-ui.js',
+  'shipment-operations-ui.js',
+  'shipment-actions-ui.js',
+  'trucking-estimate-ui.js',
+  'drayage-estimate-ui.js',
+  'trucking-ingestion-ui.js',
+  'drayage-ingestion-ui.js',
+  'app.js',
+  'progressive-disclosure-ui.js',
+  'universal-rate-ingestion-ui.js',
+  'system-check-ui.js',
+  'usability-shell.js',
+] as const;
+
+function scriptTags(): string {
+  return CLIENT_SCRIPTS.map((name) => `<script src="/${name}"></script>`).join('\n  ');
+}
 
 export function createApp(): express.Express {
   const app = express();
@@ -38,6 +61,7 @@ export function createApp(): express.Express {
   registerTruckingRateIngestionRoute(app);
   registerDrayageRateIngestionRoute(app);
   registerUniversalRateIngestionRoute(app);
+  registerRuntimeHealthRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
@@ -47,7 +71,7 @@ export function createApp(): express.Express {
       const source = await readFile(indexPath, 'utf8');
       const html = source
         .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">')
-        .replace('<script src="/app.js"></script>', '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/shipment-update-ui.js"></script>\n  <script src="/shipment-operations-ui.js"></script>\n  <script src="/shipment-actions-ui.js"></script>\n  <script src="/trucking-estimate-ui.js"></script>\n  <script src="/drayage-estimate-ui.js"></script>\n  <script src="/trucking-ingestion-ui.js"></script>\n  <script src="/drayage-ingestion-ui.js"></script>\n  <script src="/app.js"></script>\n  <script src="/progressive-disclosure-ui.js"></script>\n  <script src="/universal-rate-ingestion-ui.js"></script>\n  <script src="/usability-shell.js"></script>');
+        .replace('<script src="/app.js"></script>', scriptTags());
       res.type('html').send(html);
     } catch (err) { next(err); }
   });
