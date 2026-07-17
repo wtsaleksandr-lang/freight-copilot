@@ -107,6 +107,7 @@
           <button type="button" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" data-simple-tab="intellcluster">IntellCluster</button>
           <button type="button" data-action="show-all">Show all tools</button>
+          <button type="button" data-action="system-check">System check</button>
           <button type="button" data-action="help">Help</button>
         </div>
       </div>`;
@@ -134,6 +135,11 @@
     nav.querySelector('[data-action="show-all"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('workflow-show-all'));
       moreMenu.hidden = true;
+    });
+    nav.querySelector('[data-action="system-check"]').addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('system-check-open'));
+      moreMenu.hidden = true;
+      moreButton.setAttribute('aria-expanded', 'false');
     });
     nav.querySelector('[data-action="help"]').addEventListener('click', () => {
       document.getElementById('help-btn')?.click();
