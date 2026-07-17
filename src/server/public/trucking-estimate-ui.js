@@ -1,7 +1,7 @@
 (function installTruckingEstimateUi() {
   'use strict';
 
-  const HIST_CODE = 'HIST_TRUCK_ESTIMATE';
+  const HIST_CODE = 'HIST_ESTIMATE';
 
   function esc(value) {
     return String(value ?? '')
