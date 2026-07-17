@@ -48,6 +48,7 @@ jobs:
           node --check src/server/public/drayage-estimate-ui.js
           node --check src/server/public/trucking-ingestion-ui.js
           node --check src/server/public/drayage-ingestion-ui.js
+          node --check src/server/public/universal-rate-ingestion-ui.js
           node --check src/server/public/usability-shell.js
 
       - name: Install browser
