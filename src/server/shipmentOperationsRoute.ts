@@ -9,7 +9,8 @@ import {
 
 function cleanRef(req: Request): string {
   const raw = req.params.refId;
-  return (Array.isArray(raw) ? raw[0] : raw || '').trim();
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function validDate(value: unknown): boolean {
