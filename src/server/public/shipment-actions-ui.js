@@ -12,7 +12,12 @@
     });
   }
 
+  function openShipmentTools() {
+    document.getElementById('shipment-tools-details')?.setAttribute('open', '');
+  }
+
   function focusCard(cardId, inputId, refId) {
+    openShipmentTools();
     const card = document.getElementById(cardId);
     const input = document.getElementById(inputId);
     if (input) {
@@ -64,6 +69,7 @@
       if (action === 'update') focusCard('shipment-update-card', 'ship-update-ref', refId);
       if (action === 'email') focusCard('shipment-email-card', 'ship-email-ref', refId);
       if (action === 'report') {
+        openShipmentTools();
         document.dispatchEvent(new CustomEvent('shipment-report-for-ref', { detail: { refId } }));
         document.getElementById('shipment-report-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
