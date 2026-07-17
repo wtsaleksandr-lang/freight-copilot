@@ -8,6 +8,7 @@ import { registerShipmentReportRoute } from './shipmentReportRoute.js';
 import { registerShipmentEmailRoute } from './shipmentEmailRoute.js';
 import { registerShipmentUpdateIntakeRoute } from './shipmentUpdateIntakeRoute.js';
 import { registerTruckingRateIngestionRoute } from './truckingRateIngestionRoute.js';
+import { registerDrayageRateIngestionRoute } from './drayageRateIngestionRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -32,6 +33,7 @@ export function createApp(): express.Express {
   registerShipmentEmailRoute(app);
   registerShipmentUpdateIntakeRoute(app);
   registerTruckingRateIngestionRoute(app);
+  registerDrayageRateIngestionRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
@@ -41,7 +43,7 @@ export function createApp(): express.Express {
       const source = await readFile(indexPath, 'utf8');
       const html = source
         .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">')
-        .replace('<script src="/app.js"></script>', '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/shipment-update-ui.js"></script>\n  <script src="/trucking-estimate-ui.js"></script>\n  <script src="/trucking-ingestion-ui.js"></script>\n  <script src="/app.js"></script>');
+        .replace('<script src="/app.js"></script>', '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/shipment-update-ui.js"></script>\n  <script src="/trucking-estimate-ui.js"></script>\n  <script src="/trucking-ingestion-ui.js"></script>\n  <script src="/drayage-ingestion-ui.js"></script>\n  <script src="/app.js"></script>');
       res.type('html').send(html);
     } catch (err) { next(err); }
   });
