@@ -35,16 +35,17 @@
     const pane = document.getElementById('tab-shipments');
     if (!pane || document.getElementById('shipment-tools-details')) return false;
     const cards = [
+      document.getElementById('shipment-operations-card'),
       document.getElementById('shipment-report-card'),
       document.getElementById('shipment-email-card'),
       document.getElementById('shipment-update-card'),
     ].filter(Boolean);
-    if (cards.length < 3) return false;
+    if (cards.length < 4) return false;
 
     const details = document.createElement('details');
     details.id = 'shipment-tools-details';
     details.className = 'shipment-tools-details';
-    details.innerHTML = '<summary><strong>Shipment tools</strong><span>Updates, emails and status reports</span></summary><div class="shipment-tools-body"></div>';
+    details.innerHTML = '<summary><strong>Shipment tools</strong><span>Containers, follow-ups, updates, emails and reports</span></summary><div class="shipment-tools-body"></div>';
     const body = details.querySelector('.shipment-tools-body');
     const anchor = cards[0];
     anchor.parentNode.insertBefore(details, anchor);
@@ -55,7 +56,7 @@
   function openShipmentToolsForTarget(event) {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest('#shipment-report-card, #shipment-email-card, #shipment-update-card')) {
+    if (target.closest('#shipment-operations-card, #shipment-report-card, #shipment-email-card, #shipment-update-card')) {
       document.getElementById('shipment-tools-details')?.setAttribute('open', '');
     }
   }
@@ -95,6 +96,7 @@
     document.addEventListener('workflow-show-all', showAll);
     document.addEventListener('click', openShipmentToolsForTarget, true);
     document.addEventListener('shipment-report-for-ref', () => document.getElementById('shipment-tools-details')?.setAttribute('open', ''));
+    document.addEventListener('shipment-operations-for-ref', () => document.getElementById('shipment-tools-details')?.setAttribute('open', ''));
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
