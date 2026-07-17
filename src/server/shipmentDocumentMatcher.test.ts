@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { chooseShipmentMatch, rankShipmentMatches } from './shipmentDocumentMatcher.js';
 
 const rows = [
@@ -6,27 +7,25 @@ const rows = [
   { refId: 'S00012', bookingRef: 'MSC-218754', customerName: 'Other Customer', shipperName: 'ABC Machinery', receiverName: 'Port Client', carrierPreference: 'MSC', pol: 'Montreal', pod: 'Hamburg', containerType: '40HC' },
 ];
 
-describe('shipment document matching', () => {
-  it('uses an internal shipment reference as decisive evidence', () => {
-    const result = chooseShipmentMatch({ internalRef: 'S00012' }, rows);
-    expect(result.status).toBe('matched');
-    if (result.status === 'matched') expect(result.match.shipment.refId).toBe('S00012');
-  });
+test('internal shipment reference is decisive', () => {
+  const result = chooseShipmentMatch({ internalRef: 'S00012' }, rows);
+  assert.equal(result.status, 'matched');
+  if (result.status === 'matched') assert.equal(result.match.shipment.refId, 'S00012');
+});
 
-  it('uses an exact booking reference as decisive evidence', () => {
-    const result = chooseShipmentMatch({ bookingRef: 'MAEU 9032111' }, rows);
-    expect(result.status).toBe('matched');
-    if (result.status === 'matched') expect(result.match.shipment.refId).toBe('S00011');
-  });
+test('exact booking reference is decisive despite punctuation', () => {
+  const result = chooseShipmentMatch({ bookingRef: 'MAEU 9032111' }, rows);
+  assert.equal(result.status, 'matched');
+  if (result.status === 'matched') assert.equal(result.match.shipment.refId, 'S00011');
+});
 
-  it('returns ambiguous candidates when evidence is shared', () => {
-    const result = chooseShipmentMatch({ shipperName: 'ABC Machinery', containerType: '40HC' }, rows);
-    expect(result.status).toBe('ambiguous');
-  });
+test('shared evidence returns ambiguous candidates', () => {
+  const result = chooseShipmentMatch({ shipperName: 'ABC Machinery', containerType: '40HC' }, rows);
+  assert.equal(result.status, 'ambiguous');
+});
 
-  it('ranks a matching route above a partial party match', () => {
-    const ranked = rankShipmentMatches({ customerName: 'Access Air', pol: 'Montreal', pod: 'Antwerp' }, rows);
-    expect(ranked[0]?.shipment.refId).toBe('S00011');
-    expect(ranked[0]?.evidence).toContain('POD');
-  });
+test('matching route ranks above partial party match', () => {
+  const ranked = rankShipmentMatches({ customerName: 'Access Air', pol: 'Montreal', pod: 'Antwerp' }, rows);
+  assert.equal(ranked[0]?.shipment.refId, 'S00011');
+  assert.ok(ranked[0]?.evidence.includes('POD'));
 });
