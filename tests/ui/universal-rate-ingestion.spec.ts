@@ -27,7 +27,7 @@ test('universal importer classifies and routes trucking files', async ({ page })
   await page.getByRole('button', { name: 'Detect and open reviewer' }).click();
   await expect(page.locator('#tab-trucking')).toHaveClass(/active/);
   await expect.poll(() => page.evaluate(() => window.truckingClicked)).toBe(true);
-  await expect(page.locator('#tr-ingest-files')).toHaveJSProperty('files.length', 1);
+  await expect.poll(() => page.locator('#tr-ingest-files').evaluate((input: HTMLInputElement) => input.files?.length ?? 0)).toBe(1);
 });
 
 test('ambiguous classification asks the user instead of guessing', async ({ page }) => {
