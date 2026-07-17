@@ -13,6 +13,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --reporter=silent
+      - name: TypeScript build
+        run: pnpm build
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -57,6 +75,3 @@ jobs:
 
       - name: Browser workflow smoke tests
         run: pnpm exec playwright test
-
-      - name: TypeScript build
-        run: pnpm build
