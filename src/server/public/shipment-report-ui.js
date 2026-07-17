@@ -52,16 +52,17 @@
     table.innerHTML = head + `<tbody>${body}</tbody>`;
   }
 
-  async function generateReport() {
+  async function generateReport(refIdOverride) {
     const btn = document.getElementById('ship-report-generate');
     const status = document.getElementById('ship-report-status');
     const scope = document.getElementById('ship-report-scope').value;
     const customer = document.getElementById('ship-report-customer').value.trim();
     const params = new URLSearchParams({ scope });
-    if (customer) params.set('customer', customer);
+    if (refIdOverride) params.set('refId', refIdOverride);
+    else if (customer) params.set('customer', customer);
 
     btn.disabled = true;
-    status.textContent = 'Generating…';
+    status.textContent = refIdOverride ? `Generating ${refIdOverride}…` : 'Generating…';
     try {
       const response = await fetch(`/api/shipments/report?${params.toString()}`);
       const report = await response.json();
@@ -72,7 +73,7 @@
       document.getElementById('ship-report-text').value = report.text;
       document.getElementById('ship-report-output').hidden = false;
       renderTable(report);
-      status.textContent = 'Report ready.';
+      status.textContent = refIdOverride ? `${refIdOverride} report ready.` : 'Report ready.';
     } catch (err) {
       status.textContent = err.message;
     } finally {
@@ -119,8 +120,12 @@
         <div class="row"><button id="ship-report-copy" class="btn-sm" type="button">Copy report</button></div>
       </div>`;
     pane.prepend(card);
-    document.getElementById('ship-report-generate').addEventListener('click', generateReport);
+    document.getElementById('ship-report-generate').addEventListener('click', () => generateReport());
     document.getElementById('ship-report-copy').addEventListener('click', copyReport);
+    document.addEventListener('shipment-report-for-ref', (event) => {
+      const refId = event.detail?.refId;
+      if (refId) void generateReport(refId);
+    });
   }
 
   if (document.readyState === 'loading') {
