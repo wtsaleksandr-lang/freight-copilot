@@ -44,6 +44,7 @@ jobs:
           node --check src/server/public/shipment-update-ui.js
           node --check src/server/public/trucking-estimate-ui.js
           node --check src/server/public/trucking-ingestion-ui.js
+          node --check src/server/public/drayage-ingestion-ui.js
 
       - name: TypeScript build
         run: pnpm build
