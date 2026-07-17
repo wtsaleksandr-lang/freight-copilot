@@ -103,6 +103,7 @@
       <div class="simple-more-wrap">
         <button type="button" data-action="more" aria-expanded="false">More</button>
         <div class="simple-more-menu" hidden>
+          <button type="button" data-action="client-quote">Create client quote</button>
           <button type="button" data-simple-tab="history">History</button>
           <button type="button" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" data-simple-tab="intellcluster">IntellCluster</button>
@@ -131,6 +132,11 @@
       event.stopPropagation();
       moreMenu.hidden = !moreMenu.hidden;
       moreButton.setAttribute('aria-expanded', String(!moreMenu.hidden));
+    });
+    nav.querySelector('[data-action="client-quote"]').addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('client-quote-open'));
+      moreMenu.hidden = true;
+      moreButton.setAttribute('aria-expanded', 'false');
     });
     nav.querySelector('[data-action="show-all"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('workflow-show-all'));
