@@ -19,18 +19,22 @@ test('simple navigation exposes four daily choices and opens quote chooser', asy
   await expect(page.locator('#tab-drayage')).toHaveClass(/active/);
 });
 
-test('one compact action menu fills shipment tools without duplicate buttons', async ({ page }) => {
+test('one compact action menu opens shipment tools without duplicate buttons', async ({ page }) => {
   await page.setContent(`<!doctype html><html><head></head><body>
-    <section id="tab-shipments"><div id="shipment-report-card" class="card"></div><div id="shipment-email-card" class="card"><input id="ship-email-ref"><textarea></textarea></div><div id="shipment-update-card" class="card"><input id="ship-update-ref"><textarea></textarea></div></section>
+    <section id="tab-shipments"><div id="shipment-operations-card" class="card"></div><div id="shipment-report-card" class="card"></div><div id="shipment-email-card" class="card"><input id="ship-email-ref"><textarea></textarea></div><div id="shipment-update-card" class="card"><input id="ship-update-ref"><textarea></textarea></div></section>
     <table id="ship-table"><thead><tr><th>Ref</th><th>Status</th></tr></thead><tbody><tr><td><code>S00042</code></td><td>Processing</td></tr></tbody></table>
   </body></html>`);
   await page.addScriptTag({ path: publicFile('progressive-disclosure-ui.js') });
   await page.addScriptTag({ path: publicFile('shipment-actions-ui.js') });
   await expect(page.locator('#shipment-tools-details')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Actions' })).toHaveCount(1);
+  const operationEvent = page.evaluate(() => new Promise((resolve) => document.addEventListener('shipment-operations-for-ref', (event) => resolve(event.detail.refId), { once: true })));
+  await page.getByRole('button', { name: 'Actions' }).click();
+  await page.getByRole('menuitem', { name: 'Containers & follow-ups' }).click();
+  await expect(operationEvent).resolves.toBe('S00042');
+  await expect(page.locator('#shipment-tools-details')).toHaveAttribute('open', '');
   await page.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('menuitem', { name: 'Create email' }).click();
-  await expect(page.locator('#shipment-tools-details')).toHaveAttribute('open', '');
   await expect(page.locator('#ship-email-ref')).toHaveValue('S00042');
   await page.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('menuitem', { name: 'Update from message' }).click();
