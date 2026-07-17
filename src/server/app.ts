@@ -42,8 +42,8 @@ export function createApp(): express.Express {
       const indexPath = resolve(publicDir, 'index.html');
       const source = await readFile(indexPath, 'utf8');
       const html = source
-        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">')
-        .replace('<script src="/app.js"></script>', '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/shipment-update-ui.js"></script>\n  <script src="/trucking-estimate-ui.js"></script>\n  <script src="/drayage-estimate-ui.js"></script>\n  <script src="/trucking-ingestion-ui.js"></script>\n  <script src="/drayage-ingestion-ui.js"></script>\n  <script src="/app.js"></script>');
+        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">')
+        .replace('<script src="/app.js"></script>', '<script src="/freshness-ui.js"></script>\n  <script src="/shipment-report-ui.js"></script>\n  <script src="/shipment-email-ui.js"></script>\n  <script src="/shipment-update-ui.js"></script>\n  <script src="/trucking-estimate-ui.js"></script>\n  <script src="/drayage-estimate-ui.js"></script>\n  <script src="/trucking-ingestion-ui.js"></script>\n  <script src="/drayage-ingestion-ui.js"></script>\n  <script src="/app.js"></script>\n  <script src="/usability-shell.js"></script>');
       res.type('html').send(html);
     } catch (err) { next(err); }
   });
