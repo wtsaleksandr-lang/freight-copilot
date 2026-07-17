@@ -1,5 +1,6 @@
 export type MatchableShipment = {
   refId: string;
+  updatedAt?: Date;
   bookingRef?: string | null;
   customerName?: string | null;
   shipperName?: string | null;
