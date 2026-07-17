@@ -7,11 +7,6 @@
       { label: 'Drayage quote', detail: 'Port-to-door container trucking', tab: 'drayage', focus: '#dr-form, #drayage-form' },
       { label: 'Trucking quote', detail: 'FTL and LTL ground freight', tab: 'trucking', focus: '#tr-form, #trucking-form' },
     ],
-    import: [
-      { label: 'Ocean rate files', detail: 'Carrier PDFs and screenshots', tab: 'new', focus: '#sheet-dropzone' },
-      { label: 'Drayage rate files', detail: 'Emails, PDFs, sheets and images', tab: 'drayage', focus: '#dr-ingest-card, #dr-lib-dropzone' },
-      { label: 'Trucking rate files', detail: 'Emails, PDFs, sheets and images', tab: 'trucking', focus: '#tr-ingest-card' },
-    ],
   };
 
   function esc(value) {
@@ -58,7 +53,7 @@
 
   function openTaskDialog(kind) {
     closeDialog();
-    const title = kind === 'quote' ? 'What do you need to quote?' : 'What type of rates are you importing?';
+    const title = 'What do you need to quote?';
     const items = TASKS[kind];
     const backdrop = document.createElement('div');
     backdrop.id = 'simple-task-dialog';
@@ -118,7 +113,9 @@
     header.appendChild(nav);
 
     nav.querySelector('[data-action="quote"]').addEventListener('click', () => openTaskDialog('quote'));
-    nav.querySelector('[data-action="import"]').addEventListener('click', () => openTaskDialog('import'));
+    nav.querySelector('[data-action="import"]').addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('universal-rate-import-open'));
+    });
     nav.querySelectorAll('[data-simple-tab]').forEach((button) => {
       button.addEventListener('click', () => {
         activateTab(button.dataset.simpleTab);
