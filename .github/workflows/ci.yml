@@ -76,6 +76,7 @@ jobs:
           node --check src/server/public/drayage-ingestion-ui.js
           node --check src/server/public/universal-rate-ingestion-ui.js
           node --check src/server/public/client-quote-ui.js
+          node --check src/server/public/client-quote-actions-ui.js
           node --check src/server/public/system-check-ui.js
           node --check src/server/public/usability-shell.js
 
