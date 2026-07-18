@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const publicFile = (name: string) => resolve(process.cwd(), 'src/server/public', name);
 
 test('saved trucking result opens client quote with its reference', async ({ page }) => {
-  await page.setContent(`<!doctype html><html><body>
+  await page.setContent(`<!doctype html><html><head><base href="http://freight.test/"></head><body>
     <div id="tr-result-card" class="card" hidden><h2>Trucking result</h2></div>
     <script>
       window.openedQuote = null;
