@@ -33,6 +33,7 @@ const CLIENT_SCRIPTS = [
   'progressive-disclosure-ui.js',
   'universal-rate-ingestion-ui.js',
   'client-quote-ui.js',
+  'client-quote-actions-ui.js',
   'system-check-ui.js',
   'usability-shell.js',
 ] as const;
