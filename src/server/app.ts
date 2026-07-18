@@ -14,6 +14,7 @@ import { registerDrayageRateIngestionRoute } from './drayageRateIngestionRoute.j
 import { registerUniversalRateIngestionRoute } from './universalRateIngestionRoute.js';
 import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
 import { registerClientQuoteRoute } from './clientQuoteRoute.js';
+import { registerClientQuotePrefillRoute } from './clientQuotePrefillRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -67,6 +68,7 @@ export function createApp(): express.Express {
   registerUniversalRateIngestionRoute(app);
   registerRuntimeHealthRoute(app);
   registerClientQuoteRoute(app);
+  registerClientQuotePrefillRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
