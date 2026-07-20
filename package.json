@@ -8,6 +8,9 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
+    "start": "node dist/production.js",
+    "start:desktop": "pnpm build && node dist/production.js",
+    "deploy:prepare": "pnpm install --frozen-lockfile && pnpm build",
     "test": "node --import tsx --test src/**/*.test.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
