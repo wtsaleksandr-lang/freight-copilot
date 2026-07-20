@@ -36,6 +36,7 @@ const CLIENT_SCRIPTS = [
   'client-quote-actions-ui.js',
   'system-check-ui.js',
   'usability-shell.js',
+  'shipment-grid-enhancements-ui.js',
 ] as const;
 
 function scriptTags(): string {
@@ -78,7 +79,7 @@ export function createApp(): express.Express {
       const indexPath = resolve(publicDir, 'index.html');
       const source = await readFile(indexPath, 'utf8');
       const html = source
-        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">')
+        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">\n  <link rel="stylesheet" href="/shipment-grid-enhancements.css">')
         .replace('<script src="/app.js"></script>', scriptTags());
       res.type('html').send(html);
     } catch (err) { next(err); }
