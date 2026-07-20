@@ -1,23 +1,45 @@
 @echo off
-REM Freight Copilot dashboard launcher.
-REM Starts the Express server, then opens your default browser to localhost:3000.
-REM If the dashboard is already running, just opens the browser and exits.
+setlocal
+REM LoadMode desktop launcher. Builds the current code, starts the production
+REM server on all interfaces, and opens the local dashboard.
 
-title Freight Copilot Dashboard
+title LoadMode Dashboard
 cd /d "%~dp0"
 
-REM Detect whether port 3000 is already in use
+where pnpm >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: pnpm is not installed or is not on PATH.
+    echo Install Node.js and then run: npm install -g pnpm
+    pause
+    exit /b 1
+)
+
+REM If the dashboard is already running, only open it.
 netstat -ano | findstr ":3000" | findstr "LISTENING" >nul
 if %errorlevel% equ 0 (
-    echo Freight Copilot is already running on port 3000.
+    echo LoadMode is already running on port 3000.
     start "" http://localhost:3000
-    timeout /t 2 >nul
     exit /b 0
 )
 
-REM Open browser in ~4s so the server has time to boot
-start "" /b cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:3000"
+if not exist ".env" (
+    echo ERROR: .env is missing.
+    echo Copy .env.example to .env and add DATABASE_URL, the AI key, and auth.
+    pause
+    exit /b 1
+)
 
-REM Run the server (blocks this window until Ctrl+C or close).
-REM --host 0.0.0.0 = reachable on LAN + Tailscale (not just this PC).
-pnpm dev serve --host 0.0.0.0
+set HOST=0.0.0.0
+if "%PORT%"=="" set PORT=3000
+
+REM Open the browser after the server has had time to start.
+start "" /b cmd /c "timeout /t 5 /nobreak >nul & start http://localhost:%PORT%"
+
+echo Starting LoadMode on port %PORT%...
+pnpm start:desktop
+
+if errorlevel 1 (
+    echo.
+    echo LoadMode stopped with an error. Review the message above.
+    pause
+)
