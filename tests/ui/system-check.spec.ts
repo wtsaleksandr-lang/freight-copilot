@@ -5,8 +5,8 @@ const publicFile = (name: string) => resolve(process.cwd(), 'src/server/public',
 
 test('system check stays under More and reports readiness', async ({ page }) => {
   await page.setContent(`<!doctype html><html><head><base href="http://freight.test/"></head><body>
-    <header><div>Freight Copilot</div><nav><button class="tab" data-tab="new">Ocean</button><button class="tab" data-tab="shipments">Shipments</button><button class="tab" data-tab="history">History</button><button class="tab" data-tab="delaypredict">DelayPredict</button><button class="tab" data-tab="intellcluster">IntellCluster</button><button id="help-btn">?</button></nav></header>
-    <section id="tab-new" class="tab-pane"></section><section id="tab-shipments" class="tab-pane"></section><section id="tab-history" class="tab-pane"></section><section id="tab-delaypredict" class="tab-pane"></section><section id="tab-intellcluster" class="tab-pane"></section>
+    <header><div>Freight Copilot</div><nav><button class="tab" data-tab="new">Ocean</button><button class="tab" data-tab="shipments">Shipments</button><button class="tab" data-tab="drayage">Drayage</button><button class="tab" data-tab="trucking">Trucking</button><button class="tab" data-tab="history">History</button><button class="tab" data-tab="delaypredict">DelayPredict</button><button class="tab" data-tab="intellcluster">IntellCluster</button><button id="help-btn">?</button></nav></header>
+    <main><section id="tab-new" class="tab-pane"></section><section id="tab-shipments" class="tab-pane"></section><section id="tab-drayage" class="tab-pane"></section><section id="tab-trucking" class="tab-pane"></section><section id="tab-history" class="tab-pane"></section><section id="tab-delaypredict" class="tab-pane"></section><section id="tab-intellcluster" class="tab-pane"></section></main>
   </body></html>`);
   await page.route('**/api/health/ready', async (route) => {
     await route.fulfill({
@@ -23,7 +23,7 @@ test('system check stays under More and reports readiness', async ({ page }) => 
   });
   await page.addScriptTag({ path: publicFile('system-check-ui.js') });
   await page.addScriptTag({ path: publicFile('usability-shell.js') });
-  await expect(page.locator('#simple-nav > button, #simple-nav .simple-more-wrap > button')).toHaveCount(4);
+  await expect(page.locator('#simple-nav > button, #simple-nav .simple-more-wrap > button')).toHaveCount(5);
   await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('button', { name: 'System check' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
