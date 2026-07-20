@@ -57,3 +57,19 @@ test('commercial notes can be omitted without changing rates', () => {
   assert.match(html, /USD 920\.00/);
   assert.doesNotMatch(html, /Commercial review|Rate basis:/);
 });
+
+test('export clearance uses export wording instead of an import template', () => {
+  const html = buildClientQuoteHtml({
+    template: 'export_clearance',
+    hsCode: '8703.80',
+    terminal: 'Port of Oakland',
+    services: [
+      { label: 'Export declaration / AES filing', amount: 95, basis: 'per shipment', category: 'firm' },
+      { label: 'Customs examination', amount: null, basis: 'if ordered', category: 'conditional' },
+    ],
+  });
+  assert.match(html, /Export customs clearance quotation/);
+  assert.match(html, /Export classification/);
+  assert.match(html, /HS 8703\.80/);
+  assert.doesNotMatch(html, /Import Duties and Taxes/);
+});
