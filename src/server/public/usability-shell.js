@@ -1,15 +1,20 @@
 (function installUsabilityShell() {
   'use strict';
 
-  function activateTab(name) {
+  function activateTab(requestedName) {
+    let name = requestedName;
+    if (name === 'trucking') {
+      name = 'drayage';
+      document.getElementById('drayage-trucking-section')?.setAttribute('open', '');
+    }
     document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.remove('active'));
     document.getElementById(`tab-${name}`)?.classList.add('active');
     document.querySelectorAll('[data-simple-tab]').forEach((button) => {
       button.classList.toggle('active', button.dataset.simpleTab === name);
       button.setAttribute('aria-current', button.dataset.simpleTab === name ? 'page' : 'false');
     });
-    document.dispatchEvent(new CustomEvent('workflow-selected', { detail: { tab: name } }));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.dispatchEvent(new CustomEvent('workflow-selected', { detail: { tab: requestedName } }));
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
   }
 
   function installClearanceWorkspace(main) {
@@ -82,16 +87,17 @@
     details.className = 'advanced-section drayage-trucking-section';
     details.innerHTML = '<summary><strong>Regular trucking rates</strong> <span class="muted small">FTL / LTL — open when needed</span></summary><div class="nested-trucking-workspace"></div>';
     const holder = details.querySelector('.nested-trucking-workspace');
-    while (trucking.firstChild) holder.appendChild(trucking.firstChild);
+    trucking.classList.remove('tab-pane', 'active');
+    trucking.classList.add('nested-trucking-pane');
+    holder.appendChild(trucking);
     drayage.appendChild(details);
-    trucking.remove();
   }
 
   function installShell() {
     const header = document.querySelector('header');
     const oldNav = header?.querySelector('nav');
-    const main = document.querySelector('main');
-    if (!header || !oldNav || !main || document.getElementById('simple-nav')) return;
+    const main = document.querySelector('main') || document.body;
+    if (!header || !oldNav || document.getElementById('simple-nav')) return;
 
     installClearanceWorkspace(main);
     moveTruckingIntoDrayage();
