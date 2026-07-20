@@ -7,14 +7,33 @@
       name = 'drayage';
       document.getElementById('drayage-trucking-section')?.setAttribute('open', '');
     }
-    document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.remove('active'));
-    document.getElementById(`tab-${name}`)?.classList.add('active');
+    const pane = document.getElementById(`tab-${name}`);
+    if (!pane) return false;
+    document.querySelectorAll('.tab-pane').forEach((item) => item.classList.remove('active'));
+    pane.classList.add('active');
     document.querySelectorAll('[data-simple-tab]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.simpleTab === name);
-      button.setAttribute('aria-current', button.dataset.simpleTab === name ? 'page' : 'false');
+      const active = button.dataset.simpleTab === name;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-current', active ? 'page' : 'false');
     });
     document.dispatchEvent(new CustomEvent('workflow-selected', { detail: { tab: requestedName } }));
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    return true;
+  }
+
+  function clearanceServices(kind) {
+    if (kind === 'export') {
+      return [
+        { label: 'Export customs declaration / filing', amount: null, basis: 'per shipment', category: 'firm' },
+        { label: 'Document handling', amount: null, basis: 'per shipment', category: 'firm' },
+        { label: 'Permit, inspection or examination charges', amount: null, basis: 'if applicable', category: 'conditional' },
+      ];
+    }
+    return [
+      { label: 'Customs clearance / entry', amount: null, basis: 'per entry', category: 'firm' },
+      { label: 'Brokerage and document handling', amount: null, basis: 'per shipment', category: 'firm' },
+      { label: 'Bond, permit or examination charges', amount: null, basis: 'if applicable', category: 'conditional' },
+    ];
   }
 
   function installClearanceWorkspace(main) {
@@ -25,17 +44,17 @@
     pane.innerHTML = `
       <div class="card clearance-intro">
         <h2>Import / export clearance quotes</h2>
-        <p class="muted">Prepare customs-clearance quotations separately from ocean and drayage. Choose the movement type, enter the commercial details, then open the client quote builder with the correct structure.</p>
+        <p class="muted">Prepare customs-clearance quotations separately from ocean and drayage. Enter the request details, then choose the applicable movement type.</p>
         <div class="clearance-choice-grid">
-          <button type="button" class="clearance-choice" data-clearance-template="import_usa" data-clearance-title="Import customs clearance quotation">
-            <strong>Import clearance</strong>
+          <button type="button" class="clearance-choice" data-clearance-kind="import" data-clearance-template="import_usa" data-clearance-title="USA import customs clearance quotation">
+            <strong>USA import clearance</strong>
             <span>Brokerage, entry, bond, duties/taxes and conditional customs charges.</span>
           </button>
-          <button type="button" class="clearance-choice" data-clearance-template="import_canada" data-clearance-title="Canada import customs clearance quotation">
+          <button type="button" class="clearance-choice" data-clearance-kind="import" data-clearance-template="import_canada" data-clearance-title="Canada import customs clearance quotation">
             <strong>Canada import clearance</strong>
             <span>Canadian customs-clearance services, taxes and delivery-related charges.</span>
           </button>
-          <button type="button" class="clearance-choice" data-clearance-template="import_usa" data-clearance-title="Export customs clearance quotation">
+          <button type="button" class="clearance-choice" data-clearance-kind="export" data-clearance-template="export_clearance" data-clearance-title="Export customs clearance quotation">
             <strong>Export clearance</strong>
             <span>Export declaration, filing, document handling and conditional examination charges.</span>
           </button>
@@ -43,7 +62,7 @@
       </div>
       <div class="card">
         <h2>Clearance request details</h2>
-        <p class="muted small">Keep the request information here while preparing the quote. These fields are intentionally simple and remain editable before PDF creation.</p>
+        <p class="muted small">These values are transferred into the client quote builder and remain editable before preview or PDF creation.</p>
         <div class="grid">
           <label>Country / jurisdiction<input id="clearance-country" placeholder="United States or Canada"></label>
           <label>Port / border crossing<input id="clearance-port" placeholder="Newark, Detroit, Toronto Pearson…"></label>
@@ -58,12 +77,14 @@
 
     pane.querySelectorAll('[data-clearance-template]').forEach((button) => {
       button.addEventListener('click', () => {
+        const kind = button.dataset.clearanceKind || 'import';
         document.dispatchEvent(new CustomEvent('client-quote-open', {
           detail: {
             template: button.dataset.clearanceTemplate,
             title: button.dataset.clearanceTitle,
             hsCode: pane.querySelector('#clearance-hs')?.value || '',
             terminal: pane.querySelector('#clearance-port')?.value || '',
+            services: clearanceServices(kind),
             notes: [
               pane.querySelector('#clearance-country')?.value,
               pane.querySelector('#clearance-commodity')?.value,
@@ -113,25 +134,31 @@
       <button type="button" data-simple-tab="drayage">Drayage</button>
       <button type="button" data-simple-tab="clearance">Customs clearance</button>
       <div class="simple-more-wrap">
-        <button type="button" data-action="more" aria-expanded="false">More</button>
-        <div class="simple-more-menu" hidden>
-          <button type="button" data-action="import">Import rate files</button>
-          <button type="button" data-action="client-quote">Create client quote</button>
-          <button type="button" data-simple-tab="history">Quote history</button>
-          <button type="button" data-simple-tab="delaypredict">DelayPredict</button>
-          <button type="button" data-simple-tab="intellcluster">IntellCluster</button>
-          <button type="button" data-action="show-all">Show all tools</button>
-          <button type="button" data-action="system-check">System check</button>
-          <button type="button" data-action="help">Help</button>
+        <button type="button" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu">More</button>
+        <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
+          <button type="button" role="menuitem" data-action="import">Import rate files</button>
+          <button type="button" role="menuitem" data-action="client-quote">Create client quote</button>
+          <button type="button" role="menuitem" data-simple-tab="history">Quote history</button>
+          <button type="button" role="menuitem" data-simple-tab="delaypredict">DelayPredict</button>
+          <button type="button" role="menuitem" data-simple-tab="intellcluster">IntellCluster</button>
+          <button type="button" role="menuitem" data-action="show-all">Show all tools</button>
+          <button type="button" role="menuitem" data-action="system-check">System check</button>
+          <button type="button" role="menuitem" data-action="help">Help</button>
         </div>
       </div>`;
     header.appendChild(nav);
 
     const moreButton = nav.querySelector('[data-action="more"]');
     const moreMenu = nav.querySelector('.simple-more-menu');
-    const closeMore = () => {
+    const menuItems = () => Array.from(moreMenu.querySelectorAll('[role="menuitem"]'));
+    const closeMore = (restoreFocus = false) => {
       moreMenu.hidden = true;
       moreButton.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) moreButton.focus();
+    };
+    const openMore = () => {
+      moreMenu.hidden = false;
+      moreButton.setAttribute('aria-expanded', 'true');
     };
 
     nav.querySelectorAll('[data-simple-tab]').forEach((button) => {
@@ -142,8 +169,36 @@
     });
     moreButton.addEventListener('click', (event) => {
       event.stopPropagation();
-      moreMenu.hidden = !moreMenu.hidden;
-      moreButton.setAttribute('aria-expanded', String(!moreMenu.hidden));
+      moreMenu.hidden ? openMore() : closeMore();
+    });
+    moreButton.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        openMore();
+        menuItems()[0]?.focus();
+      } else if (event.key === 'Escape') {
+        closeMore(true);
+      }
+    });
+    moreMenu.addEventListener('keydown', (event) => {
+      const items = menuItems();
+      const index = items.indexOf(document.activeElement);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMore(true);
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        items[(index + 1 + items.length) % items.length]?.focus();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        items[(index - 1 + items.length) % items.length]?.focus();
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        items[0]?.focus();
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        items.at(-1)?.focus();
+      }
     });
     nav.querySelector('[data-action="import"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('universal-rate-import-open'));
@@ -167,6 +222,13 @@
     });
     document.addEventListener('click', (event) => {
       if (!nav.querySelector('.simple-more-wrap').contains(event.target)) closeMore();
+    });
+
+    const brand = header.querySelector('.brand');
+    brand?.addEventListener('click', (event) => {
+      event.preventDefault();
+      activateTab('shipments');
+      closeMore();
     });
 
     document.querySelectorAll('details.advanced-section').forEach((details) => { details.open = false; });
