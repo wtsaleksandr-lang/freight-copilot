@@ -49,7 +49,7 @@ test('regular trucking is nested inside drayage and customs opens a prepared quo
   await expect(page.locator('#drayage-trucking-section #trucking-form')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Customs clearance' }).click();
-  await page.getByRole('button', { name: 'Import clearance', exact: true }).click();
+  await page.getByRole('button', { name: /^Import clearance/ }).click();
   await expect.poll(() => page.evaluate(() => window.quoteDetail)).toMatchObject({
     template: 'import_usa',
     title: 'Import customs clearance quotation',
