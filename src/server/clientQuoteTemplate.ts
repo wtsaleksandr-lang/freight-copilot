@@ -25,7 +25,7 @@ export type ClientQuoteOption = {
 };
 
 export type ClientQuoteInput = {
-  template: 'import_usa' | 'import_canada' | 'ocean_comparison';
+  template: 'import_usa' | 'import_canada' | 'export_clearance' | 'ocean_comparison';
   title?: string | null;
   pol?: string | null;
   pod?: string | null;
@@ -69,12 +69,26 @@ function serviceSection(label: string, rows: ClientQuoteLine[], input: ClientQuo
 
 function commercialNotes(input: ClientQuoteInput): string {
   if (input.includeCommercialNotes === false) return '';
-  return `<div class="terms"><div><strong>Rate basis:</strong> Complete sell rates for the stated scope, including agency handling and all specifically listed origin charges.</div><div><strong>Exclusions:</strong> Destination collect charges, duties/taxes, customs examination, storage, demurrage, detention and exceptional third-party costs unless stated otherwise.</div><div><strong>Commercial review:</strong> Please advise if you have a firm target or competing indication; available carrier and routing options will be rechecked where possible.</div><div><strong>Validity:</strong> ${esc(input.validity || 'Subject to rate validity, space and equipment availability at booking.')}</div></div>`;
+  return `<div class="terms"><div><strong>Rate basis:</strong> Complete sell rates for the stated scope, including agency handling and all specifically listed charges.</div><div><strong>Exclusions:</strong> Duties/taxes, customs examination, storage, demurrage, detention and exceptional third-party costs unless stated otherwise.</div><div><strong>Commercial review:</strong> Please advise if you have a firm target or competing indication; available service and routing options will be rechecked where possible.</div><div><strong>Validity:</strong> ${esc(input.validity || 'Subject to rate validity and final service confirmation.')}</div></div>`;
+}
+
+function customsClassificationRows(input: ClientQuoteInput): string {
+  const isExport = input.template === 'export_clearance';
+  if (!input.hsCode && !input.dutyRate) return '';
+  if (isExport) {
+    return `<tr class="emphasis"><td>Export classification</td><td colspan="3">HS ${esc(input.hsCode || 'TBC')}${input.dutyRate ? ` · duty/tax indication: ${esc(input.dutyRate)}` : ''}, subject to final customs review.</td></tr>`;
+  }
+  return `<tr class="emphasis"><td>Import Duties and Taxes</td><td colspan="3">Duty indication: ${esc(input.dutyRate || 'TBC')} under HS ${esc(input.hsCode || 'TBC')}, subject to final customs classification.</td></tr>`;
 }
 
 export function buildClientQuoteHtml(input: ClientQuoteInput): string {
   const currency = input.currency || 'USD';
-  const title = input.title || ({ import_usa: 'Ocean import FCL, to USA', import_canada: 'Ocean import FCL, to Canada', ocean_comparison: 'Ocean freight quotation' } as const)[input.template];
+  const title = input.title || ({
+    import_usa: 'Ocean import FCL, to USA',
+    import_canada: 'Ocean import FCL, to Canada',
+    export_clearance: 'Export customs clearance quotation',
+    ocean_comparison: 'Ocean freight quotation',
+  } as const)[input.template];
   const services = input.services ?? [];
   const serviceRows = [
     serviceSection('Firm service charges', services.filter((line) => (line.category ?? 'firm') === 'firm'), input, currency),
@@ -82,7 +96,7 @@ export function buildClientQuoteHtml(input: ClientQuoteInput): string {
     serviceSection('Conditional charges', services.filter((line) => line.category === 'conditional'), input, currency),
   ].join('');
   const detailRows = [
-    input.hsCode || input.dutyRate ? `<tr class="emphasis"><td>Import Duties and Taxes</td><td colspan="3">Duty indication: ${esc(input.dutyRate || 'TBC')} under HS ${esc(input.hsCode || 'TBC')}, subject to final customs classification.</td></tr>` : '',
+    customsClassificationRows(input),
     input.customsExamNote ? `<tr class="emphasis"><td>Customs examination</td><td colspan="3">${esc(input.customsExamNote)}</td></tr>` : '',
     input.terminal ? `<tr class="emphasis"><td>Container terminal</td><td colspan="3">${esc(input.terminal)}</td></tr>` : '',
     input.placeOfDelivery ? `<tr class="emphasis"><td>Place of delivery</td><td colspan="3">${esc(input.placeOfDelivery)}</td></tr>` : '',
