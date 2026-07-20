@@ -84,4 +84,15 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Browser workflow smoke tests
-        run: pnpm exec playwright test
+        run: pnpm exec playwright test --reporter=line 2>&1 | tee playwright.log
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-diagnostics
+          path: |
+            playwright.log
+            test-results
+          if-no-files-found: ignore
+          retention-days: 1
