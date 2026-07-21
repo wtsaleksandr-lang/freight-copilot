@@ -13,7 +13,12 @@ function featureRows(features){
 function summary(result){
   const features=Array.isArray(result.features)?result.features:[];
   const counts=features.reduce((acc,item)=>{acc[item.state]=(acc[item.state]||0)+1;return acc;},{});
-  return `<div class="system-readiness-summary"><div><strong>${result.status==='ready'?'Core system ready':'Core system needs attention'}</strong><p>Database: ${esc(result.database)} · ${esc(result.latencyMs)} ms · checked ${esc(new Date(result.checkedAt||Date.now()).toLocaleString())}</p>${result.error?`<p class="error">${esc(result.error)}</p>`:''}</div><div class="system-readiness-counts"><span>${counts.ready||0} ready</span><span>${counts.review_required||0} review</span><span>${counts.setup_required||0} setup</span><span>${counts.experimental||0} experimental</span></div></div>`;
+  const action=result.action?`<p><strong>Required action:</strong> ${esc(result.action)}</p>`:'';
+  return `<div class="system-readiness-summary"><div><strong>${result.status==='ready'?'Core system ready':'Core system needs attention'}</strong><p>Database: ${esc(result.database)} · ${esc(result.latencyMs)} ms · checked ${esc(new Date(result.checkedAt||Date.now()).toLocaleString())}</p>${result.error?`<p class="error">${esc(result.error)}</p>`:''}${action}</div><div class="system-readiness-counts"><span>${counts.ready||0} ready</span><span>${counts.review_required||0} review</span><span>${counts.setup_required||0} setup</span><span>${counts.experimental||0} experimental</span></div></div>`;
+}
+function configValue(configuration,key,yes,no){
+  if(!configuration||typeof configuration[key]!=='boolean')return 'Not checked';
+  return configuration[key]?yes:no;
 }
 async function open(){
   close();
@@ -40,10 +45,12 @@ async function run(){
     const response=await fetch('/api/health/ready',{cache:'no-store'});
     const result=await response.json();
     const tableRows=result.tables?Object.entries(result.tables).map(([name,ok])=>`<li><span>${esc(name.replaceAll('_',' '))}</span><strong>${ok?'Ready':'Missing'}</strong></li>`).join(''):'';
-    target.innerHTML=`${summary(result)}<div class="system-readiness-layout"><div><h3>Feature audit</h3>${featureRows(result.features)}</div><aside><h3>Database foundations</h3>${tableRows?`<ul class="readiness-table-list">${tableRows}</ul>`:'<p class="muted">Database table information unavailable.</p>'}<h3>Configuration</h3><ul class="readiness-table-list"><li><span>AI provider</span><strong>${esc(result.configuration?.aiProvider||'unknown')}</strong></li><li><span>AI key</span><strong>${result.configuration?.aiConfigured?'Configured':'Missing'}</strong></li><li><span>Real Chrome</span><strong>${result.configuration?.realChrome?'Enabled':'Disabled'}</strong></li><li><span>DelayPredict</span><strong>${result.configuration?.delayPredict?'Connected':'Not connected'}</strong></li><li><span>Basic authentication</span><strong>${result.configuration?.basicAuth?'Enabled':'Missing'}</strong></li></ul></aside></div>`;
+    const config=result.configuration;
+    const provider=config?.aiProvider?esc(config.aiProvider):'Not checked';
+    target.innerHTML=`${summary(result)}<div class="system-readiness-layout"><div><h3>Feature audit</h3>${featureRows(result.features)}</div><aside><h3>Database foundations</h3>${tableRows?`<ul class="readiness-table-list">${tableRows}</ul>`:'<p class="muted">Database tables could not be checked. This does not mean they were deleted.</p>'}<h3>Configuration</h3><p class="muted small">Configuration status is checked separately from the database. Secret values are never displayed.</p><ul class="readiness-table-list"><li><span>AI provider</span><strong>${provider}</strong></li><li><span>AI key</span><strong>${configValue(config,'aiConfigured','Configured','Missing')}</strong></li><li><span>Real Chrome</span><strong>${configValue(config,'realChrome','Enabled','Disabled')}</strong></li><li><span>DelayPredict</span><strong>${configValue(config,'delayPredict','Connected','Not connected')}</strong></li><li><span>Basic authentication</span><strong>${configValue(config,'basicAuth','Enabled','Missing')}</strong></li></ul></aside></div>`;
     document.dispatchEvent(new CustomEvent('system-readiness-updated',{detail:result}));
   }catch(error){
-    target.innerHTML=`<div class="universal-rate-result"><strong>Readiness check unavailable</strong><p>${esc(error instanceof Error?error.message:String(error))}</p></div>`;
+    target.innerHTML=`<div class="universal-rate-result"><strong>Readiness check unavailable</strong><p>${esc(error instanceof Error?error.message:String(error))}</p><p>No credential or database deletion was performed.</p></div>`;
     document.dispatchEvent(new CustomEvent('system-readiness-updated',{detail:{status:'unavailable'}}));
   }
 }
