@@ -31,9 +31,9 @@ const readiness = {
   ],
 };
 
-async function install(page: import('playwright/test').Page): Promise<void> {
+async function install(page: import('playwright/test').Page, response = readiness): Promise<void> {
   await page.setContent(html());
-  await page.route('**/api/health/ready', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(readiness) }));
+  await page.route('**/api/health/ready', (route) => route.fulfill({ status: response.status === 'unavailable' ? 503 : 200, contentType: 'application/json', body: JSON.stringify(response) }));
   await page.addStyleTag({ path: shellCss });
   await page.addScriptTag({ path: systemScript });
   await page.addScriptTag({ path: shellScript });
@@ -61,6 +61,27 @@ test('readiness is permanently discoverable and reports feature states', async (
   await expect(page.getByText('Ready · review required')).toBeVisible();
   await expect(page.getByText('Setup required')).toBeVisible();
   await expect(page.getByText('Enable real Chrome.')).toBeVisible();
+});
+
+test('database outage does not falsely report configured credentials as missing', async ({ page }) => {
+  await install(page, {
+    status: 'unavailable',
+    database: 'unavailable',
+    latencyMs: 2200,
+    checkedAt: new Date().toISOString(),
+    tables: null,
+    configuration: { aiProvider: 'anthropic', aiConfigured: true, realChrome: false, delayPredict: false, basicAuth: true },
+    error: 'The Neon database project has exceeded its compute-time quota.',
+    action: 'Restore or upgrade the Neon project, then run the readiness check again.',
+    features: readiness.features,
+  } as typeof readiness & { tables: null; error: string; action: string });
+
+  await page.getByRole('button', { name: 'Open feature readiness' }).click();
+  await expect(page.getByText('The Neon database project has exceeded its compute-time quota.')).toBeVisible();
+  await expect(page.getByText('Database tables could not be checked. This does not mean they were deleted.')).toBeVisible();
+  await expect(page.getByText('Configured', { exact: true })).toBeVisible();
+  await expect(page.getByText('Enabled', { exact: true })).toBeVisible();
+  await expect(page.getByText('unknown', { exact: true })).toHaveCount(0);
 });
 
 test('readiness dialog closes with Escape and restores focus', async ({ page }) => {
