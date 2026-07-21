@@ -22,12 +22,42 @@ type FeatureReadiness = {
   action?: string;
 };
 
+function configurationStatus(env: ReturnType<typeof loadEnv>) {
+  return {
+    source: 'application configuration',
+    aiProvider: env.AI_PROVIDER,
+    aiConfigured: env.AI_PROVIDER === 'gemini' ? Boolean(env.GEMINI_API_KEY) : Boolean(env.ANTHROPIC_API_KEY),
+    realChrome: env.USE_REAL_CHROME,
+    delayPredict: Boolean(env.DELAYPREDICT_URL),
+    basicAuth: Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS),
+  };
+}
+
+function conciseDatabaseError(error: unknown): { code: string; message: string; action?: string } {
+  const raw = error instanceof Error ? error.message : String(error);
+  const quotaExceeded = /compute time quota|exceeded.*quota|http status 402/i.test(raw);
+  if (quotaExceeded) {
+    return {
+      code: 'database_quota_exceeded',
+      message: 'The Neon database project has exceeded its compute-time quota. Stored data and credentials were not deleted, but database-backed features cannot be checked until database access is restored.',
+      action: 'Restore or upgrade the Neon project, then run the readiness check again.',
+    };
+  }
+  return {
+    code: 'database_unavailable',
+    message: 'The database could not be reached. Configuration checks below are still valid, but database-backed features could not be verified.',
+    action: 'Check the database project and DATABASE_URL, then run the readiness check again.',
+  };
+}
+
 function featureReadiness(
   tables: Record<string, boolean>,
-  env: ReturnType<typeof loadEnv>
+  env: ReturnType<typeof loadEnv>,
+  databaseAvailable = true
 ): FeatureReadiness[] {
   const aiConfigured = env.AI_PROVIDER === 'gemini' ? Boolean(env.GEMINI_API_KEY) : Boolean(env.ANTHROPIC_API_KEY);
   const authConfigured = Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS);
+  const databaseAction = databaseAvailable ? 'Apply the database schema before using this feature.' : 'Restore database access, then check this feature again.';
 
   return [
     {
@@ -36,7 +66,7 @@ function featureReadiness(
       area: 'Shipments',
       state: tables.shipments ? 'ready' : 'unavailable',
       summary: 'Create, edit, filter, upload documents, and maintain current and historical shipments.',
-      action: tables.shipments ? undefined : 'Apply the database schema before using shipments.',
+      action: tables.shipments ? undefined : databaseAction,
     },
     {
       id: 'shipment-operations',
@@ -44,7 +74,7 @@ function featureReadiness(
       area: 'Shipments',
       state: tables.shipment_containers && tables.shipment_follow_ups ? 'ready' : 'unavailable',
       summary: 'Operational details, milestones, reminders, reports and shipment-update intake.',
-      action: tables.shipment_containers && tables.shipment_follow_ups ? undefined : 'Required shipment operation tables are missing.',
+      action: tables.shipment_containers && tables.shipment_follow_ups ? undefined : databaseAction,
     },
     {
       id: 'shipment-ai-intake',
@@ -78,7 +108,7 @@ function featureReadiness(
       area: 'Drayage',
       state: tables.drayage_quotes ? 'review_required' : 'unavailable',
       summary: 'Stores drayage quotations and estimates new lanes from verified historical matches.',
-      action: tables.drayage_quotes ? 'Historical estimates are planning guidance, not firm trucker quotes.' : 'The drayage quote table is missing.',
+      action: tables.drayage_quotes ? 'Historical estimates are planning guidance, not firm trucker quotes.' : databaseAction,
     },
     {
       id: 'trucking',
@@ -86,7 +116,7 @@ function featureReadiness(
       area: 'Drayage',
       state: tables.trucking_quotes ? 'review_required' : 'unavailable',
       summary: 'Stores and compares FTL/LTL rates inside the Drayage workspace.',
-      action: tables.trucking_quotes ? 'Confirm equipment, accessorials and validity with the provider.' : 'The trucking quote table is missing.',
+      action: tables.trucking_quotes ? 'Confirm equipment, accessorials and validity with the provider.' : databaseAction,
     },
     {
       id: 'customs',
@@ -134,6 +164,7 @@ export function registerRuntimeHealthRoute(app: Express): void {
   app.get('/api/health/ready', async (_req: Request, res: Response) => {
     const started = Date.now();
     const env = loadEnv();
+    const configuration = configurationStatus(env);
     try {
       const sql = neon(env.DATABASE_URL);
       const rows = await sql`
@@ -156,22 +187,23 @@ export function registerRuntimeHealthRoute(app: Express): void {
         tables,
         missingTables,
         features: featureReadiness(tables, env),
-        configuration: {
-          aiProvider: env.AI_PROVIDER,
-          aiConfigured: env.AI_PROVIDER === 'gemini' ? Boolean(env.GEMINI_API_KEY) : Boolean(env.ANTHROPIC_API_KEY),
-          realChrome: env.USE_REAL_CHROME,
-          delayPredict: Boolean(env.DELAYPREDICT_URL),
-          basicAuth: Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS),
-        },
+        configuration,
         checkedAt: new Date().toISOString(),
       });
     } catch (error) {
+      const databaseError = conciseDatabaseError(error);
+      const unavailableTables = Object.fromEntries(REQUIRED_TABLES.map((name) => [name, false]));
       res.status(503).json({
         status: 'unavailable',
         database: 'unavailable',
         latencyMs: Date.now() - started,
-        features: featureReadiness(Object.fromEntries(REQUIRED_TABLES.map((name) => [name, false])), env),
-        error: error instanceof Error ? error.message : String(error),
+        tables: null,
+        missingTables: [],
+        features: featureReadiness(unavailableTables, env, false),
+        configuration,
+        errorCode: databaseError.code,
+        error: databaseError.message,
+        action: databaseError.action,
         checkedAt: new Date().toISOString(),
       });
     }
