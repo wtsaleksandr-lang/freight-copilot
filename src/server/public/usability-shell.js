@@ -114,6 +114,39 @@
     drayage.appendChild(details);
   }
 
+  function installWorkspaceGuides() {
+    const guides = {
+      shipments: {
+        title: 'Shipments',
+        description: 'Your main operational board for active and completed shipments, documents, notes, milestones and follow-ups.',
+        tip: 'Start by dropping shipment documents above the spreadsheet, or add a blank row and edit cells directly.',
+      },
+      new: {
+        title: 'Ocean freight',
+        description: 'Parse carrier rate sheets, compare ocean options, and prepare client-facing quote replies.',
+        tip: 'Uploaded and AI-extracted rates require a quick review of lane, equipment, validity and charge totals.',
+      },
+      drayage: {
+        title: 'Drayage',
+        description: 'Store drayage quotations, estimate matching lanes from history, and access occasional FTL/LTL rates.',
+        tip: 'Historical estimates are guidance only. Confirm the final rate, equipment and accessorials with the provider.',
+      },
+      clearance: {
+        title: 'Customs clearance',
+        description: 'Prepare USA import, Canada import and export-clearance quotations using dedicated templates.',
+        tip: 'Customs classification, statutory charges and duties or taxes must be verified before sending a quote.',
+      },
+    };
+    for (const [id, guide] of Object.entries(guides)) {
+      const pane = document.getElementById(`tab-${id}`);
+      if (!pane || pane.querySelector(':scope > .workspace-guide')) continue;
+      const intro = document.createElement('div');
+      intro.className = 'workspace-guide';
+      intro.innerHTML = `<div><h1>${guide.title}</h1><p>${guide.description}</p></div><div class="workspace-guide-tip"><strong>How to use this page</strong><br>${guide.tip}</div>`;
+      pane.prepend(intro);
+    }
+  }
+
   function installShell() {
     const header = document.querySelector('header');
     const oldNav = header?.querySelector('nav');
@@ -122,6 +155,7 @@
 
     installClearanceWorkspace(main);
     moveTruckingIntoDrayage();
+    installWorkspaceGuides();
 
     oldNav.classList.add('legacy-nav-hidden');
     const nav = document.createElement('nav');
@@ -133,6 +167,7 @@
       <button type="button" data-simple-tab="new">Ocean freight</button>
       <button type="button" data-simple-tab="drayage">Drayage</button>
       <button type="button" data-simple-tab="clearance">Customs clearance</button>
+      <button type="button" class="readiness-button" data-action="system-check-primary" data-state="checking" aria-label="Open feature readiness"><span class="readiness-dot" aria-hidden="true"></span><span>Readiness</span></button>
       <div class="simple-more-wrap">
         <button type="button" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu">More</button>
         <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
@@ -142,7 +177,7 @@
           <button type="button" role="menuitem" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" role="menuitem" data-simple-tab="intellcluster">IntellCluster</button>
           <button type="button" role="menuitem" data-action="show-all">Show all tools</button>
-          <button type="button" role="menuitem" data-action="system-check">System check</button>
+          <button type="button" role="menuitem" data-action="system-check">Feature readiness</button>
           <button type="button" role="menuitem" data-action="help">Help</button>
         </div>
       </div>`;
@@ -150,6 +185,7 @@
 
     const moreButton = nav.querySelector('[data-action="more"]');
     const moreMenu = nav.querySelector('.simple-more-menu');
+    const readinessButton = nav.querySelector('[data-action="system-check-primary"]');
     const menuItems = () => Array.from(moreMenu.querySelectorAll('[role="menuitem"]'));
     const closeMore = (restoreFocus = false) => {
       moreMenu.hidden = true;
@@ -212,16 +248,26 @@
       document.dispatchEvent(new CustomEvent('workflow-show-all'));
       closeMore();
     });
-    nav.querySelector('[data-action="system-check"]').addEventListener('click', () => {
+    const openReadiness = () => {
       document.dispatchEvent(new CustomEvent('system-check-open'));
       closeMore();
-    });
+    };
+    nav.querySelector('[data-action="system-check"]').addEventListener('click', openReadiness);
+    readinessButton.addEventListener('click', openReadiness);
     nav.querySelector('[data-action="help"]').addEventListener('click', () => {
       document.getElementById('help-btn')?.click();
       closeMore();
     });
     document.addEventListener('click', (event) => {
       if (!nav.querySelector('.simple-more-wrap').contains(event.target)) closeMore();
+    });
+    document.addEventListener('system-readiness-updated', (event) => {
+      const detail = event.detail || {};
+      const features = Array.isArray(detail.features) ? detail.features : [];
+      const needsSetup = features.some((item) => item.state === 'setup_required' || item.state === 'unavailable');
+      const state = detail.status === 'unavailable' ? 'unavailable' : detail.status === 'ready' && !needsSetup ? 'ready' : 'degraded';
+      readinessButton.dataset.state = state;
+      readinessButton.title = state === 'ready' ? 'Core system and configured features are ready' : 'Some features need setup or attention';
     });
 
     const brand = header.querySelector('.brand');
@@ -233,6 +279,10 @@
 
     document.querySelectorAll('details.advanced-section').forEach((details) => { details.open = false; });
     activateTab('shipments');
+    fetch('/api/health/ready', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((detail) => document.dispatchEvent(new CustomEvent('system-readiness-updated', { detail })))
+      .catch(() => document.dispatchEvent(new CustomEvent('system-readiness-updated', { detail: { status: 'unavailable' } })));
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installShell);
