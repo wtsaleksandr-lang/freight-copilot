@@ -15,6 +15,7 @@ import { registerUniversalRateIngestionRoute } from './universalRateIngestionRou
 import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
 import { registerClientQuoteRoute } from './clientQuoteRoute.js';
 import { registerClientQuotePrefillRoute } from './clientQuotePrefillRoute.js';
+import { registerAiRoutingRoute } from './aiRoutingRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -35,6 +36,7 @@ const CLIENT_SCRIPTS = [
   'client-quote-ui.js',
   'client-quote-actions-ui.js',
   'system-check-ui.js',
+  'ai-routing-ui.js',
   'usability-shell.js',
   'shipment-grid-enhancements-ui.js',
 ] as const;
@@ -71,6 +73,7 @@ export function createApp(): express.Express {
   registerRuntimeHealthRoute(app);
   registerClientQuoteRoute(app);
   registerClientQuotePrefillRoute(app);
+  registerAiRoutingRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
@@ -79,7 +82,7 @@ export function createApp(): express.Express {
       const indexPath = resolve(publicDir, 'index.html');
       const source = await readFile(indexPath, 'utf8');
       const html = source
-        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">\n  <link rel="stylesheet" href="/shipment-grid-enhancements.css">')
+        .replace('<link rel="stylesheet" href="/style.css">', '<link rel="stylesheet" href="/style.css">\n  <link rel="stylesheet" href="/freshness-ui.css">\n  <link rel="stylesheet" href="/usability-shell.css">\n  <link rel="stylesheet" href="/ai-routing-ui.css">\n  <link rel="stylesheet" href="/shipment-grid-enhancements.css">')
         .replace('<script src="/app.js"></script>', scriptTags());
       res.type('html').send(html);
     } catch (err) { next(err); }
