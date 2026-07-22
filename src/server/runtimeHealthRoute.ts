@@ -1,211 +1,47 @@
 import type { Express, Request, Response } from 'express';
 import { neon } from '@neondatabase/serverless';
 import { loadEnv } from '../config.js';
+import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
+import { getAiRoutingProfile } from './aiRoutingService.js';
 
-const REQUIRED_TABLES = [
-  'shipments',
-  'quote_bundles',
-  'drayage_quotes',
-  'trucking_quotes',
-  'shipment_containers',
-  'shipment_follow_ups',
-] as const;
+const REQUIRED_TABLES=['shipments','quote_bundles','drayage_quotes','trucking_quotes','shipment_containers','shipment_follow_ups'] as const;
+type FeatureState='ready'|'review_required'|'setup_required'|'experimental'|'unavailable';
+type FeatureReadiness={id:string;name:string;area:string;state:FeatureState;summary:string;action?:string};
 
-type FeatureState = 'ready' | 'review_required' | 'setup_required' | 'experimental' | 'unavailable';
+function conciseDatabaseError(error:unknown){const raw=error instanceof Error?error.message:String(error);return{code:'database_unavailable',message:/quota|http status 402/i.test(raw)?'The application database is temporarily unavailable because its usage limit was reached. Stored data was not deleted.':'The application database could not be reached. Configuration checks remain valid, but database-backed features could not be verified.',action:'Restore database access and run the readiness check again.'};}
 
-type FeatureReadiness = {
-  id: string;
-  name: string;
-  area: string;
-  state: FeatureState;
-  summary: string;
-  action?: string;
-};
-
-function configurationStatus(env: ReturnType<typeof loadEnv>) {
-  return {
-    source: 'application configuration',
-    aiProvider: env.AI_PROVIDER,
-    aiConfigured: env.AI_PROVIDER === 'gemini' ? Boolean(env.GEMINI_API_KEY) : Boolean(env.ANTHROPIC_API_KEY),
-    realChrome: env.USE_REAL_CHROME,
-    delayPredict: Boolean(env.DELAYPREDICT_URL),
-    basicAuth: Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS),
-  };
+function featureReadiness(tables:Record<string,boolean>,env:ReturnType<typeof loadEnv>,aiConfigured:boolean,databaseAvailable=true):FeatureReadiness[]{
+ const databaseAction=databaseAvailable?'Run the schema repair or deployment migration.':'Restore database access, then check again.';
+ return[
+ {id:'shipments',name:'Shipment workspace',area:'Core operations',state:tables.shipments?'ready':'unavailable',summary:'Editable shipment board, document uploads, notes and history.',action:tables.shipments?undefined:databaseAction},
+ {id:'shipment-operations',name:'Containers, milestones and follow-ups',area:'Core operations',state:tables.shipment_containers&&tables.shipment_follow_ups?'ready':'unavailable',summary:'Container-level tracking, reminders and operational notes.',action:tables.shipment_containers&&tables.shipment_follow_ups?undefined:databaseAction},
+ {id:'shipment-ai-intake',name:'Shipment document extraction',area:'AI-assisted work',state:aiConfigured?'review_required':'unavailable',summary:'Reads PDFs, screenshots and email files into shipment fields.',action:aiConfigured?'Verify extracted fields before accepting them.':'Add at least one AI provider key in Secrets.'},
+ {id:'ocean-sheets',name:'Ocean rate-sheet analysis',area:'AI-assisted work',state:aiConfigured?'review_required':'unavailable',summary:'Extracts lanes and charges and prepares client-ready replies.',action:aiConfigured?'Verify lane, equipment, validity and totals.':'Add at least one AI provider key in Secrets.'},
+ {id:'drayage',name:'Drayage quote workspace',area:'Quotation tools',state:tables.drayage_quotes?'review_required':'unavailable',summary:'Stores provider quotes and compares historical lanes.',action:tables.drayage_quotes?'Confirm rates and accessorials with the provider.':databaseAction},
+ {id:'trucking',name:'Regular trucking quotes',area:'Quotation tools',state:tables.trucking_quotes?'review_required':'unavailable',summary:'Stores and compares FTL and LTL pricing.',action:tables.trucking_quotes?'Confirm equipment, validity and accessorials.':databaseAction},
+ {id:'customs',name:'Customs clearance quote builder',area:'Quotation tools',state:'review_required',summary:'Builds USA import, Canada import and export-clearance quotations.',action:'Verify classification, statutory charges, duties and taxes.'},
+ {id:'client-quotes',name:'Client quote preview and PDF',area:'Quotation tools',state:'ready',summary:'Creates customer-facing previews while keeping markup internal.'},
+ {id:'ai-routing',name:'AI work modes and model routing',area:'AI system',state:aiConfigured?'ready':'setup_required',summary:'Everyday, Power, Ultimate and Custom routing with budgets, web policy and caching.',action:aiConfigured?undefined:'Add provider keys to enable model routing.'},
+ {id:'ocean-live',name:'Carrier portal browser automation',area:'Optional integrations',state:'experimental',summary:'Runs recorded browser workflows against carrier websites.',action:env.USE_REAL_CHROME?'Verify every result because carrier sites can change.':'Optional: enable real Chrome and create carrier sessions.'},
+ {id:'tracking',name:'DelayPredict tracking',area:'Optional integrations',state:env.DELAYPREDICT_URL?'ready':'experimental',summary:'Adds external prediction data to shipment rows.',action:env.DELAYPREDICT_URL?undefined:'Optional: connect a DelayPredict service URL.'},
+ {id:'scheduled-agents',name:'Scheduled AI agents',area:'Optional integrations',state:aiConfigured?'experimental':'setup_required',summary:'Runs configured background automation tasks.',action:aiConfigured?'Review unattended outputs regularly.':'Add an AI provider key before enabling agents.'},
+ {id:'security',name:'Dashboard login protection',area:'Security',state:env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS?'ready':'setup_required',summary:'Protects the deployed dashboard with HTTP Basic authentication.',action:env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS?undefined:'Set BASIC_AUTH_USER and BASIC_AUTH_PASS.'},
+ ];
 }
 
-function conciseDatabaseError(error: unknown): { code: string; message: string; action?: string } {
-  const raw = error instanceof Error ? error.message : String(error);
-  const quotaExceeded = /compute time quota|exceeded.*quota|http status 402/i.test(raw);
-  if (quotaExceeded) {
-    return {
-      code: 'database_quota_exceeded',
-      message: 'The Neon database project has exceeded its compute-time quota. Stored data and credentials were not deleted, but database-backed features cannot be checked until database access is restored.',
-      action: 'Restore or upgrade the Neon project, then run the readiness check again.',
-    };
-  }
-  return {
-    code: 'database_unavailable',
-    message: 'The database could not be reached. Configuration checks below are still valid, but database-backed features could not be verified.',
-    action: 'Check the database project and DATABASE_URL, then run the readiness check again.',
-  };
-}
-
-function featureReadiness(
-  tables: Record<string, boolean>,
-  env: ReturnType<typeof loadEnv>,
-  databaseAvailable = true
-): FeatureReadiness[] {
-  const aiConfigured = env.AI_PROVIDER === 'gemini' ? Boolean(env.GEMINI_API_KEY) : Boolean(env.ANTHROPIC_API_KEY);
-  const authConfigured = Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS);
-  const databaseAction = databaseAvailable ? 'Apply the database schema before using this feature.' : 'Restore database access, then check this feature again.';
-
-  return [
-    {
-      id: 'shipments',
-      name: 'Shipment spreadsheet',
-      area: 'Shipments',
-      state: tables.shipments ? 'ready' : 'unavailable',
-      summary: 'Create, edit, filter, upload documents, and maintain current and historical shipments.',
-      action: tables.shipments ? undefined : databaseAction,
-    },
-    {
-      id: 'shipment-operations',
-      name: 'Containers, follow-ups, reports and updates',
-      area: 'Shipments',
-      state: tables.shipment_containers && tables.shipment_follow_ups ? 'ready' : 'unavailable',
-      summary: 'Operational details, milestones, reminders, reports and shipment-update intake.',
-      action: tables.shipment_containers && tables.shipment_follow_ups ? undefined : databaseAction,
-    },
-    {
-      id: 'shipment-ai-intake',
-      name: 'AI shipment document extraction',
-      area: 'Shipments',
-      state: aiConfigured ? 'review_required' : 'unavailable',
-      summary: 'Extracts shipment data from PDFs, screenshots, email files and text into the shipment board.',
-      action: aiConfigured ? 'Review extracted fields before accepting changes.' : 'Configure the selected AI provider key.',
-    },
-    {
-      id: 'ocean-sheets',
-      name: 'Ocean rate-sheet parsing',
-      area: 'Ocean freight',
-      state: aiConfigured ? 'review_required' : 'unavailable',
-      summary: 'Parses uploaded carrier rate sheets, separates destination charges and prepares quote replies.',
-      action: aiConfigured ? 'Review carrier, lane, validity and totals before quoting.' : 'Configure the selected AI provider key.',
-    },
-    {
-      id: 'ocean-live',
-      name: 'Live carrier portal automation',
-      area: 'Ocean freight',
-      state: env.USE_REAL_CHROME ? 'experimental' : 'setup_required',
-      summary: 'Runs recorded or supported browser workflows against carrier portals.',
-      action: env.USE_REAL_CHROME
-        ? 'Carrier website changes can break workflows; verify every result.'
-        : 'Enable real Chrome and create valid carrier sessions before use.',
-    },
-    {
-      id: 'drayage',
-      name: 'Drayage rates and estimates',
-      area: 'Drayage',
-      state: tables.drayage_quotes ? 'review_required' : 'unavailable',
-      summary: 'Stores drayage quotations and estimates new lanes from verified historical matches.',
-      action: tables.drayage_quotes ? 'Historical estimates are planning guidance, not firm trucker quotes.' : databaseAction,
-    },
-    {
-      id: 'trucking',
-      name: 'Regular trucking rates',
-      area: 'Drayage',
-      state: tables.trucking_quotes ? 'review_required' : 'unavailable',
-      summary: 'Stores and compares FTL/LTL rates inside the Drayage workspace.',
-      action: tables.trucking_quotes ? 'Confirm equipment, accessorials and validity with the provider.' : databaseAction,
-    },
-    {
-      id: 'customs',
-      name: 'Customs clearance quotations',
-      area: 'Customs clearance',
-      state: 'review_required',
-      summary: 'Builds USA import, Canada import and export-clearance client quotations.',
-      action: 'Verify classification, statutory charges, duties/taxes and customs requirements before release.',
-    },
-    {
-      id: 'client-quotes',
-      name: 'Client quotation preview and PDF',
-      area: 'Quotes',
-      state: 'ready',
-      summary: 'Creates client-facing quote previews and downloadable PDFs while keeping markup internal.',
-    },
-    {
-      id: 'tracking',
-      name: 'DelayPredict shipment tracking',
-      area: 'Shipments',
-      state: env.DELAYPREDICT_URL ? 'ready' : 'setup_required',
-      summary: 'Joins shipment rows with the external DelayPredict tracker.',
-      action: env.DELAYPREDICT_URL ? undefined : 'Set DELAYPREDICT_URL to connect shipment tracking.',
-    },
-    {
-      id: 'scheduled-agents',
-      name: 'Scheduled AI agents',
-      area: 'Automation',
-      state: aiConfigured ? 'experimental' : 'unavailable',
-      summary: 'Runs configured periodic automation tasks from the server tick loop.',
-      action: aiConfigured ? 'Review task definitions and outputs before relying on unattended actions.' : 'Configure the selected AI provider key.',
-    },
-    {
-      id: 'security',
-      name: 'Dashboard access protection',
-      area: 'System',
-      state: authConfigured ? 'ready' : 'setup_required',
-      summary: 'Protects the deployed dashboard with HTTP Basic authentication.',
-      action: authConfigured ? undefined : 'Set BASIC_AUTH_USER and BASIC_AUTH_PASS before exposing the app publicly.',
-    },
-  ];
-}
-
-export function registerRuntimeHealthRoute(app: Express): void {
-  app.get('/api/health/ready', async (_req: Request, res: Response) => {
-    const started = Date.now();
-    const env = loadEnv();
-    const configuration = configurationStatus(env);
-    try {
-      const sql = neon(env.DATABASE_URL);
-      const rows = await sql`
-        SELECT
-          to_regclass('public.shipments')::text AS shipments,
-          to_regclass('public.quote_bundles')::text AS quote_bundles,
-          to_regclass('public.drayage_quotes')::text AS drayage_quotes,
-          to_regclass('public.trucking_quotes')::text AS trucking_quotes,
-          to_regclass('public.shipment_containers')::text AS shipment_containers,
-          to_regclass('public.shipment_follow_ups')::text AS shipment_follow_ups
-      `;
-      const row = (rows[0] ?? {}) as Record<string, string | null>;
-      const tables = Object.fromEntries(REQUIRED_TABLES.map((name) => [name, Boolean(row[name])]));
-      const missingTables = REQUIRED_TABLES.filter((name) => !tables[name]);
-      const ready = missingTables.length === 0;
-      res.status(ready ? 200 : 503).json({
-        status: ready ? 'ready' : 'degraded',
-        database: 'connected',
-        latencyMs: Date.now() - started,
-        tables,
-        missingTables,
-        features: featureReadiness(tables, env),
-        configuration,
-        checkedAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      const databaseError = conciseDatabaseError(error);
-      const unavailableTables = Object.fromEntries(REQUIRED_TABLES.map((name) => [name, false]));
-      res.status(503).json({
-        status: 'unavailable',
-        database: 'unavailable',
-        latencyMs: Date.now() - started,
-        tables: null,
-        missingTables: [],
-        features: featureReadiness(unavailableTables, env, false),
-        configuration,
-        errorCode: databaseError.code,
-        error: databaseError.message,
-        action: databaseError.action,
-        checkedAt: new Date().toISOString(),
-      });
-    }
-  });
+export function registerRuntimeHealthRoute(app:Express):void{
+ app.get('/api/health/ready',async(_req:Request,res:Response)=>{const started=Date.now();const env=loadEnv();try{
+   await ensureShipmentOperationTables();
+   const sql=neon(env.DATABASE_URL);
+   const [rows,keyRows,profile]=await Promise.all([
+    sql`SELECT to_regclass('public.shipments')::text AS shipments,to_regclass('public.quote_bundles')::text AS quote_bundles,to_regclass('public.drayage_quotes')::text AS drayage_quotes,to_regclass('public.trucking_quotes')::text AS trucking_quotes,to_regclass('public.shipment_containers')::text AS shipment_containers,to_regclass('public.shipment_follow_ups')::text AS shipment_follow_ups`,
+    sql`SELECT provider FROM api_keys`,
+    getAiRoutingProfile(),
+   ]);
+   const row=(rows[0]??{}) as Record<string,string|null>;const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,Boolean(row[name])]));const providers=keyRows.map((r)=>String((r as Record<string,unknown>).provider));
+   if(env.ANTHROPIC_API_KEY&&!providers.includes('anthropic'))providers.push('anthropic');if(env.GEMINI_API_KEY&&!providers.includes('gemini'))providers.push('gemini');
+   const aiConfigured=providers.length>0;const missingTables=REQUIRED_TABLES.filter((name)=>!tables[name]);const ready=missingTables.length===0&&aiConfigured;
+   res.status(ready?200:503).json({status:ready?'ready':'degraded',database:'connected',latencyMs:Date.now()-started,tables,missingTables,features:featureReadiness(tables,env,aiConfigured),configuration:{source:'application secrets',aiProvider:profile.mode,aiMode:profile.label,aiConfigured,configuredProviders:providers,webPolicy:profile.webPolicy,promptCaching:profile.promptCaching,realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},checkedAt:new Date().toISOString()});
+  }catch(error){const databaseError=conciseDatabaseError(error);const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,false]));res.status(503).json({status:'unavailable',database:'unavailable',latencyMs:Date.now()-started,tables:null,missingTables:[],features:featureReadiness(tables,env,Boolean(env.ANTHROPIC_API_KEY||env.GEMINI_API_KEY),false),configuration:{source:'environment fallback',aiProvider:env.AI_PROVIDER,aiConfigured:Boolean(env.ANTHROPIC_API_KEY||env.GEMINI_API_KEY),realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},errorCode:databaseError.code,error:databaseError.message,action:databaseError.action,checkedAt:new Date().toISOString()});}
+ });
 }
