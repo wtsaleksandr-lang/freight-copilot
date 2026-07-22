@@ -1,4 +1,4 @@
-import { pgTable, integer, serial, text, doublePrecision, boolean, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, integer, serial, text, doublePrecision, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
 export const carriers = pgTable('carriers', {
   id: serial('id').primaryKey(),
@@ -580,65 +580,6 @@ export const sessions = pgTable('sessions', {
     .defaultNow(),
   expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
 });
-
-/**
- * Container-level shipment tracking. Historically created at runtime by raw SQL
- * in shipmentOperations.ts (ensureShipmentOperationTables). Declared here so the
- * schema-diff migration KNOWS these tables are intended to exist and never
- * offers to drop them. Definition matches the raw DDL exactly (no ALTER on push).
- */
-export const shipmentContainers = pgTable(
-  'shipment_containers',
-  {
-    id: serial('id').primaryKey(),
-    shipmentRefId: text('shipment_ref_id')
-      .notNull()
-      .references(() => shipments.refId, { onDelete: 'cascade' }),
-    containerNumber: text('container_number'),
-    sealNumber: text('seal_number'),
-    vesselVoyage: text('vessel_voyage'),
-    etd: text('etd'),
-    eta: text('eta'),
-    actualDeparture: text('actual_departure'),
-    actualArrival: text('actual_arrival'),
-    lastFreeDay: text('last_free_day'),
-    emptyReturnDate: text('empty_return_date'),
-    status: text('status').notNull().default('planned'),
-    notes: text('notes'),
-    sortOrder: integer('sort_order').notNull().default(0),
-    createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
-  },
-  (t) => ({
-    refIdx: index('shipment_containers_ref_idx').on(t.shipmentRefId),
-  }),
-);
-
-/**
- * Per-shipment follow-ups / reminders. Same provenance and rationale as
- * shipment_containers above — declared to keep the migration additive-only.
- */
-export const shipmentFollowUps = pgTable(
-  'shipment_follow_ups',
-  {
-    id: serial('id').primaryKey(),
-    shipmentRefId: text('shipment_ref_id')
-      .notNull()
-      .references(() => shipments.refId, { onDelete: 'cascade' }),
-    title: text('title').notNull(),
-    dueDate: text('due_date'),
-    priority: text('priority').notNull().default('normal'),
-    completed: boolean('completed').notNull().default(false),
-    notes: text('notes'),
-    sortOrder: integer('sort_order').notNull().default(0),
-    createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
-  },
-  (t) => ({
-    refIdx: index('shipment_follow_ups_ref_idx').on(t.shipmentRefId),
-    openIdx: index('shipment_follow_ups_open_idx').on(t.completed, t.dueDate),
-  }),
-);
 
 /**
  * Append-only audit trail for credential- and AI-configuration events.
