@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
-import { neon } from '@neondatabase/serverless';
 import { loadEnv } from '../config.js';
+import { getPostgresPool } from '../db/client.js';
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
 import { getAiRoutingProfile } from './aiRoutingService.js';
 import { listConfiguredAiProviders } from './aiProviderKeys.js';
@@ -9,7 +9,7 @@ const REQUIRED_TABLES=['shipments','quote_bundles','drayage_quotes','trucking_qu
 type FeatureState='ready'|'review_required'|'setup_required'|'experimental'|'unavailable';
 type FeatureReadiness={id:string;name:string;area:string;state:FeatureState;summary:string;action?:string};
 
-function conciseDatabaseError(error:unknown){const raw=error instanceof Error?error.message:String(error);return{code:'database_unavailable',message:/quota|http status 402/i.test(raw)?'The application database is temporarily unavailable because its usage limit was reached. Stored data was not deleted.':'The application database could not be reached. Configuration checks remain valid, but database-backed features could not be verified.',action:'Restore database access and run the readiness check again.'};}
+function conciseDatabaseError(error:unknown){const raw=error instanceof Error?error.message:String(error);return{code:'database_unavailable',message:'The application database could not be reached. Configuration checks remain valid, but database-backed features could not be verified.',action:`Verify the Replit PostgreSQL connection and run the readiness check again. ${raw.slice(0,180)}`};}
 function featureReadiness(tables:Record<string,boolean>,env:ReturnType<typeof loadEnv>,providers:string[],databaseAvailable=true):FeatureReadiness[]{
  const aiConfigured=providers.length>0;const databaseAction=databaseAvailable?'Run the schema repair or deployment migration.':'Restore database access, then check again.';
  return[
@@ -31,13 +31,13 @@ function featureReadiness(tables:Record<string,boolean>,env:ReturnType<typeof lo
 
 export function registerRuntimeHealthRoute(app:Express):void{
  app.get('/api/health/ready',async(_req:Request,res:Response)=>{const started=Date.now();const env=loadEnv();try{
-   await ensureShipmentOperationTables();const sql=neon(env.DATABASE_URL);
-   const [rows,profile,providers]=await Promise.all([
-    sql`SELECT to_regclass('public.shipments')::text AS shipments,to_regclass('public.quote_bundles')::text AS quote_bundles,to_regclass('public.drayage_quotes')::text AS drayage_quotes,to_regclass('public.trucking_quotes')::text AS trucking_quotes,to_regclass('public.shipment_containers')::text AS shipment_containers,to_regclass('public.shipment_follow_ups')::text AS shipment_follow_ups`,
+   await ensureShipmentOperationTables();const pool=getPostgresPool();
+   const [tableResult,profile,providers]=await Promise.all([
+    pool.query(`SELECT to_regclass('public.shipments')::text AS shipments,to_regclass('public.quote_bundles')::text AS quote_bundles,to_regclass('public.drayage_quotes')::text AS drayage_quotes,to_regclass('public.trucking_quotes')::text AS trucking_quotes,to_regclass('public.shipment_containers')::text AS shipment_containers,to_regclass('public.shipment_follow_ups')::text AS shipment_follow_ups`),
     getAiRoutingProfile(),listConfiguredAiProviders(),
    ]);
-   const row=(rows[0]??{}) as Record<string,string|null>;const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,Boolean(row[name])]));const aiConfigured=providers.length>0;const missingTables=REQUIRED_TABLES.filter((name)=>!tables[name]);const ready=missingTables.length===0&&aiConfigured;
-   res.status(ready?200:503).json({status:ready?'ready':'degraded',database:'connected',latencyMs:Date.now()-started,tables,missingTables,features:featureReadiness(tables,env,providers),configuration:{source:'encrypted app secrets and environment fallback',aiProvider:profile.mode,aiMode:profile.label,aiConfigured,configuredProviders:providers,sharedExecutor:true,webPolicy:profile.webPolicy,promptCaching:profile.promptCaching,maxTaskCostUsd:profile.maxTaskCostUsd,realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},checkedAt:new Date().toISOString()});
-  }catch(error){const databaseError=conciseDatabaseError(error);const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,false]));const providers=(await listConfiguredAiProviders().catch(()=>[]));res.status(503).json({status:'unavailable',database:'unavailable',latencyMs:Date.now()-started,tables:null,missingTables:[],features:featureReadiness(tables,env,providers,false),configuration:{source:'environment fallback',aiProvider:env.AI_PROVIDER,aiConfigured:providers.length>0,configuredProviders:providers,sharedExecutor:true,realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},errorCode:databaseError.code,error:databaseError.message,action:databaseError.action,checkedAt:new Date().toISOString()});}
+   const row=(tableResult.rows[0]??{}) as Record<string,string|null>;const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,Boolean(row[name])]));const aiConfigured=providers.length>0;const missingTables=REQUIRED_TABLES.filter((name)=>!tables[name]);const ready=missingTables.length===0&&aiConfigured;
+   res.status(ready?200:503).json({status:ready?'ready':'degraded',database:'connected',databaseDriver:'postgres',latencyMs:Date.now()-started,tables,missingTables,features:featureReadiness(tables,env,providers),configuration:{source:'encrypted app secrets and environment fallback',aiProvider:profile.mode,aiMode:profile.label,aiConfigured,configuredProviders:providers,sharedExecutor:true,webPolicy:profile.webPolicy,promptCaching:profile.promptCaching,maxTaskCostUsd:profile.maxTaskCostUsd,realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},checkedAt:new Date().toISOString()});
+  }catch(error){const databaseError=conciseDatabaseError(error);const tables=Object.fromEntries(REQUIRED_TABLES.map((name)=>[name,false]));const providers=(await listConfiguredAiProviders().catch(()=>[]));res.status(503).json({status:'unavailable',database:'unavailable',databaseDriver:'postgres',latencyMs:Date.now()-started,tables:null,missingTables:[],features:featureReadiness(tables,env,providers,false),configuration:{source:'environment fallback',aiProvider:env.AI_PROVIDER,aiConfigured:providers.length>0,configuredProviders:providers,sharedExecutor:true,realChrome:env.USE_REAL_CHROME,delayPredict:Boolean(env.DELAYPREDICT_URL),basicAuth:Boolean(env.BASIC_AUTH_USER&&env.BASIC_AUTH_PASS)},errorCode:databaseError.code,error:databaseError.message,action:databaseError.action,checkedAt:new Date().toISOString()});}
  });
 }
