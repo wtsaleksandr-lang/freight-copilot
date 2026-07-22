@@ -51,7 +51,7 @@ export async function parseRates(ariaTree: string): Promise<RateOption[]> {
     );
   }
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   console.log('[parseRates] Calling Claude to parse aria tree...');
 

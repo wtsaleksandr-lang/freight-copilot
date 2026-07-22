@@ -986,30 +986,32 @@
            as carrier credentials above). -->
       <div class="card">
         <h2>AI provider keys <span class="muted-inline">— encrypted</span></h2>
-        <p class="muted">API keys for the AI extractor. Encrypted at rest (AES-256-GCM, key in <code>.secrets/secrets.key</code>). Saved keys take precedence over <code>.env</code>, so you can update them from any device — including this phone. Pick which provider runs the extractor in <code>.env</code> via <code>AI_PROVIDER=anthropic</code> or <code>AI_PROVIDER=gemini</code>.</p>
+        <p class="muted">API keys for the AI extractor, encrypted at rest (AES-256-GCM) with <code>SECRETS_MASTER_KEY</code>. In-app keys take precedence over the matching <code>.env</code> fallback, so you can update them from any device. Key values are never shown. <strong><code>SESSION_SECRET</code> is unrelated</strong> to key encryption and is kept separate.</p>
+        <div id="ai-key-masterkey" class="status-inline"></div>
         <h3 class="bd-title">Add or update a key</h3>
         <div class="grid">
           <label>Provider
             <select id="ai-key-provider">
               <option value="anthropic">Anthropic (Claude)</option>
               <option value="gemini">Google Gemini</option>
-              <option value="openai">OpenAI (future)</option>
-              <option value="deepseek">DeepSeek (future)</option>
-              <option value="grok">xAI / Grok (future)</option>
+              <option value="openai">OpenAI</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="xai">xAI / Grok</option>
             </select>
           </label>
           <label>API key<input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /></label>
           <label class="full">Label (optional)<input id="ai-key-label" placeholder="e.g. personal account, team key, etc." /></label>
         </div>
         <div class="row">
-          <button id="ai-key-save-btn" class="primary">Save</button>
+          <button id="ai-key-save-btn" class="primary">Save / Replace</button>
+          <button id="ai-key-import-btn" class="btn-sm" title="Encrypt any provider keys found in environment variables into the vault. Never overwrites a good stored key; never deletes the env value.">Import environment keys</button>
           <div id="ai-key-status" class="status-inline"></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <h2>Stored AI keys</h2>
+          <h2>Provider status</h2>
           <button id="ai-key-refresh-btn" class="btn-sm">Refresh</button>
         </div>
         <div class="table-wrap">

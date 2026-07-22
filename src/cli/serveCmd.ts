@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { createApp } from '../server/app.js';
+import { closeDbPool } from '../db/client.js';
 import { networkInterfaces } from 'node:os';
 
 function localIPs(): string[] {
@@ -31,7 +32,7 @@ export function registerServeCommand(program: Command): void {
       }
       const host = opts.host;
       const app = createApp();
-      app.listen(port, host, () => {
+      const server = app.listen(port, host, () => {
         console.log('');
         if (host === '0.0.0.0') {
           console.log(`[serve] Dashboard listening on all interfaces, port ${port}.`);
@@ -49,5 +50,17 @@ export function registerServeCommand(program: Command): void {
         console.log('[serve] Press Ctrl+C to stop.');
         console.log('');
       });
+
+      const shutdown = (signal: string): void => {
+        console.log(`\n[serve] ${signal} received; shutting down.`);
+        server.close(() => {
+          void closeDbPool()
+            .catch((error) => console.error('[serve] Pool close failed:', error))
+            .finally(() => process.exit(0));
+        });
+        setTimeout(() => process.exit(0), 5_000).unref();
+      };
+      process.on('SIGINT', () => shutdown('SIGINT'));
+      process.on('SIGTERM', () => shutdown('SIGTERM'));
     });
 }

@@ -1,38 +1,35 @@
-import { eq } from 'drizzle-orm';
-import { createDbClient } from '../db/client.js';
-import { apiKeys } from '../db/schema.js';
-import { loadEnv } from '../config.js';
-import { decryptSecret } from './secretsCrypto.js';
+// Thin compatibility layer over the unified API-key vault (apiKeysService).
+//
+// Historically this module maintained its OWN provider list and env-fallback
+// logic that disagreed with apiKeysService (it used the id `xai` while the
+// vault used `grok`). Both now share one canonical provider set and one key
+// resolver, so a key saved in the vault is always visible to the executor and
+// readiness. This file remains as the executor/readiness entry point.
 
-export type AiProvider = 'anthropic' | 'gemini' | 'openai' | 'xai' | 'deepseek';
+import {
+  AI_PROVIDERS,
+  loadAiKey,
+  getProviderStatuses,
+  type AiProviderKey,
+} from './apiKeysService.js';
 
-const ENV_KEY: Record<AiProvider, keyof NodeJS.ProcessEnv> = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  gemini: 'GEMINI_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  xai: 'XAI_API_KEY',
-  deepseek: 'DEEPSEEK_API_KEY',
-};
+export type AiProvider = AiProviderKey;
 
+/** All known providers (anthropic, gemini, openai, xai, deepseek). */
+export const AI_PROVIDER_LIST: readonly AiProvider[] = AI_PROVIDERS;
+
+/**
+ * Resolve a usable key for a provider: in-app encrypted vault first, then the
+ * environment fallback. Returns null when neither is available. Never logs the
+ * value. Does not falsely report "missing" when a locked row exists — a locked
+ * row transparently falls back to env inside loadAiKey.
+ */
 export async function loadAiProviderKey(provider: AiProvider): Promise<string | null> {
-  try {
-    const db = createDbClient();
-    const [row] = await db.select().from(apiKeys).where(eq(apiKeys.provider, provider));
-    if (row?.keyEncrypted) return await decryptSecret(row.keyEncrypted);
-  } catch (error) {
-    console.warn(`[ai-keys] Could not read ${provider} key from encrypted storage:`, error);
-  }
-
-  const env = loadEnv();
-  const configured = process.env[ENV_KEY[provider]];
-  if (configured?.trim()) return configured.trim();
-  if (provider === 'anthropic' && env.ANTHROPIC_API_KEY?.trim()) return env.ANTHROPIC_API_KEY.trim();
-  if (provider === 'gemini' && env.GEMINI_API_KEY?.trim()) return env.GEMINI_API_KEY.trim();
-  return null;
+  return (await loadAiKey(provider)) ?? null;
 }
 
+/** Providers that can actually serve a key right now (vault or env fallback). */
 export async function listConfiguredAiProviders(): Promise<AiProvider[]> {
-  const providers: AiProvider[] = ['anthropic', 'gemini', 'openai', 'xai', 'deepseek'];
-  const checks = await Promise.all(providers.map(async (provider) => ({ provider, key: await loadAiProviderKey(provider) })));
-  return checks.filter((item) => Boolean(item.key)).map((item) => item.provider);
+  const statuses = await getProviderStatuses();
+  return statuses.filter((s) => s.usable).map((s) => s.provider);
 }

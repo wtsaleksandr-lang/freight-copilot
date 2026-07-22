@@ -37,7 +37,7 @@ export async function classifyRateFiles(files: UniversalFileInput[]) {
   }
 
   const env = loadEnv();
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
     model: await getModel(),
     max_tokens: 1024,

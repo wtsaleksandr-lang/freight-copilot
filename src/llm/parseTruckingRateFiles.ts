@@ -63,7 +63,7 @@ export async function parseTruckingRateFiles(files: UniversalFileInput[]) {
     else content.push({ type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.fileBase64! } });
   }
   const env = loadEnv();
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({
     model: await getModel(), max_tokens: 8192,
     system: 'You are a freight-forwarding trucking-rate data extractor. Accuracy is more important than quantity. Do not convert currencies or guess lanes, equipment, mileage, dates, or charges.',

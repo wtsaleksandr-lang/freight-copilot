@@ -7566,14 +7566,46 @@ function esc(s) {
   const keyIn = document.getElementById('ai-key-value');
   const labelIn = document.getElementById('ai-key-label');
   const saveBtn = document.getElementById('ai-key-save-btn');
+  const importBtn = document.getElementById('ai-key-import-btn');
   const status = document.getElementById('ai-key-status');
+  const masterKeyBox = document.getElementById('ai-key-masterkey');
   const table = document.getElementById('ai-key-list-table');
   const refreshBtn = document.getElementById('ai-key-refresh-btn');
   if (!table) return;
 
+  const PROV_LABEL = {
+    anthropic: 'Anthropic (Claude)',
+    gemini: 'Google Gemini',
+    openai: 'OpenAI',
+    deepseek: 'DeepSeek',
+    xai: 'xAI / Grok',
+  };
+  // 5 explicit statuses (Objective 5). One provider failing never blanks the rest.
+  const STATE_BADGE = {
+    stored_usable: { label: 'Stored securely', cls: 'green' },
+    env_fallback: { label: 'Environment fallback', cls: 'blue' },
+    stored_locked: { label: 'Stored but locked', cls: 'red' },
+    missing: { label: 'Missing', cls: 'gray' },
+  };
+
   function setStat(msg, kind) {
     status.textContent = msg || '';
     status.className = 'status-inline' + (kind ? ' status-' + kind : '');
+  }
+
+  function renderMasterKey(mk) {
+    if (!masterKeyBox) return;
+    if (!mk) { masterKeyBox.textContent = ''; return; }
+    if (!mk.productionSafe) {
+      masterKeyBox.className = 'status-inline status-error';
+      masterKeyBox.textContent = '⚠ SECRETS_MASTER_KEY is not set in production — set it in Secrets and republish before saving keys.';
+    } else if (!mk.configured) {
+      masterKeyBox.className = 'status-inline status-info';
+      masterKeyBox.textContent = 'SECRETS_MASTER_KEY: using a development fallback. Set it in Secrets before deploying.';
+    } else {
+      masterKeyBox.className = 'status-inline status-success';
+      masterKeyBox.textContent = `SECRETS_MASTER_KEY configured (source: ${mk.source}). SESSION_SECRET is separate.`;
+    }
   }
 
   async function loadList() {
@@ -7581,50 +7613,36 @@ function esc(s) {
       const r = await fetch('/api/ai-keys');
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'load failed');
-      const keys = data.keys || [];
-      if (keys.length === 0) {
-        table.innerHTML =
-          '<tbody><tr><td class="empty">No AI keys saved yet — add one above.</td></tr></tbody>';
-        return;
-      }
-      const head = `<thead><tr><th>Provider</th><th>Label</th><th>Key</th><th>Source</th><th>Updated</th><th></th></tr></thead>`;
-      const body = keys
-        .map((k) => {
-          const provLabel = {
-            anthropic: 'Anthropic (Claude)',
-            gemini: 'Google Gemini',
-            openai: 'OpenAI',
-            deepseek: 'DeepSeek',
-            grok: 'xAI / Grok',
-          }[k.provider] || k.provider;
-          const source = k.keyMasked === '(.env)'
-            ? `<span class="muted small">${esc(k.envFallback)} env var</span>`
-            : `<span class="muted small">vault</span>`;
-          const updated = k.keyMasked === '(.env)'
-            ? '—'
-            : new Date(k.updatedAt).toISOString().slice(0, 10);
-          const rmBtn = k.keyMasked === '(.env)'
-            ? ''
-            : `<button class="ship-delete-btn" data-prov="${esc(k.provider)}" title="Remove from vault (env var unaffected)">✕</button>`;
-          return `<tr>
-            <td>${esc(provLabel)}</td>
-            <td>${esc(k.label || '—')}</td>
-            <td><code>${esc(k.keyMasked)}</code></td>
-            <td>${source}</td>
+      renderMasterKey(data.masterKey);
+      const providers = Array.isArray(data.providers) ? data.providers : [];
+      const head = `<thead><tr><th>Provider</th><th>Status</th><th>Label</th><th>Key</th><th>Updated</th><th>Actions</th></tr></thead>`;
+      const body = providers
+        .map((p) => {
+          const badge = STATE_BADGE[p.state] || { label: p.state, cls: 'gray' };
+          const ready = p.usable ? '<span class="feature-state feature-state-ready" title="A key is available at runtime">Ready</span> ' : '';
+          const updated = p.updatedAt ? new Date(p.updatedAt).toISOString().slice(0, 10) : '—';
+          const masked = p.keyMasked ? `<code>${esc(p.keyMasked)}</code>` : '<span class="muted small">—</span>';
+          const testBtn = `<button class="btn-sm ai-key-test" data-prov="${esc(p.provider)}" title="Cheap metadata call — no data sent">Test</button>`;
+          const rmBtn = p.storedRow
+            ? `<button class="ship-delete-btn ai-key-del" data-prov="${esc(p.provider)}" title="Remove from vault (env var unaffected)">✕</button>`
+            : '';
+          return `<tr data-prov="${esc(p.provider)}">
+            <td>${esc(PROV_LABEL[p.provider] || p.provider)}</td>
+            <td>${ready}<span class="feature-state feature-state-${badge.cls}" data-badge="${esc(p.state)}">${esc(badge.label)}</span></td>
+            <td>${esc(p.label || '—')}</td>
+            <td>${masked}</td>
             <td class="when-cell">${updated}</td>
-            <td class="actions-cell">${rmBtn}</td>
+            <td class="actions-cell"><span class="ai-key-test-result muted small"></span> ${testBtn}${rmBtn}</td>
           </tr>`;
         })
         .join('');
       table.innerHTML = head + `<tbody>${body}</tbody>`;
-      table.querySelectorAll('.ship-delete-btn').forEach((b) => {
+      table.querySelectorAll('.ai-key-del').forEach((b) => {
         b.addEventListener('click', async () => {
           const prov = b.getAttribute('data-prov');
-          if (!confirm(`Remove the saved ${prov} key from the vault?`)) return;
+          if (!confirm(`⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`)) return;
           try {
-            const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}`, {
-              method: 'DELETE',
-            });
+            const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}`, { method: 'DELETE' });
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'delete failed');
             await loadList();
@@ -7634,10 +7652,48 @@ function esc(s) {
           }
         });
       });
+      table.querySelectorAll('.ai-key-test').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const prov = b.getAttribute('data-prov');
+          const cell = b.closest('.actions-cell')?.querySelector('.ai-key-test-result');
+          b.disabled = true;
+          if (cell) { cell.textContent = 'Testing…'; cell.className = 'ai-key-test-result muted small'; }
+          try {
+            const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}/test`, { method: 'POST' });
+            const data = await r.json();
+            if (cell) {
+              if (data.success) { cell.textContent = `OK ${data.latencyMs}ms`; cell.className = 'ai-key-test-result status-success small'; }
+              else { cell.textContent = data.error || 'failed'; cell.className = 'ai-key-test-result status-error small'; }
+            }
+          } catch (err) {
+            if (cell) { cell.textContent = String(err.message || err); cell.className = 'ai-key-test-result status-error small'; }
+          } finally {
+            b.disabled = false;
+          }
+        });
+      });
     } catch (err) {
-      table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
+      // A single failure must not blank the whole panel silently.
+      table.innerHTML = `<tbody><tr><td class="empty">Status unavailable: ${esc(err.message)}. Stored keys were not affected.</td></tr></tbody>`;
     }
   }
+
+  importBtn?.addEventListener('click', async () => {
+    importBtn.disabled = true;
+    setStat('Importing environment keys…', 'info');
+    try {
+      const r = await fetch('/api/ai-keys/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'import failed');
+      const imported = (data.results || []).filter((x) => x.action === 'imported').map((x) => x.provider);
+      setStat(imported.length ? `Imported: ${imported.join(', ')}.` : 'No new keys to import.', 'success');
+      await loadList();
+    } catch (err) {
+      setStat(err.message, 'error');
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
 
   saveBtn?.addEventListener('click', async () => {
     const provider = provSel.value;

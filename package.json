@@ -13,18 +13,19 @@
     "deploy:prepare": "pnpm install --frozen-lockfile && pnpm build",
     "test": "node --import tsx --test src/**/*.test.ts",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "verify:secrets": "tsx scripts/verifySecrets.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@kenjiuno/msgreader": "^1.28.0",
-    "@neondatabase/serverless": "^1.1.0",
     "commander": "^14.0.3",
     "dayjs": "^1.11.20",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",
     "express": "^5.2.1",
+    "pg": "^8.20.0",
     "playwright": "^1.59.1",
     "zod": "^4.3.6"
   },

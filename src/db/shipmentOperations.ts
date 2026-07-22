@@ -1,5 +1,28 @@
-import { neon } from '@neondatabase/serverless';
-import { loadEnv } from '../config.js';
+import { getPostgresPool } from './client.js';
+
+/**
+ * Parameterized tagged-template query backed by the shared pg.Pool.
+ *
+ * This replaces the previous `neon()` HTTP serverless driver so this module
+ * uses the single application connection pool (drizzle-orm/node-postgres) like
+ * every other DB feature — making it portable to any standard PostgreSQL
+ * (Replit-managed, Neon, localhost) instead of Neon's HTTPS proxy only.
+ *
+ * Interpolated `${value}` expressions become `$1..$n` bind parameters (never
+ * string-concatenated into SQL), preserving the exact injection-safe behaviour
+ * of the neon tagged template. Returns the row array, same shape as before.
+ */
+async function sql(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<Array<Record<string, unknown>>> {
+  const text = strings.reduce(
+    (acc, part, index) => acc + part + (index < values.length ? `$${index + 1}` : ''),
+    '',
+  );
+  const result = await getPostgresPool().query(text, values);
+  return result.rows;
+}
 
 export type ShipmentContainerInput = {
   containerNumber?: string | null;
@@ -26,7 +49,6 @@ export type ShipmentFollowUpInput = {
 type ContainerRow = ShipmentContainerInput & { id: number; shipmentRefId: string; sortOrder: number; createdAt: string; updatedAt: string; };
 type FollowUpRow = ShipmentFollowUpInput & { id: number; shipmentRefId: string; sortOrder: number; createdAt: string; updatedAt: string; };
 
-const sql = neon(loadEnv().DATABASE_URL);
 let tablesReady: Promise<void> | null = null;
 
 export function ensureShipmentOperationTables(): Promise<void> {

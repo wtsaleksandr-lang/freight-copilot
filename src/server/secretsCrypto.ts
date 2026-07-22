@@ -22,6 +22,28 @@ export function parseMasterKey(raw: string): Buffer {
   throw new Error('SECRETS_MASTER_KEY must be a 32-byte value encoded as 64 hex characters or base64');
 }
 
+/**
+ * True when running as a real deployment, where a missing SECRETS_MASTER_KEY
+ * must be a hard error rather than an auto-generated ephemeral key. Detects a
+ * standard NODE_ENV=production and Replit's published-deployment flag.
+ */
+export function isProductionRuntime(): boolean {
+  if (process.env.NODE_ENV === 'production') return true;
+  const dep = process.env.REPLIT_DEPLOYMENT;
+  return dep === '1' || dep === 'true';
+}
+
+/**
+ * Clear, non-secret error thrown in production when no master key is set. Kept
+ * as a named export so readiness/status code can recognise this exact failure
+ * (a database row exists but is unreadable) instead of mislabelling it.
+ */
+export const MISSING_MASTER_KEY_MESSAGE =
+  'SECRETS_MASTER_KEY is required in production. Refusing to auto-generate an ephemeral ' +
+  'key because stored provider credentials would become permanently unreadable after the ' +
+  'next redeploy. Set SECRETS_MASTER_KEY in your deployment Secrets (64 hex characters or a ' +
+  '32-byte base64 value) and republish.';
+
 async function loadOrCreateKey(): Promise<Buffer> {
   if (cachedKey) return cachedKey;
 
@@ -32,6 +54,14 @@ async function loadOrCreateKey(): Promise<Buffer> {
     return cachedKey;
   }
 
+  // In production we NEVER fabricate a key: a generated key would re-encrypt
+  // secrets under an ephemeral value that the next redeploy wipes, making every
+  // stored credential permanently unreadable. Fail with a clear setup error.
+  if (isProductionRuntime()) {
+    throw new Error(MISSING_MASTER_KEY_MESSAGE);
+  }
+
+  // --- development / local only below this line ---
   try {
     const hex = (await readFile(KEY_FILE, 'utf8')).trim();
     cachedKey = parseMasterKey(hex);
@@ -49,7 +79,11 @@ async function loadOrCreateKey(): Promise<Buffer> {
   } catch {
     // chmod is best-effort on Windows
   }
-  console.warn('[secretsCrypto] SECRETS_MASTER_KEY is not configured; generated a local fallback key. Add this key to Replit Secrets before redeploying to prevent encrypted credentials from becoming unreadable.');
+  console.warn(
+    '[secretsCrypto] DEVELOPMENT ONLY: SECRETS_MASTER_KEY is not set; generated a local ' +
+      'fallback key at .secrets/secrets.key. This fallback is disabled in production — set ' +
+      'SECRETS_MASTER_KEY in Secrets before deploying.',
+  );
   cachedKey = key;
   cachedSource = 'generated';
   return key;
@@ -57,6 +91,35 @@ async function loadOrCreateKey(): Promise<Buffer> {
 
 export function getSecretsKeySource(): 'environment' | 'file' | 'generated' | 'not_loaded' {
   return cachedSource ?? 'not_loaded';
+}
+
+/** Whether SECRETS_MASTER_KEY is present in the environment (no value exposed). */
+export function isMasterKeyConfigured(): boolean {
+  return Boolean(process.env.SECRETS_MASTER_KEY?.trim());
+}
+
+/**
+ * Non-throwing description of the master-key state for readiness/UI. Never
+ * returns or logs the key value. `productionSafe` is false only when running in
+ * production with no configured key (the data-loss-risk case).
+ */
+export function describeMasterKey(): {
+  configured: boolean;
+  source: ReturnType<typeof getSecretsKeySource>;
+  productionSafe: boolean;
+} {
+  const configured = isMasterKeyConfigured();
+  return {
+    configured,
+    source: getSecretsKeySource(),
+    productionSafe: configured || !isProductionRuntime(),
+  };
+}
+
+/** Test-only: reset the in-process key cache so prod/dev branches can be exercised. */
+export function __resetSecretsKeyCacheForTests(): void {
+  cachedKey = null;
+  cachedSource = null;
 }
 
 /** Encrypt plaintext with AES-256-GCM. Returns "iv:tag:ct" base64 segments. */

@@ -140,7 +140,7 @@ export async function analyzeRecording(
   if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
     throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
   }
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   const carrierContext = input.carrierCode
     ? `\nThis recording was captured during onboarding for carrier code ${input.carrierCode}.`
