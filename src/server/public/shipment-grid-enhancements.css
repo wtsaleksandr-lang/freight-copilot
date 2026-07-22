@@ -1,5 +1,5 @@
 #tab-shipments{max-width:none;width:100%}
-#tab-shipments>.card:has(#ship-table),#tab-shipments .ship-board-card{max-width:none;width:100%}
+#tab-shipments>.card:has(#ship-table),#tab-shipments .ship-board-card{max-width:none;width:100%;min-width:0}
 .shipment-grid-toolbar{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0 8px;padding:10px 12px;border:1px solid rgba(148,163,184,.28);border-radius:10px;background:rgba(15,23,42,.72);color:#f8fafc}
 .shipment-grid-toolbar-main{display:flex;align-items:baseline;gap:10px;min-width:0}
 .shipment-grid-toolbar-actions{display:flex;gap:8px;flex:none}
@@ -8,7 +8,8 @@
 .shipment-columns-menu{position:absolute;right:10px;top:calc(100% + 6px);z-index:120;display:grid;gap:7px;min-width:240px;max-height:420px;overflow:auto;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:10px;background:#0b1629;color:#f8fafc;box-shadow:0 18px 50px rgba(0,0,0,.45)}
 .shipment-columns-menu[hidden]{display:none}
 .shipment-columns-menu label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
-#ship-table{table-layout:fixed;min-width:max-content;width:max-content}
+.table-wrap:has(#ship-table){min-width:0;overflow-x:auto;overflow-y:visible;overflow-anchor:none;scrollbar-gutter:stable}
+#ship-table{table-layout:fixed;width:max-content;min-width:100%}
 #ship-table th,#ship-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #ship-table th{position:relative;user-select:none}
 #ship-table th[draggable=true]{cursor:grab}
