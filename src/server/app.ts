@@ -38,6 +38,7 @@ const CLIENT_SCRIPTS = [
   'system-check-ui.js',
   'ai-routing-ui.js',
   'usability-shell.js',
+  'shipment-grid-stability-guard.js',
   'shipment-grid-enhancements-ui.js',
 ] as const;
 
