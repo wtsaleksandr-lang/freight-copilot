@@ -10,8 +10,8 @@ channel = "stable-25_05"
 
 [userenv.shared]
 USE_REAL_CHROME = "false"
-# DATABASE_URL is set as a Replit Secret on the deployment (Neon Postgres
-# connection string). Persists across redeploys — file-based storage was
+# DATABASE_URL is set as a Replit Secret on the deployment (a standard
+# PostgreSQL connection string). Persists across redeploys — file-based storage was
 # wiped on every redeploy because Reserved VM disks don't persist.
 
 [workflows]

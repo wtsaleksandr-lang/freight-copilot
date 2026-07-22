@@ -4,11 +4,25 @@ import { z } from 'zod';
 const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
   /**
-   * Postgres connection string (Neon). Required: data persists outside the
-   * server filesystem so redeploys don't wipe shipments / quotes / settings.
-   * Get one at https://neon.tech (free tier).
+   * Standard PostgreSQL connection string. Works with ANY standard Postgres —
+   * Replit-managed Postgres, Neon-hosted Postgres, or a self-hosted/local
+   * instance. Required: data persists outside the server filesystem so
+   * redeploys don't wipe shipments / quotes / settings. SSL is negotiated from
+   * the URL's sslmode (e.g. `?sslmode=require` for managed cloud Postgres,
+   * `?sslmode=disable` for a plaintext local instance).
    */
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required (Neon Postgres connection string)'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required (a standard PostgreSQL connection string)'),
+  /**
+   * Master key for encrypting app-stored provider credentials (AES-256-GCM),
+   * as 64 hex chars or a 32-byte base64 value. Distinct from SESSION_SECRET.
+   * Optional here (validated + enforced in secretsCrypto): REQUIRED in
+   * production — the app refuses to auto-generate an ephemeral key there.
+   */
+  SECRETS_MASTER_KEY: z.string().optional(),
+  /** Optional env fallbacks for additional AI providers (vault takes precedence). */
+  OPENAI_API_KEY: z.string().optional(),
+  XAI_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
   /**
    * If "true", record/quote/agent connect to a real Chrome you've launched
    * with --remote-debugging-port=9222 (use the "Chrome (Freight Copilot)"

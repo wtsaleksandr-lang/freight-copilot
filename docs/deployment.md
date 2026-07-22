@@ -1,6 +1,6 @@
 # LoadMode deployment and remote access
 
-LoadMode supports two operating modes. They can use the same Neon database, but only one instance should normally be used for writes at a time.
+LoadMode supports two operating modes. They can use the same PostgreSQL database, but only one instance should normally be used for writes at a time.
 
 ## Mode A: always-on desktop PC with Tailscale
 
@@ -115,7 +115,7 @@ Database schema changes must be applied deliberately before or during a controll
 pnpm db:push
 ```
 
-Do not run the seed script on every normal restart. Existing operational records live in Neon and must not depend on the deployment filesystem.
+Do not run the seed script on every normal restart. Existing operational records live in the PostgreSQL database and must not depend on the deployment filesystem.
 
 ## Post-deployment verification
 

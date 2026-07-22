@@ -71,13 +71,13 @@ test('database outage does not falsely report configured credentials as missing'
     checkedAt: new Date().toISOString(),
     tables: null,
     configuration: { aiProvider: 'anthropic', aiConfigured: true, realChrome: false, delayPredict: false, basicAuth: true },
-    error: 'The Neon database project has exceeded its compute-time quota.',
-    action: 'Restore or upgrade the Neon project, then run the readiness check again.',
+    error: 'The PostgreSQL database is temporarily unreachable.',
+    action: 'Restore database access, then run the readiness check again.',
     features: readiness.features,
   } as typeof readiness & { tables: null; error: string; action: string });
 
   await page.getByRole('button', { name: 'Open feature readiness' }).click();
-  await expect(page.getByText('The Neon database project has exceeded its compute-time quota.')).toBeVisible();
+  await expect(page.getByText('The PostgreSQL database is temporarily unreachable.')).toBeVisible();
   await expect(page.getByText('Database tables could not be checked. This does not mean they were deleted.')).toBeVisible();
   await expect(page.getByText('Configured', { exact: true })).toBeVisible();
   await expect(page.getByText('Enabled', { exact: true })).toBeVisible();

@@ -3,7 +3,7 @@ import { defineConfig } from 'drizzle-kit';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
-  throw new Error('DATABASE_URL is required (Neon Postgres connection string).');
+  throw new Error('DATABASE_URL is required (a standard PostgreSQL connection string).');
 }
 
 export default defineConfig({

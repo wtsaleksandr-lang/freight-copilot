@@ -1,4 +1,5 @@
 import { createApp } from './server/app.js';
+import { closeDbPool } from './db/client.js';
 
 function parsePort(value: string | undefined): number {
   const port = Number.parseInt(value || '3000', 10);
@@ -20,11 +21,17 @@ const server = app.listen(port, host, () => {
 function shutdown(signal: string): void {
   console.log(`[production] ${signal} received; closing server.`);
   server.close((error) => {
-    if (error) {
-      console.error('[production] Shutdown failed:', error);
-      process.exit(1);
-    }
-    process.exit(0);
+    // Drain the shared PostgreSQL pool before exiting so in-flight queries
+    // finish and connections are released cleanly on redeploy/restart.
+    void closeDbPool()
+      .catch((poolError) => console.error('[production] Pool close failed:', poolError))
+      .finally(() => {
+        if (error) {
+          console.error('[production] Shutdown failed:', error);
+          process.exit(1);
+        }
+        process.exit(0);
+      });
   });
 
   setTimeout(() => {
