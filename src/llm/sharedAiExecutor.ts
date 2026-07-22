@@ -26,7 +26,7 @@ export type StructuredAiTask<T> = {
 
 type RawProviderResult = { text: string; inputTokens: number; outputTokens: number };
 
-const PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
+const PRICE_PER_MILLION: Record<AiProvider, { input: number; output: number }> = {
   anthropic: { input: 5, output: 25 },
   gemini: { input: 2.5, output: 15 },
   openai: { input: 5, output: 20 },
