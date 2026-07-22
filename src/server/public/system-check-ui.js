@@ -1,59 +1,49 @@
 (function installSystemCheckUi(){
 'use strict';
-const LABELS={ready:'Ready',review_required:'Ready · review required',setup_required:'Setup required',experimental:'Experimental',unavailable:'Unavailable'};
+const LABELS={ready:'Working',review_required:'Working — verify output',setup_required:'Action needed',experimental:'Experimental',unavailable:'Unavailable'};
+const PRIORITY={unavailable:0,setup_required:1,review_required:2,experimental:3,ready:4};
 function esc(value){const div=document.createElement('div');div.textContent=String(value??'');return div.innerHTML;}
 function close(){document.getElementById('system-check-dialog')?.remove();}
 function badge(state){return `<span class="feature-state feature-state-${esc(state)}">${esc(LABELS[state]||state)}</span>`;}
-function featureRows(features){
-  if(!Array.isArray(features)||features.length===0)return '<p class="muted">No feature readiness information was returned.</p>';
+function card(feature){return `<article class="feature-readiness-row"><div class="feature-readiness-main"><strong>${esc(feature.name)}</strong><p>${esc(feature.summary)}</p>${feature.action?`<small>${esc(feature.action)}</small>`:''}</div>${badge(feature.state)}</article>`;}
+function grouped(features){
   const groups=new Map();
   for(const feature of features){const area=feature.area||'Other';if(!groups.has(area))groups.set(area,[]);groups.get(area).push(feature);}
-  return Array.from(groups.entries()).map(([area,items])=>`<section class="feature-readiness-group"><h3>${esc(area)}</h3><div class="feature-readiness-list">${items.map((feature)=>`<article class="feature-readiness-row"><div class="feature-readiness-main"><strong>${esc(feature.name)}</strong><p>${esc(feature.summary)}</p>${feature.action?`<small>${esc(feature.action)}</small>`:''}</div>${badge(feature.state)}</article>`).join('')}</div></section>`).join('');
+  return Array.from(groups.entries()).map(([area,items])=>`<section class="feature-readiness-group"><h4>${esc(area)}</h4><div class="feature-readiness-list">${items.map(card).join('')}</div></section>`).join('');
 }
-function summary(result){
-  const features=Array.isArray(result.features)?result.features:[];
-  const counts=features.reduce((acc,item)=>{acc[item.state]=(acc[item.state]||0)+1;return acc;},{});
-  const action=result.action?`<p><strong>Required action:</strong> ${esc(result.action)}</p>`:'';
-  return `<div class="system-readiness-summary"><div><strong>${result.status==='ready'?'Core system ready':'Core system needs attention'}</strong><p>Database: ${esc(result.database)} · ${esc(result.latencyMs)} ms · checked ${esc(new Date(result.checkedAt||Date.now()).toLocaleString())}</p>${result.error?`<p class="error">${esc(result.error)}</p>`:''}${action}</div><div class="system-readiness-counts"><span>${counts.ready||0} ready</span><span>${counts.review_required||0} review</span><span>${counts.setup_required||0} setup</span><span>${counts.experimental||0} experimental</span></div></div>`;
+function section(title,description,features,open=true){
+  if(!features.length)return '';
+  return `<details class="readiness-section" ${open?'open':''}><summary><span><strong>${esc(title)}</strong><small>${esc(description)}</small></span><b>${features.length}</b></summary><div class="readiness-section-body">${grouped(features)}</div></details>`;
 }
-function configValue(configuration,key,yes,no){
-  if(!configuration||typeof configuration[key]!=='boolean')return 'Not checked';
-  return configuration[key]?yes:no;
+function configValue(configuration,key,yes,no){if(!configuration||typeof configuration[key]!=='boolean')return 'Not checked';return configuration[key]?yes:no;}
+function summary(result,features){
+  const blockers=features.filter((f)=>f.state==='unavailable').length;
+  const actions=features.filter((f)=>f.state==='setup_required').length;
+  const reviews=features.filter((f)=>f.state==='review_required').length;
+  const healthy=features.filter((f)=>f.state==='ready').length;
+  const operational=result.database==='connected'&&blockers===0;
+  const title=operational?'System operational':blockers?'Core features need attention':'System operational with setup items';
+  const tone=operational?'ok':blockers?'danger':'warning';
+  return `<div class="readiness-overview readiness-overview-${tone}"><div><span class="readiness-eyebrow">Current status</span><h3>${esc(title)}</h3><p>Database ${esc(result.database)} · ${esc(result.latencyMs)} ms · checked ${esc(new Date(result.checkedAt||Date.now()).toLocaleString())}</p>${result.error?`<p class="error">${esc(result.error)}</p>`:''}${result.action?`<p><strong>Next step:</strong> ${esc(result.action)}</p>`:''}</div><div class="readiness-metrics"><span><b>${blockers}</b> blocked</span><span><b>${actions}</b> actions</span><span><b>${reviews}</b> verify</span><span><b>${healthy}</b> working</span></div></div>`;
 }
 async function open(){
   close();
   const previous=document.activeElement;
-  const backdrop=document.createElement('div');
-  backdrop.id='system-check-dialog';
-  backdrop.className='simple-dialog-backdrop';
-  backdrop.innerHTML=`<section class="simple-dialog system-readiness-dialog" role="dialog" aria-modal="true" aria-labelledby="system-check-title"><div class="simple-dialog-head"><div><h2 id="system-check-title">Feature readiness</h2><p>Shows what is operational, what requires review, and what still needs configuration.</p></div><button type="button" class="simple-dialog-close" aria-label="Close">×</button></div><div class="readiness-legend"><span>${badge('ready')} dependable workflow</span><span>${badge('review_required')} human verification required</span><span>${badge('setup_required')} configuration missing</span><span>${badge('experimental')} may break when external sites change</span></div><div id="system-check-result" class="system-check-result">Checking…</div><div class="row system-check-actions"><button type="button" id="system-check-again" class="btn-sm">Run checks again</button><button type="button" id="system-check-close" class="btn-sm">Close</button></div></section>`;
+  const backdrop=document.createElement('div');backdrop.id='system-check-dialog';backdrop.className='simple-dialog-backdrop';
+  backdrop.innerHTML=`<section class="simple-dialog system-readiness-dialog readiness-v2" role="dialog" aria-modal="true" aria-labelledby="system-check-title"><div class="simple-dialog-head"><div><h2 id="system-check-title">System readiness</h2><p>Problems first, then items requiring review, optional tools and healthy features.</p></div><button type="button" class="simple-dialog-close" aria-label="Close">×</button></div><div id="system-check-result" class="system-check-result">Checking…</div><div class="row system-check-actions"><button type="button" id="system-check-again" class="btn-sm">Run checks again</button><button type="button" id="system-check-close" class="btn-sm">Close</button></div></section>`;
   document.body.appendChild(backdrop);
   const finish=()=>{close();if(previous instanceof HTMLElement&&previous.isConnected)previous.focus();};
-  backdrop.querySelector('.simple-dialog-close').addEventListener('click',finish);
-  backdrop.querySelector('#system-check-close').addEventListener('click',finish);
-  backdrop.addEventListener('click',(event)=>{if(event.target===backdrop)finish();});
-  backdrop.addEventListener('keydown',(event)=>{if(event.key==='Escape'){event.preventDefault();finish();}});
-  backdrop.querySelector('#system-check-again').addEventListener('click',run);
-  backdrop.querySelector('.simple-dialog-close').focus();
-  await run();
+  backdrop.querySelector('.simple-dialog-close').addEventListener('click',finish);backdrop.querySelector('#system-check-close').addEventListener('click',finish);backdrop.addEventListener('click',(event)=>{if(event.target===backdrop)finish();});backdrop.addEventListener('keydown',(event)=>{if(event.key==='Escape'){event.preventDefault();finish();}});backdrop.querySelector('#system-check-again').addEventListener('click',run);backdrop.querySelector('.simple-dialog-close').focus();await run();
 }
 async function run(){
-  const target=document.getElementById('system-check-result');
-  if(!target)return;
-  target.textContent='Checking application readiness…';
+  const target=document.getElementById('system-check-result');if(!target)return;target.textContent='Checking application readiness…';
   try{
-    const response=await fetch('/api/health/ready',{cache:'no-store'});
-    const result=await response.json();
-    const tableRows=result.tables?Object.entries(result.tables).map(([name,ok])=>`<li><span>${esc(name.replaceAll('_',' '))}</span><strong>${ok?'Ready':'Missing'}</strong></li>`).join(''):'';
-    const config=result.configuration;
-    const provider=config?.aiProvider?esc(config.aiProvider):'Not checked';
-    target.innerHTML=`${summary(result)}<div class="system-readiness-layout"><div><h3>Feature audit</h3>${featureRows(result.features)}</div><aside><h3>Database foundations</h3>${tableRows?`<ul class="readiness-table-list">${tableRows}</ul>`:'<p class="muted">Database tables could not be checked. This does not mean they were deleted.</p>'}<h3>Configuration</h3><p class="muted small">Configuration status is checked separately from the database. Secret values are never displayed.</p><ul class="readiness-table-list"><li><span>AI provider</span><strong>${provider}</strong></li><li><span>AI key</span><strong>${configValue(config,'aiConfigured','Configured','Missing')}</strong></li><li><span>Real Chrome</span><strong>${configValue(config,'realChrome','Enabled','Disabled')}</strong></li><li><span>DelayPredict</span><strong>${configValue(config,'delayPredict','Connected','Not connected')}</strong></li><li><span>Basic authentication</span><strong>${configValue(config,'basicAuth','Enabled','Missing')}</strong></li></ul></aside></div>`;
+    const response=await fetch('/api/health/ready',{cache:'no-store'});const result=await response.json();const features=(Array.isArray(result.features)?result.features:[]).sort((a,b)=>(PRIORITY[a.state]??9)-(PRIORITY[b.state]??9));
+    const blocked=features.filter((f)=>f.state==='unavailable');const actions=features.filter((f)=>f.state==='setup_required');const review=features.filter((f)=>f.state==='review_required');const experimental=features.filter((f)=>f.state==='experimental');const ready=features.filter((f)=>f.state==='ready');
+    const tables=result.tables?Object.entries(result.tables).map(([name,ok])=>`<li class="${ok?'':'readiness-table-missing'}"><span>${esc(name.replaceAll('_',' '))}</span><strong>${ok?'Working':'Missing'}</strong></li>`).join(''):'';const config=result.configuration;const provider=config?.aiProvider?esc(config.aiProvider):'Not checked';
+    target.innerHTML=`${summary(result,features)}${section('Needs immediate attention','Core features that are blocked or missing required data.',blocked,true)}${section('Setup actions','Configuration needed to enable additional capabilities.',actions,true)}${section('Working — verify before sending','The workflow runs, but freight, customs and commercial output needs human approval.',review,true)}${section('Optional and experimental','Useful integrations that do not determine core-system health.',experimental,false)}${section('Working normally','Healthy features; collapsed to reduce visual noise.',ready,false)}<div class="readiness-foundations"><div><h3>Data foundations</h3>${tables?`<ul class="readiness-table-list">${tables}</ul>`:'<p class="muted">Database tables could not be checked. This does not mean they were deleted.</p>'}</div><div><h3>Security and integrations</h3><p class="muted small">Secret values are never displayed.</p><ul class="readiness-table-list"><li><span>AI provider</span><strong>${provider}</strong></li><li><span>AI key</span><strong>${configValue(config,'aiConfigured','Configured','Missing')}</strong></li><li><span>Browser automation</span><strong>${configValue(config,'realChrome','Enabled','Optional — off')}</strong></li><li><span>DelayPredict</span><strong>${configValue(config,'delayPredict','Connected','Optional — off')}</strong></li><li><span>Dashboard login</span><strong>${configValue(config,'basicAuth','Enabled','Missing')}</strong></li></ul></div></div>`;
     document.dispatchEvent(new CustomEvent('system-readiness-updated',{detail:result}));
-  }catch(error){
-    target.innerHTML=`<div class="universal-rate-result"><strong>Readiness check unavailable</strong><p>${esc(error instanceof Error?error.message:String(error))}</p><p>No credential or database deletion was performed.</p></div>`;
-    document.dispatchEvent(new CustomEvent('system-readiness-updated',{detail:{status:'unavailable'}}));
-  }
+  }catch(error){target.innerHTML=`<div class="universal-rate-result"><strong>Readiness check unavailable</strong><p>${esc(error instanceof Error?error.message:String(error))}</p><p>No credential or database deletion was performed.</p></div>`;document.dispatchEvent(new CustomEvent('system-readiness-updated',{detail:{status:'unavailable'}}));}
 }
-document.addEventListener('system-check-open',open);
-window.runSystemReadinessCheck=run;
+document.addEventListener('system-check-open',open);window.runSystemReadinessCheck=run;
 })();
