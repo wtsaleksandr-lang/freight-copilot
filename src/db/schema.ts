@@ -580,3 +580,26 @@ export const sessions = pgTable('sessions', {
     .defaultNow(),
   expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
 });
+
+/**
+ * Append-only audit trail for credential- and AI-configuration events.
+ *
+ * SECURITY: never stores a key value, fragment, plaintext password, or
+ * ciphertext — only the event type, provider name, source, outcome, and a
+ * human-readable sanitized message. Standalone table with NO foreign keys to
+ * business tables, so it is purely additive and safe to add/remove.
+ */
+export const auditEvents = pgTable('audit_events', {
+  id: serial('id').primaryKey(),
+  /** e.g. api_key.added | api_key.replaced | api_key.removed | connection.tested
+   *  | env_migration.completed | master_key.status_changed | ai_mode.changed */
+  eventType: text('event_type').notNull(),
+  /** provider name or null (never a secret). */
+  provider: text('provider'),
+  /** origin of the action, e.g. 'dashboard' | 'startup' | 'cli'. */
+  source: text('source'),
+  success: boolean('success').notNull(),
+  /** scrubbed, human-readable message — NEVER a key/secret or fragment. */
+  sanitizedMessage: text('sanitized_message'),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+});
