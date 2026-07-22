@@ -13,7 +13,8 @@
     "deploy:prepare": "pnpm install --frozen-lockfile && pnpm build",
     "test": "node --import tsx --test src/**/*.test.ts",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "verify:secrets": "tsx scripts/verifySecrets.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

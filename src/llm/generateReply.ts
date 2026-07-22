@@ -78,7 +78,7 @@ export async function generateClientReply(
     throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
   }
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   const rateSummary = input.ranked
     .slice(0, 5)
@@ -144,7 +144,7 @@ export async function generateBundleReply(
   if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
     throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
   }
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   // Build the user prompt with all carrier data + markup + template
   const carrierBlocks = input.carriers
@@ -280,7 +280,7 @@ export async function generateSheetReply(
   if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
     throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
   }
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   // Group rows by lane (POL → POD) so multi-container lanes render together.
   const laneKeys = new Map<string, SheetReplyRow[]>();

@@ -34,7 +34,7 @@ export async function parseDrayageRateFiles(files: UniversalFileInput[]) {
     else if (file.kind === 'pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:file.fileBase64! } });
     else content.push({ type:'image', source:{ type:'base64', media_type:file.mediaType as 'image/png'|'image/jpeg'|'image/webp'|'image/gif', data:file.fileBase64! } });
   }
-  const client = new Anthropic({ apiKey: loadEnv().ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? loadEnv().ANTHROPIC_API_KEY });
   const response = await client.messages.create({ model:await getModel(), max_tokens:8192, system:'You extract freight-forwarding drayage rates accurately. Distinguish CY and DOOR endpoints. Do not guess missing commercial facts.', tools:[{name:'extract_drayage_rates',description:'Return structured drayage rates.',input_schema:TOOL as never}], tool_choice:{type:'tool',name:'extract_drayage_rates'}, messages:[{role:'user',content}] });
   const tool = response.content.find((block) => block.type === 'tool_use');
   if (!tool || tool.type !== 'tool_use') throw new Error('Drayage-rate extractor did not return structured output');

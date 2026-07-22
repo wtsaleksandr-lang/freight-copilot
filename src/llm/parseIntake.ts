@@ -147,7 +147,7 @@ export async function parseIntake(input: IntakeInput): Promise<IntakeResult> {
     );
   }
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
 
   const userMessage: MessageParam =
     'text' in input
