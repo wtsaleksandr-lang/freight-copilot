@@ -1426,8 +1426,12 @@ body.is-col-resizing * {
 }
 .ship-table thead th:nth-child(1),
 .ship-table tbody td:nth-child(1) { left: 0; }
+/* No left offset on the 2nd column. The frozen-column sticky doesn't actually
+   engage here (columns scroll away — verified live), so a non-zero left only
+   shoved the 2nd column right: a gap after Status + filter inputs knocked out
+   of line with their headers. */
 .ship-table thead th:nth-child(2),
-.ship-table tbody td:nth-child(2) { left: 40px; }
+.ship-table tbody td:nth-child(2) { left: 0; }
 .ship-table thead th:nth-child(2) { z-index: 3; }
 .ship-table thead th:nth-child(1) { z-index: 3; }
 /* Right shadow on the second sticky column = visual edge between the

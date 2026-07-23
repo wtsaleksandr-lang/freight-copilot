@@ -37,7 +37,7 @@
     bar.innerHTML = `
       <div class="shipment-grid-toolbar-main">
         <strong>Shipment spreadsheet</strong>
-        <span class="muted small">Edit cells, resize or drag columns, and paste rows from Excel.</span>
+        <span class="muted small">Grab and drag to pan · double-click a cell to edit · drag a column edge to resize · paste rows from Excel.</span>
       </div>
       <div class="shipment-grid-toolbar-actions">
         <button type="button" id="shipment-columns-btn" aria-expanded="false" aria-controls="shipment-columns-menu">Columns</button>
