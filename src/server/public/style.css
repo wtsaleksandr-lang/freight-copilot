@@ -2920,3 +2920,38 @@ td.empty {
   padding: 2px 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Drayage: foldable secondary cards + saved filter presets ---- */
+details.dr-fold > summary.dr-fold-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.dr-fold > summary.dr-fold-summary::-webkit-details-marker { display: none; }
+details.dr-fold > summary.dr-fold-summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+details.dr-fold[open] > summary.dr-fold-summary::before { transform: rotate(90deg); }
+details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
+.dr-preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 10px 0;
+}
+.dr-preset-select {
+  min-width: 160px;
+  max-width: 240px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+}
