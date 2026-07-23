@@ -62,6 +62,8 @@ export function categorizeDbHost(rawUrl: string | undefined): SafeDbIdentity {
 
 const CRITICAL_TABLES = [
   'shipments',
+  'shipment_containers',
+  'shipment_follow_ups',
   'quote_bundles',
   'quotes',
   'drayage_quotes',

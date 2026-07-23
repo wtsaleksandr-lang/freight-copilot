@@ -6454,10 +6454,12 @@ function formatMoney(n, cur) {
     let scrollX = 0;
     let scrollY = 0;
     wrap.addEventListener('mousedown', (e) => {
-      // Don't start a drag from interactive elements.
+      // Don't start a pan from interactive elements, nor from the column
+      // reorder headers / resize handles — those own their own drag gestures
+      // and a native HTML5 drag started here would fight the pan (jitter).
       if (
         e.target.closest(
-          '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"]'
+          '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"], th[draggable="true"], .shipment-column-resizer'
         )
       ) {
         return;
@@ -6468,6 +6470,10 @@ function formatMoney(n, cur) {
       startY = e.pageY - wrap.offsetTop;
       scrollX = wrap.scrollLeft;
       scrollY = wrap.scrollTop;
+      // Suppress the default mousedown side-effects that make the pan twitch:
+      // focusing a tabindex cell (which fires a scrollIntoView snap) and
+      // starting a text selection. Row click-to-select still fires on click.
+      e.preventDefault();
     });
     function endDrag() {
       isDown = false;
