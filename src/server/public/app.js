@@ -8420,3 +8420,144 @@ function esc(s) {
     .querySelector('[data-tab="drayage"]')
     ?.addEventListener('click', loadList);
 })();
+
+// ---- User default preferences ("⚙ Your defaults" fold, Ocean tab) ----
+// A single surface where the user sets the values they use every day. Persisted
+// as one JSON blob under `freight.preferences` and applied to the live quote
+// inputs on page load, so a fresh quote starts from their defaults instead of
+// the hardcoded ones. Any field that already has its own per-field "last used"
+// persistence (Ocean markup, calculator FX rate) is only *seeded* here when
+// nothing is stored, so last-used still wins.
+(function wirePreferences() {
+  const PREFS_KEY = 'freight.preferences';
+
+  // Per-field hardcoded fallbacks — mirror the inline HTML defaults.
+  const HARD = {
+    markupPct: 0,
+    markupFlat: 0,
+    container: '40 Dry High',
+    currencyRate: 1.37,
+    surchExportDecl: 65,
+    surchOverweight: 275,
+    surchWaiting: 100,
+  };
+
+  const num = (v, fallback) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  // Read + normalize saved prefs, filling any missing/partial field from HARD.
+  function loadPrefs() {
+    let saved = {};
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch (_) { saved = {}; }
+    if (typeof saved !== 'object' || saved === null) saved = {};
+    return {
+      markupPct: num(saved.markupPct, HARD.markupPct),
+      markupFlat: num(saved.markupFlat, HARD.markupFlat),
+      container:
+        typeof saved.container === 'string' && saved.container
+          ? saved.container
+          : HARD.container,
+      currencyRate: num(saved.currencyRate, HARD.currencyRate),
+      surchExportDecl: num(saved.surchExportDecl, HARD.surchExportDecl),
+      surchOverweight: num(saved.surchOverweight, HARD.surchOverweight),
+      surchWaiting: num(saved.surchWaiting, HARD.surchWaiting),
+    };
+  }
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && val != null) el.value = val;
+  };
+
+  // Mirror saved prefs into the prefs fold itself so it shows current defaults.
+  function populateForm(p) {
+    setVal('pref-markup-pct', p.markupPct);
+    setVal('pref-markup-flat', p.markupFlat);
+    setVal('pref-container', p.container);
+    setVal('pref-currency-rate', p.currencyRate);
+    setVal('pref-surch-export-decl', p.surchExportDecl);
+    setVal('pref-surch-overweight', p.surchOverweight);
+    setVal('pref-surch-waiting', p.surchWaiting);
+  }
+
+  // Read the prefs fold back into a plain object for saving.
+  function readForm() {
+    const g = (id) => document.getElementById(id);
+    return {
+      markupPct: num(g('pref-markup-pct')?.value, HARD.markupPct),
+      markupFlat: num(g('pref-markup-flat')?.value, HARD.markupFlat),
+      container: g('pref-container')?.value || HARD.container,
+      currencyRate: num(g('pref-currency-rate')?.value, HARD.currencyRate),
+      surchExportDecl: num(g('pref-surch-export-decl')?.value, HARD.surchExportDecl),
+      surchOverweight: num(g('pref-surch-overweight')?.value, HARD.surchOverweight),
+      surchWaiting: num(g('pref-surch-waiting')?.value, HARD.surchWaiting),
+    };
+  }
+
+  // Push a slider input to a value, clamped to its own max (numbers stay exact).
+  function setSlider(id, val) {
+    const s = document.getElementById(id);
+    if (s) s.value = Math.min(num(val, 0), parseFloat(s.max));
+  }
+
+  // Apply prefs to the live quote inputs.
+  function applyToLiveInputs(p) {
+    const stored = (k) => localStorage.getItem(k) != null;
+
+    // Ocean-form markup persists last-used under freight.markup.*; only seed
+    // the default when nothing is stored, so last-used continues to win.
+    if (!stored('freight.markup.pct')) {
+      setVal('markup-pct', p.markupPct);
+      setSlider('markup-pct-slider', p.markupPct);
+    }
+    if (!stored('freight.markup.flat')) {
+      setVal('markup-flat', p.markupFlat);
+      setSlider('markup-flat-slider', p.markupFlat);
+    }
+
+    // Sheet-email markup has no persistence (resets to 0 each load) — always set.
+    setVal('sheet-markup-pct', p.markupPct);
+    setSlider('sheet-markup-pct-slider', p.markupPct);
+    setVal('sheet-markup-flat', p.markupFlat);
+    setSlider('sheet-markup-flat-slider', p.markupFlat);
+
+    // Container selects (Ocean + Drayage) — set value and the data-current
+    // fallback so loadLookups()'s async option rebuild preserves the pick.
+    ['container', 'dr-container'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.value = p.container;
+        el.dataset.current = p.container;
+      }
+    });
+
+    // Surcharge fees — no persistence; always set.
+    setVal('surch-export-decl-fee', p.surchExportDecl);
+    setVal('surch-overweight-fee', p.surchOverweight);
+    setVal('surch-waiting-fee', p.surchWaiting);
+
+    // Calculator FX rate persists last-used under freight.calc.usdcad.rate;
+    // only seed the default when nothing is stored.
+    if (!stored('freight.calc.usdcad.rate')) {
+      setVal('calc-usd-cad-rate', p.currencyRate);
+    }
+  }
+
+  const prefs = loadPrefs();
+  populateForm(prefs);
+  applyToLiveInputs(prefs);
+
+  document.getElementById('pref-save-btn')?.addEventListener('click', () => {
+    const next = readForm();
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+    } catch (_) { /* private mode — nothing persists */ }
+    applyToLiveInputs(next);
+    if (typeof toast === 'function') toast('Defaults saved.', 'success');
+  });
+})();

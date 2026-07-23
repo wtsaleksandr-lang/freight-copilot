@@ -52,6 +52,53 @@
 
   <main>
     <section id="tab-new" class="tab-pane active">
+      <!-- ─── Your defaults: set once, applied automatically to every new quote ─── -->
+      <details class="prefs-fold">
+        <summary>⚙ Your defaults <span class="muted small">— set once, applied automatically to every quote</span></summary>
+        <div class="prefs-body">
+          <div class="grid">
+            <label>Default markup %
+              <input type="number" id="pref-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
+            </label>
+            <label>Default flat add-on (USD)
+              <input type="number" id="pref-markup-flat" min="0" step="5" value="0" class="markup-num">
+            </label>
+            <label>Default container type
+              <select id="pref-container" class="container-select">
+                <option value="20 Dry Standard">20 Dry Standard</option>
+                <option value="40 Dry Standard">40 Dry Standard</option>
+                <option value="40 Dry High" selected>40 Dry High</option>
+                <option value="20 Reefer">20 Reefer</option>
+                <option value="40 Reefer">40 Reefer</option>
+                <option value="40 Reefer High Cube">40 Reefer High Cube</option>
+                <option value="20 Open Top">20 Open Top</option>
+                <option value="40 Open Top">40 Open Top</option>
+                <option value="20 Flat Rack">20 Flat Rack</option>
+                <option value="40 Flat Rack">40 Flat Rack</option>
+                <option value="20 Tank">20 Tank</option>
+                <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
+              </select>
+            </label>
+            <label>Default USD → CAD rate
+              <input type="number" id="pref-currency-rate" step="0.0001" min="0" value="1.37" class="markup-num">
+            </label>
+            <label>Export declaration fee ($)
+              <input type="number" id="pref-surch-export-decl" min="0" step="1" value="65" class="markup-num">
+            </label>
+            <label>Overweight surcharge ($)
+              <input type="number" id="pref-surch-overweight" min="0" step="1" value="275" class="markup-num">
+            </label>
+            <label>Loading wait time ($/hr)
+              <input type="number" id="pref-surch-waiting" min="0" step="5" value="100" class="markup-num">
+            </label>
+          </div>
+          <div class="row">
+            <button id="pref-save-btn" class="primary btn-sm">Save defaults</button>
+            <span class="muted small">Stored on this device only.</span>
+          </div>
+        </div>
+      </details>
+
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
       <div class="card">
         <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
