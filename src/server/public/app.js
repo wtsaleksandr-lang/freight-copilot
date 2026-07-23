@@ -34,6 +34,102 @@
   };
 })();
 
+// ---------- Themed confirm modal (promise-based replacement for confirm()) ----------
+// Drop-in async replacement for the native window.confirm(): renders a
+// themed modal on the app's existing .image-modal shell and resolves a
+// boolean. Confirm → true; Cancel / backdrop-click / Escape / ✕ → false.
+// Pass danger:true to style the confirm button as destructive (red).
+// Usage: if (!(await confirmModal({ title, message, danger: true }))) return;
+(function installConfirmModal() {
+  if (window.confirmModal) return;
+  window.confirmModal = function (opts) {
+    const o = opts || {};
+    const title = o.title || 'Confirm';
+    const message = o.message || '';
+    const confirmLabel = o.confirmLabel || 'Confirm';
+    const cancelLabel = o.cancelLabel || 'Cancel';
+    const danger = o.danger === true;
+
+    return new Promise((resolve) => {
+      const prevFocus = document.activeElement;
+
+      const modal = document.createElement('div');
+      modal.className = 'image-modal confirm-modal';
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'image-modal-backdrop';
+
+      const frame = document.createElement('div');
+      frame.className = 'image-modal-frame clarify-frame confirm-modal-frame';
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'image-modal-toolbar';
+      const titleEl = document.createElement('strong');
+      titleEl.textContent = title;
+      const spacer = document.createElement('span');
+      spacer.className = 'image-modal-spacer';
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'btn-sm';
+      closeBtn.title = 'Close (Esc)';
+      closeBtn.textContent = '✕';
+      toolbar.appendChild(titleEl);
+      toolbar.appendChild(spacer);
+      toolbar.appendChild(closeBtn);
+
+      const body = document.createElement('div');
+      body.className = 'image-modal-body clarify-body confirm-modal-body';
+      const msg = document.createElement('p');
+      msg.className = 'confirm-modal-message';
+      msg.textContent = message;
+      const actions = document.createElement('div');
+      actions.className = 'row confirm-modal-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn-sm';
+      cancelBtn.textContent = cancelLabel;
+      const okBtn = document.createElement('button');
+      okBtn.className = danger ? 'primary danger' : 'primary';
+      okBtn.textContent = confirmLabel;
+      actions.appendChild(cancelBtn);
+      actions.appendChild(okBtn);
+      body.appendChild(msg);
+      body.appendChild(actions);
+
+      frame.appendChild(toolbar);
+      frame.appendChild(body);
+      modal.appendChild(backdrop);
+      modal.appendChild(frame);
+      document.body.appendChild(modal);
+
+      let done = false;
+      function cleanup(result) {
+        if (done) return;
+        done = true;
+        document.removeEventListener('keydown', onKey, true);
+        modal.remove();
+        try {
+          if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+        } catch (_) { /* focus target gone — ignore */ }
+        resolve(result);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          cleanup(false);
+        }
+      }
+
+      backdrop.addEventListener('click', () => cleanup(false));
+      closeBtn.addEventListener('click', () => cleanup(false));
+      cancelBtn.addEventListener('click', () => cleanup(false));
+      okBtn.addEventListener('click', () => cleanup(true));
+      document.addEventListener('keydown', onKey, true);
+      // Focus the confirm button so Enter/Space activates it natively.
+      setTimeout(() => okBtn.focus(), 30);
+    });
+  };
+})();
+
 // ---------- PWA: register service worker so Chrome offers "Install" ----
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -1612,11 +1708,14 @@ document.getElementById('run-btn').addEventListener('click', async () => {
         return p && !p.loggedIn;
       });
       if (loggedOut.length > 0) {
-        const proceed = confirm(
-          `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
+        const proceed = await confirmModal({
+          title: 'Carriers logged out',
+          message:
+            `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
             loggedOut.map((c) => `  • ${c}`).join('\n') +
-            `\n\nThese carriers will fail. Log in to them in your "Chrome (LoadMode)" window first, then click "Re-check sessions now".\n\nProceed anyway?`
-        );
+            `\n\nThese carriers will fail. Log in to them in your "Chrome (LoadMode)" window first, then click "Re-check sessions now".\n\nProceed anyway?`,
+          confirmLabel: 'Proceed anyway',
+        });
         if (!proceed) return;
       }
     }
@@ -2286,7 +2385,12 @@ function renderAgentResult(data) {
       table.querySelectorAll('.sched-del-btn').forEach((b) => {
         b.addEventListener('click', async () => {
           const id = b.getAttribute('data-id');
-          if (!confirm(`Delete schedule #${id}?`)) return;
+          if (!(await confirmModal({
+            title: 'Delete schedule',
+            message: `Delete schedule #${id}?`,
+            confirmLabel: 'Delete',
+            danger: true,
+          }))) return;
           try {
             const r = await fetch(`/api/scheduled-agents/${id}`, { method: 'DELETE' });
             const data = await r.json();
@@ -2519,7 +2623,13 @@ document.getElementById('rec-start-btn').addEventListener('click', async () => {
 
 document.getElementById('rec-stop-btn').addEventListener('click', async () => {
   if (!activeRecordingId) return;
-  if (!confirm('Cancel the recording? Any captured actions will be discarded.')) return;
+  if (!(await confirmModal({
+    title: 'Cancel recording',
+    message: 'Cancel the recording? Any captured actions will be discarded.',
+    confirmLabel: 'Cancel recording',
+    cancelLabel: 'Keep recording',
+    danger: true,
+  }))) return;
   await fetch(`/api/record/stop/${activeRecordingId}`, { method: 'POST' });
   finishRecordingUi('Cancelled.');
 });
@@ -2837,7 +2947,12 @@ async function loadCredList() {
     }
 
     if (e.target.classList.contains('cred-delete-btn')) {
-      if (!confirm(`Delete stored credential for ${carrierCode}?`)) return;
+      if (!(await confirmModal({
+        title: 'Delete credential',
+        message: `Delete stored credential for ${carrierCode}?`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))) return;
       try {
         const r = await fetch(
           `/api/credentials/${encodeURIComponent(carrierCode)}`,
@@ -5344,7 +5459,12 @@ function formatMoney(n, cur) {
         const tr = btn.closest('tr');
         const refId = tr?.dataset.ref;
         if (!refId) return;
-        if (!confirm(`Delete shipment ${refId}? This can't be undone.`)) return;
+        if (!(await confirmModal({
+          title: 'Delete shipment',
+          message: `Delete shipment ${refId}? This can't be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        }))) return;
         try {
           const r = await fetch(
             `/api/shipments/${encodeURIComponent(refId)}`,
@@ -6055,7 +6175,12 @@ function formatMoney(n, cur) {
           e.stopPropagation();
           const idx = Number(btn.getAttribute('data-i'));
           if (!Number.isInteger(idx)) return;
-          if (!confirm(`Remove ${arts[idx]?.filename || 'this file'}?`)) return;
+          if (!(await confirmModal({
+            title: 'Remove file',
+            message: `Remove ${arts[idx]?.filename || 'this file'}?`,
+            confirmLabel: 'Remove',
+            danger: true,
+          }))) return;
           await removeArtifact(idx);
         });
       });
@@ -7262,7 +7387,11 @@ function esc(s) {
     }
   });
   clearBtn.addEventListener('click', async () => {
-    if (!confirm('Clear the saved DelayPredict URL?')) return;
+    if (!(await confirmModal({
+      title: 'Clear DelayPredict URL',
+      message: 'Clear the saved DelayPredict URL?',
+      confirmLabel: 'Clear',
+    }))) return;
     try {
       await fetch('/api/settings/DELAYPREDICT_URL', { method: 'DELETE' });
       input.value = '';
@@ -7401,7 +7530,11 @@ function esc(s) {
     }
   });
   clearBtn.addEventListener('click', async () => {
-    if (!confirm('Clear the saved IntellCluster URL?')) return;
+    if (!(await confirmModal({
+      title: 'Clear IntellCluster URL',
+      message: 'Clear the saved IntellCluster URL?',
+      confirmLabel: 'Clear',
+    }))) return;
     try {
       await fetch('/api/settings/INTELLCLUSTER_URL', { method: 'DELETE' });
       input.value = '';
@@ -7668,7 +7801,12 @@ function esc(s) {
       table.querySelectorAll('.ai-key-del').forEach((b) => {
         b.addEventListener('click', async () => {
           const prov = b.getAttribute('data-prov');
-          if (!confirm(`⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`)) return;
+          if (!(await confirmModal({
+            title: 'Remove vault key',
+            message: `⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`,
+            confirmLabel: 'Remove key',
+            danger: true,
+          }))) return;
           try {
             const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}`, { method: 'DELETE' });
             const data = await r.json();
@@ -8136,7 +8274,12 @@ function esc(s) {
     table.querySelectorAll('.ship-delete-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-id');
-        if (!confirm(`Delete rate entry ${id}? This can't be undone.`)) return;
+        if (!(await confirmModal({
+          title: 'Delete rate entry',
+          message: `Delete rate entry ${id}? This can't be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        }))) return;
         try {
           const r = await fetch(`/api/drayage-rate-library/${id}`, {
             method: 'DELETE',
