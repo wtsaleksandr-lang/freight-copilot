@@ -581,7 +581,7 @@ document.querySelectorAll('[data-tab]').forEach((el) => {
 // Restore last tab on load. Top-level (header) tab keys only — footer
 // links like "agent" / "record" are excluded so we don't accidentally
 // pin them as the default after a one-off click.
-const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', 'delaypredict'];
+const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', 'delaypredict', 'intellcluster'];
 (function restoreLastTab() {
   try {
     const last = localStorage.getItem(LAST_TAB_KEY);
@@ -591,6 +591,59 @@ const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', '
       setTimeout(() => activateTabBy(last), 0);
     }
   } catch (_) { /* ignore */ }
+})();
+
+// Nav "More ▾" overflow menu — reveals the Tools tabs (Settings / Bundles /
+// Web agent / Record) without taking up primary nav space. The menu items
+// carry data-tab, so the shared [data-tab] handler above switches the tab;
+// this only manages open/close (click, click-outside, Escape).
+(function installNavMore() {
+  const wrap = document.getElementById('nav-more');
+  const btn = document.getElementById('nav-more-btn');
+  const menu = document.getElementById('nav-more-menu');
+  if (!wrap || !btn || !menu) return;
+  function onDocClick(e) {
+    if (!wrap.contains(e.target)) close();
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); }
+  }
+  function open() {
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', onDocClick, true);
+    document.addEventListener('keydown', onKey, true);
+  }
+  function close() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('keydown', onKey, true);
+  }
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.hidden) open(); else close();
+  });
+  // Selecting an item switches the tab (via the shared [data-tab] handler);
+  // just close the menu afterward.
+  menu.addEventListener('click', () => close());
+})();
+
+// Secrets — show/hide toggle on the add-credential password + AI key inputs,
+// flipping type between password and text. Mirrors the Reveal/Hide pattern
+// used by the stored-credentials list.
+(function installPwToggles() {
+  document.querySelectorAll('.pw-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.getAttribute('data-target'));
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? '🙈' : '👁';
+      btn.setAttribute('aria-label', show ? 'Hide' : 'Show');
+    });
+  });
 })();
 
 // Keyboard shortcuts — Alt+1..5 jump between header tabs, ? shows
@@ -8401,10 +8454,10 @@ function esc(s) {
     if (name) applyPreset(name);
   });
 
-  presetDeleteBtn?.addEventListener('click', () => {
+  presetDeleteBtn?.addEventListener('click', async () => {
     const name = presetSelect?.value;
     if (!name) return;
-    if (!confirm(`Delete filter preset "${name}"?`)) return;
+    if (!(await confirmModal({ title: 'Delete preset', message: `Delete filter preset "${name}"?`, danger: true }))) return;
     const presets = loadPresets();
     delete presets[name];
     savePresets(presets);
