@@ -34,6 +34,102 @@
   };
 })();
 
+// ---------- Themed confirm modal (promise-based replacement for confirm()) ----------
+// Drop-in async replacement for the native window.confirm(): renders a
+// themed modal on the app's existing .image-modal shell and resolves a
+// boolean. Confirm → true; Cancel / backdrop-click / Escape / ✕ → false.
+// Pass danger:true to style the confirm button as destructive (red).
+// Usage: if (!(await confirmModal({ title, message, danger: true }))) return;
+(function installConfirmModal() {
+  if (window.confirmModal) return;
+  window.confirmModal = function (opts) {
+    const o = opts || {};
+    const title = o.title || 'Confirm';
+    const message = o.message || '';
+    const confirmLabel = o.confirmLabel || 'Confirm';
+    const cancelLabel = o.cancelLabel || 'Cancel';
+    const danger = o.danger === true;
+
+    return new Promise((resolve) => {
+      const prevFocus = document.activeElement;
+
+      const modal = document.createElement('div');
+      modal.className = 'image-modal confirm-modal';
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'image-modal-backdrop';
+
+      const frame = document.createElement('div');
+      frame.className = 'image-modal-frame clarify-frame confirm-modal-frame';
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'image-modal-toolbar';
+      const titleEl = document.createElement('strong');
+      titleEl.textContent = title;
+      const spacer = document.createElement('span');
+      spacer.className = 'image-modal-spacer';
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'btn-sm';
+      closeBtn.title = 'Close (Esc)';
+      closeBtn.textContent = '✕';
+      toolbar.appendChild(titleEl);
+      toolbar.appendChild(spacer);
+      toolbar.appendChild(closeBtn);
+
+      const body = document.createElement('div');
+      body.className = 'image-modal-body clarify-body confirm-modal-body';
+      const msg = document.createElement('p');
+      msg.className = 'confirm-modal-message';
+      msg.textContent = message;
+      const actions = document.createElement('div');
+      actions.className = 'row confirm-modal-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn-sm';
+      cancelBtn.textContent = cancelLabel;
+      const okBtn = document.createElement('button');
+      okBtn.className = danger ? 'primary danger' : 'primary';
+      okBtn.textContent = confirmLabel;
+      actions.appendChild(cancelBtn);
+      actions.appendChild(okBtn);
+      body.appendChild(msg);
+      body.appendChild(actions);
+
+      frame.appendChild(toolbar);
+      frame.appendChild(body);
+      modal.appendChild(backdrop);
+      modal.appendChild(frame);
+      document.body.appendChild(modal);
+
+      let done = false;
+      function cleanup(result) {
+        if (done) return;
+        done = true;
+        document.removeEventListener('keydown', onKey, true);
+        modal.remove();
+        try {
+          if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+        } catch (_) { /* focus target gone — ignore */ }
+        resolve(result);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          cleanup(false);
+        }
+      }
+
+      backdrop.addEventListener('click', () => cleanup(false));
+      closeBtn.addEventListener('click', () => cleanup(false));
+      cancelBtn.addEventListener('click', () => cleanup(false));
+      okBtn.addEventListener('click', () => cleanup(true));
+      document.addEventListener('keydown', onKey, true);
+      // Focus the confirm button so Enter/Space activates it natively.
+      setTimeout(() => okBtn.focus(), 30);
+    });
+  };
+})();
+
 // ---------- PWA: register service worker so Chrome offers "Install" ----
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -485,7 +581,7 @@ document.querySelectorAll('[data-tab]').forEach((el) => {
 // Restore last tab on load. Top-level (header) tab keys only — footer
 // links like "agent" / "record" are excluded so we don't accidentally
 // pin them as the default after a one-off click.
-const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', 'delaypredict'];
+const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', 'delaypredict', 'intellcluster'];
 (function restoreLastTab() {
   try {
     const last = localStorage.getItem(LAST_TAB_KEY);
@@ -495,6 +591,59 @@ const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', '
       setTimeout(() => activateTabBy(last), 0);
     }
   } catch (_) { /* ignore */ }
+})();
+
+// Nav "More ▾" overflow menu — reveals the Tools tabs (Settings / Bundles /
+// Web agent / Record) without taking up primary nav space. The menu items
+// carry data-tab, so the shared [data-tab] handler above switches the tab;
+// this only manages open/close (click, click-outside, Escape).
+(function installNavMore() {
+  const wrap = document.getElementById('nav-more');
+  const btn = document.getElementById('nav-more-btn');
+  const menu = document.getElementById('nav-more-menu');
+  if (!wrap || !btn || !menu) return;
+  function onDocClick(e) {
+    if (!wrap.contains(e.target)) close();
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); }
+  }
+  function open() {
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', onDocClick, true);
+    document.addEventListener('keydown', onKey, true);
+  }
+  function close() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('keydown', onKey, true);
+  }
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.hidden) open(); else close();
+  });
+  // Selecting an item switches the tab (via the shared [data-tab] handler);
+  // just close the menu afterward.
+  menu.addEventListener('click', () => close());
+})();
+
+// Secrets — show/hide toggle on the add-credential password + AI key inputs,
+// flipping type between password and text. Mirrors the Reveal/Hide pattern
+// used by the stored-credentials list.
+(function installPwToggles() {
+  document.querySelectorAll('.pw-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.getAttribute('data-target'));
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? '🙈' : '👁';
+      btn.setAttribute('aria-label', show ? 'Hide' : 'Show');
+    });
+  });
 })();
 
 // Keyboard shortcuts — Alt+1..5 jump between header tabs, ? shows
@@ -1084,6 +1233,64 @@ async function loadTruckingList() {
 }
 loadTruckingList();
 
+// ---- Sortable plain tables (History, Bundles) ----
+// Each table keeps a tiny {key, dir} state; clicking a <th> sorts the
+// underlying data array (type-aware, empties last) and re-renders in place
+// via the same buildRow path, preserving row-click behavior.
+function makeComparator(accessor, type, dir) {
+  const mul = dir === 'desc' ? -1 : 1;
+  return (a, b) => {
+    const va = accessor(a);
+    const vb = accessor(b);
+    const ea = va == null || va === '';
+    const eb = vb == null || vb === '';
+    if (ea && eb) return 0;
+    if (ea) return 1; // empties always sort last, regardless of direction
+    if (eb) return -1;
+    let cmp;
+    if (type === 'number') cmp = Number(va) - Number(vb);
+    else if (type === 'date') cmp = new Date(va).getTime() - new Date(vb).getTime();
+    else cmp = String(va).localeCompare(String(vb));
+    return cmp * mul;
+  };
+}
+
+function renderSortableTable(table, columns, data, state, buildRow, wire) {
+  const rows = data.slice();
+  if (state.key) {
+    const col = columns.find((c) => c.key === state.key);
+    if (col) rows.sort(makeComparator(col.accessor, col.type, state.dir));
+  }
+  const thead =
+    '<thead><tr>' +
+    columns
+      .map((c) => {
+        const active = state.key === c.key;
+        const arrow = active ? (state.dir === 'desc' ? '▼' : '▲') : '';
+        const cls = 'sortable' + (active ? ' sorted' : '');
+        return `<th class="${cls}" data-sort-key="${esc(c.key)}">${esc(c.label)}<span class="sort-ind">${arrow}</span></th>`;
+      })
+      .join('') +
+    '</tr></thead>';
+  table.innerHTML = thead + '<tbody>' + rows.map(buildRow).join('') + '</tbody>';
+  table.querySelectorAll('th[data-sort-key]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sortKey;
+      if (state.key === key) {
+        state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.key = key;
+        state.dir = 'asc';
+      }
+      renderSortableTable(table, columns, data, state, buildRow, wire);
+    });
+  });
+  if (wire) wire(table);
+}
+
+let bundlesSortState = { key: null, dir: 'asc' };
+let historySortState = { key: null, dir: 'asc' };
+
 // ---- Bundles tab ----
 async function loadBundles() {
   const table = document.getElementById('bundles-table');
@@ -1096,27 +1303,39 @@ async function loadBundles() {
         '<tbody><tr><td class="empty">No bundles yet. Run a quote from the "New quote" tab.</td></tr></tbody>';
       return;
     }
-    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Lane</th><th>Container</th><th>Carriers</th><th>Status</th><th>Client</th></tr></thead>';
-    const rows = data.bundles
-      .map((b) => {
-        const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
-        const statusCls =
-          b.status === 'complete' ? 'success' : b.status === 'partial' ? 'info' : 'error';
-        const carriers = Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : '';
-        return `<tr class="clickable" data-refid="${b.refId}">
-          <td><code>${esc(b.refId)}</code></td>
-          <td>${created}</td>
-          <td>${esc(b.origin)} → ${esc(b.destination)}</td>
-          <td>${esc(b.containerType)}</td>
-          <td>${esc(carriers)}</td>
-          <td><span class="status-inline ${statusCls}">${esc(b.status)}</span></td>
-          <td>${esc(b.clientName || '—')}</td>
-        </tr>`;
-      })
-      .join('');
-    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
-    table.querySelectorAll('tr.clickable').forEach((row) => {
-      row.addEventListener('click', () => loadBundleDetail(row.dataset.refid));
+    const columns = [
+      { key: 'refId', label: 'Ref ID', type: 'string', accessor: (b) => b.refId },
+      { key: 'created', label: 'Created', type: 'date', accessor: (b) => b.createdAt },
+      { key: 'lane', label: 'Lane', type: 'string', accessor: (b) => `${b.origin} → ${b.destination}` },
+      { key: 'container', label: 'Container', type: 'string', accessor: (b) => b.containerType },
+      {
+        key: 'carriers',
+        label: 'Carriers',
+        type: 'string',
+        accessor: (b) => (Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : ''),
+      },
+      { key: 'status', label: 'Status', type: 'string', accessor: (b) => b.status },
+      { key: 'client', label: 'Client', type: 'string', accessor: (b) => b.clientName },
+    ];
+    const buildRow = (b) => {
+      const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+      const statusCls =
+        b.status === 'complete' ? 'success' : b.status === 'partial' ? 'info' : 'error';
+      const carriers = Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : '';
+      return `<tr class="clickable" data-refid="${b.refId}">
+        <td><code>${esc(b.refId)}</code></td>
+        <td>${created}</td>
+        <td>${esc(b.origin)} → ${esc(b.destination)}</td>
+        <td>${esc(b.containerType)}</td>
+        <td>${esc(carriers)}</td>
+        <td><span class="status-inline ${statusCls}">${esc(b.status)}</span></td>
+        <td>${esc(b.clientName || '—')}</td>
+      </tr>`;
+    };
+    renderSortableTable(table, columns, data.bundles, bundlesSortState, buildRow, (t) => {
+      t.querySelectorAll('tr.clickable').forEach((row) => {
+        row.addEventListener('click', () => loadBundleDetail(row.dataset.refid));
+      });
     });
   } catch (err) {
     table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
@@ -1612,11 +1831,14 @@ document.getElementById('run-btn').addEventListener('click', async () => {
         return p && !p.loggedIn;
       });
       if (loggedOut.length > 0) {
-        const proceed = confirm(
-          `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
+        const proceed = await confirmModal({
+          title: 'Carriers logged out',
+          message:
+            `${loggedOut.length} of ${carriers.length} selected carriers appear to be LOGGED OUT:\n\n` +
             loggedOut.map((c) => `  • ${c}`).join('\n') +
-            `\n\nThese carriers will fail. Log in to them in your "Chrome (LoadMode)" window first, then click "Re-check sessions now".\n\nProceed anyway?`
-        );
+            `\n\nThese carriers will fail. Log in to them in your "Chrome (LoadMode)" window first, then click "Re-check sessions now".\n\nProceed anyway?`,
+          confirmLabel: 'Proceed anyway',
+        });
         if (!proceed) return;
       }
     }
@@ -2031,20 +2253,25 @@ async function loadHistory() {
       table.innerHTML = thead + '<tbody><tr><td colspan="4" class="empty">No quotes yet. Run one from the "New quote" tab.</td></tr></tbody>';
       return;
     }
-    const rows = data.quotes
-      .map((q) => {
-        const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
-        return `<tr class="clickable" data-id="${q.id}">
-          <td class="rank">#${q.id}</td>
-          <td>${created}</td>
-          <td>${esc(q.origin)} → ${esc(q.destination)}</td>
-          <td>${esc(q.containerType)}</td>
-        </tr>`;
-      })
-      .join('');
-    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
-    table.querySelectorAll('tr.clickable').forEach((row) => {
-      row.addEventListener('click', () => loadQuote(row.dataset.id));
+    const columns = [
+      { key: 'id', label: 'ID', type: 'number', accessor: (q) => q.id },
+      { key: 'created', label: 'Created', type: 'date', accessor: (q) => q.createdAt },
+      { key: 'lane', label: 'Lane', type: 'string', accessor: (q) => `${q.origin} → ${q.destination}` },
+      { key: 'container', label: 'Container', type: 'string', accessor: (q) => q.containerType },
+    ];
+    const buildRow = (q) => {
+      const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+      return `<tr class="clickable" data-id="${q.id}">
+        <td class="rank">#${q.id}</td>
+        <td>${created}</td>
+        <td>${esc(q.origin)} → ${esc(q.destination)}</td>
+        <td>${esc(q.containerType)}</td>
+      </tr>`;
+    };
+    renderSortableTable(table, columns, data.quotes, historySortState, buildRow, (t) => {
+      t.querySelectorAll('tr.clickable').forEach((row) => {
+        row.addEventListener('click', () => loadQuote(row.dataset.id));
+      });
     });
   } catch (err) {
     table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
@@ -2286,7 +2513,12 @@ function renderAgentResult(data) {
       table.querySelectorAll('.sched-del-btn').forEach((b) => {
         b.addEventListener('click', async () => {
           const id = b.getAttribute('data-id');
-          if (!confirm(`Delete schedule #${id}?`)) return;
+          if (!(await confirmModal({
+            title: 'Delete schedule',
+            message: `Delete schedule #${id}?`,
+            confirmLabel: 'Delete',
+            danger: true,
+          }))) return;
           try {
             const r = await fetch(`/api/scheduled-agents/${id}`, { method: 'DELETE' });
             const data = await r.json();
@@ -2519,7 +2751,13 @@ document.getElementById('rec-start-btn').addEventListener('click', async () => {
 
 document.getElementById('rec-stop-btn').addEventListener('click', async () => {
   if (!activeRecordingId) return;
-  if (!confirm('Cancel the recording? Any captured actions will be discarded.')) return;
+  if (!(await confirmModal({
+    title: 'Cancel recording',
+    message: 'Cancel the recording? Any captured actions will be discarded.',
+    confirmLabel: 'Cancel recording',
+    cancelLabel: 'Keep recording',
+    danger: true,
+  }))) return;
   await fetch(`/api/record/stop/${activeRecordingId}`, { method: 'POST' });
   finishRecordingUi('Cancelled.');
 });
@@ -2837,7 +3075,12 @@ async function loadCredList() {
     }
 
     if (e.target.classList.contains('cred-delete-btn')) {
-      if (!confirm(`Delete stored credential for ${carrierCode}?`)) return;
+      if (!(await confirmModal({
+        title: 'Delete credential',
+        message: `Delete stored credential for ${carrierCode}?`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))) return;
       try {
         const r = await fetch(
           `/api/credentials/${encodeURIComponent(carrierCode)}`,
@@ -3017,10 +3260,12 @@ async function loadCredList() {
 
     setStatus('sheet-status', 'Sending to Claude…', 'info');
     try {
+      const keepEl = document.getElementById('sheet-keep-original');
+      const keepOriginal = !!(keepEl && keepEl.checked);
       const r = await fetch('/api/rates/parse-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: payload }),
+        body: JSON.stringify({ files: payload, keepOriginal }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'parse failed');
@@ -3032,9 +3277,15 @@ async function loadCredList() {
             (n, l) => n + l.rates_per_container.length,
             0
           );
+          // Show whether the original was kept (rate sheet / forced) or the
+          // throwaway input was discarded after extracting its data.
+          const storageNote =
+            res.kept === null || res.kept === undefined
+              ? ' · original discarded'
+              : ' · original saved';
           setItemState(
             i,
-            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)`,
+            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)${storageNote}`,
             'success'
           );
         } else {
@@ -3052,9 +3303,11 @@ async function loadCredList() {
           ),
         0
       );
+      const keptCount = okResults.filter((r) => r.kept).length;
+      const store = data.durableStorage ? 'Cloudflare R2' : 'local disk';
       setStatus(
         'sheet-status',
-        `${okResults.length}/${data.results.length} parsed · ${totalRates} rates total · saved to ${data.outputFolder}`,
+        `${okResults.length}/${data.results.length} parsed · ${totalRates} rates · ${keptCount} original(s) kept (${store})`,
         okResults.length === data.results.length ? 'success' : 'info'
       );
       renderSheetResults(data);
@@ -5334,7 +5587,12 @@ function formatMoney(n, cur) {
         const tr = btn.closest('tr');
         const refId = tr?.dataset.ref;
         if (!refId) return;
-        if (!confirm(`Delete shipment ${refId}? This can't be undone.`)) return;
+        if (!(await confirmModal({
+          title: 'Delete shipment',
+          message: `Delete shipment ${refId}? This can't be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        }))) return;
         try {
           const r = await fetch(
             `/api/shipments/${encodeURIComponent(refId)}`,
@@ -6045,7 +6303,12 @@ function formatMoney(n, cur) {
           e.stopPropagation();
           const idx = Number(btn.getAttribute('data-i'));
           if (!Number.isInteger(idx)) return;
-          if (!confirm(`Remove ${arts[idx]?.filename || 'this file'}?`)) return;
+          if (!(await confirmModal({
+            title: 'Remove file',
+            message: `Remove ${arts[idx]?.filename || 'this file'}?`,
+            confirmLabel: 'Remove',
+            danger: true,
+          }))) return;
           await removeArtifact(idx);
         });
       });
@@ -7252,7 +7515,11 @@ function esc(s) {
     }
   });
   clearBtn.addEventListener('click', async () => {
-    if (!confirm('Clear the saved DelayPredict URL?')) return;
+    if (!(await confirmModal({
+      title: 'Clear DelayPredict URL',
+      message: 'Clear the saved DelayPredict URL?',
+      confirmLabel: 'Clear',
+    }))) return;
     try {
       await fetch('/api/settings/DELAYPREDICT_URL', { method: 'DELETE' });
       input.value = '';
@@ -7391,7 +7658,11 @@ function esc(s) {
     }
   });
   clearBtn.addEventListener('click', async () => {
-    if (!confirm('Clear the saved IntellCluster URL?')) return;
+    if (!(await confirmModal({
+      title: 'Clear IntellCluster URL',
+      message: 'Clear the saved IntellCluster URL?',
+      confirmLabel: 'Clear',
+    }))) return;
     try {
       await fetch('/api/settings/INTELLCLUSTER_URL', { method: 'DELETE' });
       input.value = '';
@@ -7658,7 +7929,12 @@ function esc(s) {
       table.querySelectorAll('.ai-key-del').forEach((b) => {
         b.addEventListener('click', async () => {
           const prov = b.getAttribute('data-prov');
-          if (!confirm(`⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`)) return;
+          if (!(await confirmModal({
+            title: 'Remove vault key',
+            message: `⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`,
+            confirmLabel: 'Remove key',
+            danger: true,
+          }))) return;
           try {
             const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}`, { method: 'DELETE' });
             const data = await r.json();
@@ -8126,7 +8402,12 @@ function esc(s) {
     table.querySelectorAll('.ship-delete-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-id');
-        if (!confirm(`Delete rate entry ${id}? This can't be undone.`)) return;
+        if (!(await confirmModal({
+          title: 'Delete rate entry',
+          message: `Delete rate entry ${id}? This can't be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        }))) return;
         try {
           const r = await fetch(`/api/drayage-rate-library/${id}`, {
             method: 'DELETE',
@@ -8177,9 +8458,234 @@ function esc(s) {
 
   refreshBtn?.addEventListener('click', loadList);
 
+  // ---- Saved filter presets ----
+  // Persist named sets of column filters (e.g. "my top lanes") so the user
+  // can re-apply a common drill-down without re-typing every column.
+  const PRESETS_KEY = 'freight.drayage.filterPresets';
+  const presetSelect = document.getElementById('dr-lib-preset-select');
+  const presetApplyBtn = document.getElementById('dr-lib-preset-apply');
+  const presetDeleteBtn = document.getElementById('dr-lib-preset-delete');
+  const presetSaveBtn = document.getElementById('dr-lib-preset-save');
+
+  function loadPresets() {
+    try {
+      const raw = localStorage.getItem(PRESETS_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function savePresets(obj) {
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(obj)); } catch (_) { /* private mode */ }
+  }
+
+  function refreshPresetSelect(selected) {
+    if (!presetSelect) return;
+    const presets = loadPresets();
+    const names = Object.keys(presets).sort((a, b) => a.localeCompare(b));
+    presetSelect.innerHTML =
+      '<option value="">Saved filters…</option>' +
+      names
+        .map((n) => `<option value="${esc(n)}"${n === selected ? ' selected' : ''}>${esc(n)}</option>`)
+        .join('');
+  }
+
+  function applyPreset(name) {
+    const presets = loadPresets();
+    const preset = presets[name];
+    if (!preset || typeof preset !== 'object') return;
+    Object.keys(colFilters).forEach((k) => delete colFilters[k]);
+    Object.entries(preset).forEach(([k, v]) => {
+      if (v !== '' && v != null) colFilters[k] = String(v);
+    });
+    renderRows();
+  }
+
+  presetSaveBtn?.addEventListener('click', () => {
+    const active = Object.entries(colFilters).filter(([, v]) => v !== '' && v != null);
+    if (active.length === 0) {
+      toast('Set at least one column filter before saving a preset.', 'error');
+      return;
+    }
+    const name = (prompt('Name this filter preset (e.g. "my top lanes"):') || '').trim();
+    if (!name) return;
+    const presets = loadPresets();
+    presets[name] = Object.fromEntries(active.map(([k, v]) => [k, String(v)]));
+    savePresets(presets);
+    refreshPresetSelect(name);
+    toast(`Saved filter preset "${name}".`, 'success');
+  });
+
+  presetApplyBtn?.addEventListener('click', () => {
+    const name = presetSelect?.value;
+    if (!name) return;
+    applyPreset(name);
+  });
+
+  presetSelect?.addEventListener('change', () => {
+    const name = presetSelect.value;
+    if (name) applyPreset(name);
+  });
+
+  presetDeleteBtn?.addEventListener('click', async () => {
+    const name = presetSelect?.value;
+    if (!name) return;
+    if (!(await confirmModal({ title: 'Delete preset', message: `Delete filter preset "${name}"?`, danger: true }))) return;
+    const presets = loadPresets();
+    delete presets[name];
+    savePresets(presets);
+    refreshPresetSelect();
+    toast(`Deleted filter preset "${name}".`, 'info');
+  });
+
+  refreshPresetSelect();
+
   // Initial load + refresh whenever the user opens the Drayage tab.
   loadList();
   document
     .querySelector('[data-tab="drayage"]')
     ?.addEventListener('click', loadList);
+})();
+
+// ---- User default preferences ("⚙ Your defaults" fold, Ocean tab) ----
+// A single surface where the user sets the values they use every day. Persisted
+// as one JSON blob under `freight.preferences` and applied to the live quote
+// inputs on page load, so a fresh quote starts from their defaults instead of
+// the hardcoded ones. Any field that already has its own per-field "last used"
+// persistence (Ocean markup, calculator FX rate) is only *seeded* here when
+// nothing is stored, so last-used still wins.
+(function wirePreferences() {
+  const PREFS_KEY = 'freight.preferences';
+
+  // Per-field hardcoded fallbacks — mirror the inline HTML defaults.
+  const HARD = {
+    markupPct: 0,
+    markupFlat: 0,
+    container: '40 Dry High',
+    currencyRate: 1.37,
+    surchExportDecl: 65,
+    surchOverweight: 275,
+    surchWaiting: 100,
+  };
+
+  const num = (v, fallback) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  // Read + normalize saved prefs, filling any missing/partial field from HARD.
+  function loadPrefs() {
+    let saved = {};
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch (_) { saved = {}; }
+    if (typeof saved !== 'object' || saved === null) saved = {};
+    return {
+      markupPct: num(saved.markupPct, HARD.markupPct),
+      markupFlat: num(saved.markupFlat, HARD.markupFlat),
+      container:
+        typeof saved.container === 'string' && saved.container
+          ? saved.container
+          : HARD.container,
+      currencyRate: num(saved.currencyRate, HARD.currencyRate),
+      surchExportDecl: num(saved.surchExportDecl, HARD.surchExportDecl),
+      surchOverweight: num(saved.surchOverweight, HARD.surchOverweight),
+      surchWaiting: num(saved.surchWaiting, HARD.surchWaiting),
+    };
+  }
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && val != null) el.value = val;
+  };
+
+  // Mirror saved prefs into the prefs fold itself so it shows current defaults.
+  function populateForm(p) {
+    setVal('pref-markup-pct', p.markupPct);
+    setVal('pref-markup-flat', p.markupFlat);
+    setVal('pref-container', p.container);
+    setVal('pref-currency-rate', p.currencyRate);
+    setVal('pref-surch-export-decl', p.surchExportDecl);
+    setVal('pref-surch-overweight', p.surchOverweight);
+    setVal('pref-surch-waiting', p.surchWaiting);
+  }
+
+  // Read the prefs fold back into a plain object for saving.
+  function readForm() {
+    const g = (id) => document.getElementById(id);
+    return {
+      markupPct: num(g('pref-markup-pct')?.value, HARD.markupPct),
+      markupFlat: num(g('pref-markup-flat')?.value, HARD.markupFlat),
+      container: g('pref-container')?.value || HARD.container,
+      currencyRate: num(g('pref-currency-rate')?.value, HARD.currencyRate),
+      surchExportDecl: num(g('pref-surch-export-decl')?.value, HARD.surchExportDecl),
+      surchOverweight: num(g('pref-surch-overweight')?.value, HARD.surchOverweight),
+      surchWaiting: num(g('pref-surch-waiting')?.value, HARD.surchWaiting),
+    };
+  }
+
+  // Push a slider input to a value, clamped to its own max (numbers stay exact).
+  function setSlider(id, val) {
+    const s = document.getElementById(id);
+    if (s) s.value = Math.min(num(val, 0), parseFloat(s.max));
+  }
+
+  // Apply prefs to the live quote inputs.
+  function applyToLiveInputs(p) {
+    const stored = (k) => localStorage.getItem(k) != null;
+
+    // Ocean-form markup persists last-used under freight.markup.*; only seed
+    // the default when nothing is stored, so last-used continues to win.
+    if (!stored('freight.markup.pct')) {
+      setVal('markup-pct', p.markupPct);
+      setSlider('markup-pct-slider', p.markupPct);
+    }
+    if (!stored('freight.markup.flat')) {
+      setVal('markup-flat', p.markupFlat);
+      setSlider('markup-flat-slider', p.markupFlat);
+    }
+
+    // Sheet-email markup has no persistence (resets to 0 each load) — always set.
+    setVal('sheet-markup-pct', p.markupPct);
+    setSlider('sheet-markup-pct-slider', p.markupPct);
+    setVal('sheet-markup-flat', p.markupFlat);
+    setSlider('sheet-markup-flat-slider', p.markupFlat);
+
+    // Container selects (Ocean + Drayage) — set value and the data-current
+    // fallback so loadLookups()'s async option rebuild preserves the pick.
+    ['container', 'dr-container'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.value = p.container;
+        el.dataset.current = p.container;
+      }
+    });
+
+    // Surcharge fees — no persistence; always set.
+    setVal('surch-export-decl-fee', p.surchExportDecl);
+    setVal('surch-overweight-fee', p.surchOverweight);
+    setVal('surch-waiting-fee', p.surchWaiting);
+
+    // Calculator FX rate persists last-used under freight.calc.usdcad.rate;
+    // only seed the default when nothing is stored.
+    if (!stored('freight.calc.usdcad.rate')) {
+      setVal('calc-usd-cad-rate', p.currencyRate);
+    }
+  }
+
+  const prefs = loadPrefs();
+  populateForm(prefs);
+  applyToLiveInputs(prefs);
+
+  document.getElementById('pref-save-btn')?.addEventListener('click', () => {
+    const next = readForm();
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+    } catch (_) { /* private mode — nothing persists */ }
+    applyToLiveInputs(next);
+    if (typeof toast === 'function') toast('Defaults saved.', 'success');
+  });
 })();

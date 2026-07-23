@@ -176,6 +176,7 @@
           <button type="button" role="menuitem" data-simple-tab="history">Quote history</button>
           <button type="button" role="menuitem" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" role="menuitem" data-simple-tab="intellcluster">IntellCluster</button>
+          <button type="button" role="menuitem" data-simple-tab="secrets">⚙ Settings</button>
           <button type="button" role="menuitem" data-action="show-all">Show all tools</button>
           <button type="button" role="menuitem" data-action="system-check">Feature readiness</button>
           <button type="button" role="menuitem" data-action="help">Help</button>

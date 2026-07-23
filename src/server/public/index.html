@@ -46,12 +46,68 @@
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="delaypredict" title="Open DelayPredict shipment tracker">📡 DelayPredict</button>
       <button class="tab" data-tab="intellcluster" title="Open IntellCluster decision intelligence">🧠 IntellCluster</button>
-      <button id="help-btn" class="tab" title="Keyboard shortcuts (press ?)" style="margin-left: auto;">?</button>
+      <div class="nav-more" id="nav-more">
+        <button class="tab nav-more-btn" id="nav-more-btn" type="button" aria-haspopup="true" aria-expanded="false" title="More tools">More ▾</button>
+        <div class="nav-more-menu" id="nav-more-menu" role="menu" hidden>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="secrets">⚙ Settings</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="bundles">Past bundles</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="agent">Web agent</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="record">Record workflow</button>
+        </div>
+      </div>
+      <button id="help-btn" class="tab" title="Keyboard shortcuts (press ?)">?</button>
     </nav>
   </header>
 
   <main>
     <section id="tab-new" class="tab-pane active">
+      <!-- ─── Your defaults: set once, applied automatically to every new quote ─── -->
+      <details class="prefs-fold">
+        <summary>⚙ Your defaults <span class="muted small">— set once, applied automatically to every quote</span></summary>
+        <div class="prefs-body">
+          <div class="grid">
+            <label>Default markup %
+              <input type="number" id="pref-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
+            </label>
+            <label>Default flat add-on (USD)
+              <input type="number" id="pref-markup-flat" min="0" step="5" value="0" class="markup-num">
+            </label>
+            <label>Default container type
+              <select id="pref-container" class="container-select">
+                <option value="20 Dry Standard">20 Dry Standard</option>
+                <option value="40 Dry Standard">40 Dry Standard</option>
+                <option value="40 Dry High" selected>40 Dry High</option>
+                <option value="20 Reefer">20 Reefer</option>
+                <option value="40 Reefer">40 Reefer</option>
+                <option value="40 Reefer High Cube">40 Reefer High Cube</option>
+                <option value="20 Open Top">20 Open Top</option>
+                <option value="40 Open Top">40 Open Top</option>
+                <option value="20 Flat Rack">20 Flat Rack</option>
+                <option value="40 Flat Rack">40 Flat Rack</option>
+                <option value="20 Tank">20 Tank</option>
+                <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
+              </select>
+            </label>
+            <label>Default USD → CAD rate
+              <input type="number" id="pref-currency-rate" step="0.0001" min="0" value="1.37" class="markup-num">
+            </label>
+            <label>Export declaration fee ($)
+              <input type="number" id="pref-surch-export-decl" min="0" step="1" value="65" class="markup-num">
+            </label>
+            <label>Overweight surcharge ($)
+              <input type="number" id="pref-surch-overweight" min="0" step="1" value="275" class="markup-num">
+            </label>
+            <label>Loading wait time ($/hr)
+              <input type="number" id="pref-surch-waiting" min="0" step="5" value="100" class="markup-num">
+            </label>
+          </div>
+          <div class="row">
+            <button id="pref-save-btn" class="primary btn-sm">Save defaults</button>
+            <span class="muted small">Stored on this device only.</span>
+          </div>
+        </div>
+      </details>
+
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
       <div class="card">
         <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
@@ -67,6 +123,10 @@
 
         <div class="row">
           <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+          <label id="sheet-keep-original-label" class="keep-original-toggle" title="By default the original file is kept only when it is a carrier rate sheet; customer quote-request screenshots are parsed then discarded. Tick this to always keep the original.">
+            <input id="sheet-keep-original" type="checkbox" />
+            <span>📌 Always keep original</span>
+          </label>
           <div id="sheet-status" class="status-inline"></div>
         </div>
 
@@ -407,8 +467,8 @@
       <!-- Rate library card — top of the Drayage tab. AI extracts every
            rate from a dropped/pasted file and APPENDS to the database
            (price-history preserved). User filters / searches below. -->
-      <div class="card">
-        <h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2>
+      <details class="card dr-fold">
+        <summary class="dr-fold-summary"><h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2></summary>
         <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Claude extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
         <div id="dr-lib-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -443,7 +503,7 @@
           </div>
           <p class="muted small" style="margin-top: 6px;">Edit any field directly. Use ✕ to drop a row. Hit Save when ready — every kept row is appended to the library.</p>
         </div>
-      </div>
+      </details>
 
       <!-- Intake card -->
       <div class="card">
@@ -593,22 +653,32 @@
 
       <!-- Saved rates database — every rate ever saved, per-column
            filters, append-only history. -->
-      <div class="card">
-        <div class="card-header">
+      <details class="card dr-fold">
+        <summary class="dr-fold-summary">
           <h2>Saved drayage rates database <span class="muted-inline" id="dr-lib-count"></span></h2>
+        </summary>
+        <div class="card-header" style="margin-top: 4px;">
+          <p class="muted small" style="margin: 0;">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
           <button id="dr-lib-refresh-btn" class="btn-sm">↻ Refresh</button>
         </div>
-        <p class="muted small">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
+        <div id="dr-lib-preset-bar" class="dr-preset-bar">
+          <select id="dr-lib-preset-select" class="dr-preset-select" title="Saved filter presets">
+            <option value="">Saved filters…</option>
+          </select>
+          <button id="dr-lib-preset-apply" class="btn-sm" title="Apply the selected preset">Apply</button>
+          <button id="dr-lib-preset-delete" class="btn-sm" title="Delete the selected preset">Delete</button>
+          <button id="dr-lib-preset-save" class="btn-sm" title="Save the current column filters as a named preset">＋ Save current filters</button>
+        </div>
         <div class="ship-table-wrap" style="max-height: 540px;">
           <table id="dr-lib-table" class="ship-table"></table>
         </div>
-      </div>
+      </details>
     </section>
 
     <section id="tab-trucking" class="tab-pane">
       <div class="card">
         <h2>Trucking <span class="muted-inline">— FTL / LTL, dryvan / flatbed / reefer</span></h2>
-        <p class="muted">For ground freight without an ocean container. <strong>Foundation only:</strong> requests are saved with a ref ID; rate sources (DAT, Truckstop, internal rate sheets, broker quoting) plug in later.</p>
+        <p class="muted">For ground freight without an ocean container. Enter the lane and load details to get a <strong>historical rate estimate</strong> when we have comparable past lanes on file. Every request is saved with a ref ID; live rate sources (DAT, Truckstop, internal rate sheets, broker quoting) plug in later.</p>
 
         <div class="grid">
           <label>Cargo type
@@ -697,7 +767,7 @@
         </div>
 
         <div class="row">
-          <button id="tr-submit-btn" class="primary">Save trucking request</button>
+          <button id="tr-submit-btn" class="primary">Get estimate</button>
           <div id="tr-status" class="status-inline"></div>
         </div>
       </div>
@@ -881,7 +951,7 @@
         <div class="grid">
           <label>Carrier<select id="cred-carrier"></select></label>
           <label>Username / email<input id="cred-username" autocomplete="off" /></label>
-          <label>Password<input id="cred-password" type="password" autocomplete="off" /></label>
+          <label>Password<span class="pw-field"><input id="cred-password" type="password" autocomplete="off" /><button type="button" class="pw-toggle" data-target="cred-password" aria-label="Show password">👁</button></span></label>
           <label>Notes (optional)<input id="cred-notes" placeholder="e.g. 2FA via SMS to +1…" /></label>
         </div>
         <div class="row">
@@ -999,7 +1069,7 @@
               <option value="xai">xAI / Grok</option>
             </select>
           </label>
-          <label>API key<input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /></label>
+          <label>API key<span class="pw-field"><input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /><button type="button" class="pw-toggle" data-target="ai-key-value" aria-label="Show API key">👁</button></span></label>
           <label class="full">Label (optional)<input id="ai-key-label" placeholder="e.g. personal account, team key, etc." /></label>
         </div>
         <div class="row">

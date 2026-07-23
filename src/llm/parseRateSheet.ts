@@ -16,8 +16,9 @@ Rules:
 10. Read amounts exactly. Do not round, summarize, skip or invent charges — including surcharges and fees that appear ONLY in prose, footnotes or a "Notes" section, not just the charge tables.
 11. Charges are frequently written as prose, e.g. "Subject to <name>: <amount> <currency> per Bill of Lading" (or per container / per shipment). These are REAL charges — never skip them. Put each into freight_charges (origin, documentation, security-manifest, B/L and other freight-side fees) or destination_charges (destination fees) with basis set to the stated per-unit basis plus any condition, e.g. "per Bill of Lading" or "per Bill of Lading; only on service WC4". Be consistent across currencies: if you fold a "per Bill of Lading" fee into a total for one side (e.g. a destination documentation fee), do the same for the freight side (e.g. security-manifest and document fees).
 12. A condition on a charge (e.g. "only on service WC4", "if applicable", "when requested") NEVER removes it from the charge list — you must ALWAYS list every prose charge as a line item, conditional ones included, recording the condition in basis. A condition only affects the TOTAL: include per-Bill-of-Lading document/security/B-L fees in the matching total for ONE Bill of Lading, but leave out of the total only those gated by a condition that clearly does not apply to this lane/service (still list them).
-13. Leave fields null when unsupported by the source.
-14. Return JSON only.`;
+13. Classify the document in "document_type": use "rate_sheet" when it is a carrier/NVOCC freight rate sheet, rate quotation or a screenshot of ocean rates (anything worth keeping as pricing reference); "quote_request" when it is a customer/shipper INQUIRY asking you to quote (an email or message requesting a price, not offering one); "other" for anything else. When unsure between rate_sheet and quote_request, prefer "quote_request" only if there are no actual rates present.
+14. Leave fields null when unsupported by the source.
+15. Return JSON only.`;
 
 const ChargeSchema = z.object({
   name: z.string(), amount: z.number(), currency: z.string(),
@@ -36,6 +37,7 @@ const LaneSchema = z.object({
 const RateSheetSchema = z.object({
   carrier_code: z.string(), carrier_name_raw: z.string().nullable().optional(), validity_from: z.string().nullable().optional(),
   validity_to: z.string().nullable().optional(), lanes: z.array(LaneSchema), notes: z.string().nullable().optional(),
+  document_type: z.enum(['rate_sheet', 'quote_request', 'other']).default('rate_sheet'),
 });
 
 export type RateSheetResult = z.infer<typeof RateSheetSchema>;
@@ -67,7 +69,8 @@ const SCHEMA_DESCRIPTION = `{
       "destination_currency": "string|null"
     }]
   }],
-  "notes": "string|null"
+  "notes": "string|null",
+  "document_type": "rate_sheet|quote_request|other"
 }`;
 
 export async function parseRateSheet(input: RateSheetInput): Promise<RateSheetResult> {

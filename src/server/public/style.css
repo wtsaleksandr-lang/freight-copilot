@@ -78,7 +78,39 @@ header {
   color: rgba(255, 255, 255, 0.95);
   font-weight: 700;
 }
-nav { display: flex; gap: 6px; flex-wrap: wrap; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* "More ▾" overflow menu — pushes itself + the help button to the right. */
+.nav-more { position: relative; margin-left: auto; }
+.nav-more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-more-menu[hidden] { display: none; }
+.nav-more-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+.nav-more-item:hover { background: #f1f5f9; color: var(--ink); }
 .tab {
   background: transparent;
   border: 1.5px solid rgba(255, 255, 255, 0.45);
@@ -195,6 +227,25 @@ textarea {
   font-size: 12.5px;
   resize: vertical;
 }
+/* Password / API-key inputs with an inline show/hide eye toggle. */
+.pw-field { position: relative; display: block; }
+.pw-field input { padding-right: 40px; }
+.pw-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  padding: 4px 6px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 5px;
+  width: auto;
+}
+.pw-toggle:hover { background: #f1f5f9; color: var(--ink); }
 
 button {
   font: inherit;
@@ -258,6 +309,18 @@ tbody td {
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: #f8fafc; }
+
+thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable:hover { background: #f1f5f9; color: var(--ink-soft); }
+thead th.sortable:hover .sort-ind { color: var(--muted); }
+thead th.sorted { color: var(--accent); }
+thead th .sort-ind {
+  display: inline-block;
+  width: 0.9em;
+  margin-left: 2px;
+  font-size: 9px;
+  color: var(--accent);
+}
 
 .rank { font-weight: 700; font-variant-numeric: tabular-nums; }
 .price { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
@@ -566,6 +629,28 @@ table.bd-mini tr.bd-total td {
 }
 .carrier-check-group label.carrier-check.disabled input { cursor: not-allowed; }
 
+/* "Your defaults" preferences fold — quiet, dashed, collapsed by default */
+.prefs-fold {
+  margin: 0 0 16px 0;
+  border: 1px dashed var(--card-border, #2a2a2a);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--card);
+}
+.prefs-fold > summary {
+  cursor: pointer;
+  padding: 12px 4px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  list-style: none;
+}
+.prefs-fold > summary::-webkit-details-marker { display: none; }
+.prefs-fold > summary::before { content: '▸ '; }
+.prefs-fold[open] > summary::before { content: '▾ '; }
+.prefs-fold .prefs-body { padding: 4px 0 16px 0; }
+.prefs-fold .row { margin-top: 12px; align-items: center; gap: 10px; }
+
 .template-details {
   margin: 10px 0;
 }
@@ -859,6 +944,15 @@ label.check-line input[type="checkbox"] {
 }
 .sheet-dropzone:hover { border-color: #58a6ff; background: rgba(88,166,255,0.04); }
 .sheet-dropzone.is-drag { border-color: #2ea043; background: rgba(46,160,67,0.08); }
+.keep-original-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--muted); cursor: pointer;
+  padding: 4px 8px; border-radius: 6px; user-select: none;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.keep-original-toggle:hover { color: var(--text); background: rgba(88,166,255,0.08); }
+.keep-original-toggle input { cursor: pointer; margin: 0; }
+.keep-original-toggle:has(input:checked) { color: var(--text); }
 .sheet-drop-prompt {
   display: flex;
   flex-direction: column;
@@ -2868,6 +2962,56 @@ td.empty {
   user-select: none;
 }
 
+/* Themed confirm modal — reuses the image-modal / clarify-frame shell as a
+   promise-based replacement for the native window.confirm(). Must explicitly
+   override the image-modal base (dark #0d0d0d, 92vh height, flex:1 body) which
+   otherwise wins by source order and makes the panel a tall dark-on-dark box. */
+.confirm-modal-frame {
+  width: min(440px, 92vw);
+  height: auto;
+  max-height: 88vh;
+  background: #ffffff;
+}
+.confirm-modal-frame .image-modal-toolbar {
+  background: #f9fafb;
+  color: #111827;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 14px;
+}
+.confirm-modal-body {
+  display: block;
+  flex: none;
+  overflow: visible;
+  background: #ffffff;
+  color: #111827;
+  padding: 16px 18px 18px;
+}
+.confirm-modal-message {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #111827;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.confirm-modal-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.confirm-modal-actions button {
+  flex: 0 0 auto;
+  width: auto;
+}
+.confirm-modal-frame button.primary.danger {
+  background: var(--error);
+  border-color: var(--error);
+}
+.confirm-modal-frame button.primary.danger:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
+}
+
 /* Artifact proof links next to each carrier badge */
 .artifact-link {
   font-size: 11.5px;
@@ -2910,4 +3054,39 @@ td.empty {
   justify-content: space-between;
   padding: 2px 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- Drayage: foldable secondary cards + saved filter presets ---- */
+details.dr-fold > summary.dr-fold-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.dr-fold > summary.dr-fold-summary::-webkit-details-marker { display: none; }
+details.dr-fold > summary.dr-fold-summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+details.dr-fold[open] > summary.dr-fold-summary::before { transform: rotate(90deg); }
+details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
+.dr-preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 10px 0;
+}
+.dr-preset-select {
+  min-width: 160px;
+  max-width: 240px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
 }
