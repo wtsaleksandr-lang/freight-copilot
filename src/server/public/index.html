@@ -46,7 +46,16 @@
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="delaypredict" title="Open DelayPredict shipment tracker">📡 DelayPredict</button>
       <button class="tab" data-tab="intellcluster" title="Open IntellCluster decision intelligence">🧠 IntellCluster</button>
-      <button id="help-btn" class="tab" title="Keyboard shortcuts (press ?)" style="margin-left: auto;">?</button>
+      <div class="nav-more" id="nav-more">
+        <button class="tab nav-more-btn" id="nav-more-btn" type="button" aria-haspopup="true" aria-expanded="false" title="More tools">More ▾</button>
+        <div class="nav-more-menu" id="nav-more-menu" role="menu" hidden>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="secrets">⚙ Settings</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="bundles">Past bundles</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="agent">Web agent</button>
+          <button class="nav-more-item" type="button" role="menuitem" data-tab="record">Record workflow</button>
+        </div>
+      </div>
+      <button id="help-btn" class="tab" title="Keyboard shortcuts (press ?)">?</button>
     </nav>
   </header>
 
@@ -622,7 +631,7 @@
     <section id="tab-trucking" class="tab-pane">
       <div class="card">
         <h2>Trucking <span class="muted-inline">— FTL / LTL, dryvan / flatbed / reefer</span></h2>
-        <p class="muted">For ground freight without an ocean container. <strong>Foundation only:</strong> requests are saved with a ref ID; rate sources (DAT, Truckstop, internal rate sheets, broker quoting) plug in later.</p>
+        <p class="muted">For ground freight without an ocean container. Enter the lane and load details to get a <strong>historical rate estimate</strong> when we have comparable past lanes on file. Every request is saved with a ref ID; live rate sources (DAT, Truckstop, internal rate sheets, broker quoting) plug in later.</p>
 
         <div class="grid">
           <label>Cargo type
@@ -711,7 +720,7 @@
         </div>
 
         <div class="row">
-          <button id="tr-submit-btn" class="primary">Save trucking request</button>
+          <button id="tr-submit-btn" class="primary">Get estimate</button>
           <div id="tr-status" class="status-inline"></div>
         </div>
       </div>
@@ -895,7 +904,7 @@
         <div class="grid">
           <label>Carrier<select id="cred-carrier"></select></label>
           <label>Username / email<input id="cred-username" autocomplete="off" /></label>
-          <label>Password<input id="cred-password" type="password" autocomplete="off" /></label>
+          <label>Password<span class="pw-field"><input id="cred-password" type="password" autocomplete="off" /><button type="button" class="pw-toggle" data-target="cred-password" aria-label="Show password">👁</button></span></label>
           <label>Notes (optional)<input id="cred-notes" placeholder="e.g. 2FA via SMS to +1…" /></label>
         </div>
         <div class="row">
@@ -1013,7 +1022,7 @@
               <option value="xai">xAI / Grok</option>
             </select>
           </label>
-          <label>API key<input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /></label>
+          <label>API key<span class="pw-field"><input id="ai-key-value" type="password" autocomplete="off" placeholder="sk-... / AIza... / etc." /><button type="button" class="pw-toggle" data-target="ai-key-value" aria-label="Show API key">👁</button></span></label>
           <label class="full">Label (optional)<input id="ai-key-label" placeholder="e.g. personal account, team key, etc." /></label>
         </div>
         <div class="row">
