@@ -1180,6 +1180,64 @@ async function loadTruckingList() {
 }
 loadTruckingList();
 
+// ---- Sortable plain tables (History, Bundles) ----
+// Each table keeps a tiny {key, dir} state; clicking a <th> sorts the
+// underlying data array (type-aware, empties last) and re-renders in place
+// via the same buildRow path, preserving row-click behavior.
+function makeComparator(accessor, type, dir) {
+  const mul = dir === 'desc' ? -1 : 1;
+  return (a, b) => {
+    const va = accessor(a);
+    const vb = accessor(b);
+    const ea = va == null || va === '';
+    const eb = vb == null || vb === '';
+    if (ea && eb) return 0;
+    if (ea) return 1; // empties always sort last, regardless of direction
+    if (eb) return -1;
+    let cmp;
+    if (type === 'number') cmp = Number(va) - Number(vb);
+    else if (type === 'date') cmp = new Date(va).getTime() - new Date(vb).getTime();
+    else cmp = String(va).localeCompare(String(vb));
+    return cmp * mul;
+  };
+}
+
+function renderSortableTable(table, columns, data, state, buildRow, wire) {
+  const rows = data.slice();
+  if (state.key) {
+    const col = columns.find((c) => c.key === state.key);
+    if (col) rows.sort(makeComparator(col.accessor, col.type, state.dir));
+  }
+  const thead =
+    '<thead><tr>' +
+    columns
+      .map((c) => {
+        const active = state.key === c.key;
+        const arrow = active ? (state.dir === 'desc' ? '▼' : '▲') : '';
+        const cls = 'sortable' + (active ? ' sorted' : '');
+        return `<th class="${cls}" data-sort-key="${esc(c.key)}">${esc(c.label)}<span class="sort-ind">${arrow}</span></th>`;
+      })
+      .join('') +
+    '</tr></thead>';
+  table.innerHTML = thead + '<tbody>' + rows.map(buildRow).join('') + '</tbody>';
+  table.querySelectorAll('th[data-sort-key]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sortKey;
+      if (state.key === key) {
+        state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.key = key;
+        state.dir = 'asc';
+      }
+      renderSortableTable(table, columns, data, state, buildRow, wire);
+    });
+  });
+  if (wire) wire(table);
+}
+
+let bundlesSortState = { key: null, dir: 'asc' };
+let historySortState = { key: null, dir: 'asc' };
+
 // ---- Bundles tab ----
 async function loadBundles() {
   const table = document.getElementById('bundles-table');
@@ -1192,27 +1250,39 @@ async function loadBundles() {
         '<tbody><tr><td class="empty">No bundles yet. Run a quote from the "New quote" tab.</td></tr></tbody>';
       return;
     }
-    const thead = '<thead><tr><th>Ref ID</th><th>Created</th><th>Lane</th><th>Container</th><th>Carriers</th><th>Status</th><th>Client</th></tr></thead>';
-    const rows = data.bundles
-      .map((b) => {
-        const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
-        const statusCls =
-          b.status === 'complete' ? 'success' : b.status === 'partial' ? 'info' : 'error';
-        const carriers = Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : '';
-        return `<tr class="clickable" data-refid="${b.refId}">
-          <td><code>${esc(b.refId)}</code></td>
-          <td>${created}</td>
-          <td>${esc(b.origin)} → ${esc(b.destination)}</td>
-          <td>${esc(b.containerType)}</td>
-          <td>${esc(carriers)}</td>
-          <td><span class="status-inline ${statusCls}">${esc(b.status)}</span></td>
-          <td>${esc(b.clientName || '—')}</td>
-        </tr>`;
-      })
-      .join('');
-    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
-    table.querySelectorAll('tr.clickable').forEach((row) => {
-      row.addEventListener('click', () => loadBundleDetail(row.dataset.refid));
+    const columns = [
+      { key: 'refId', label: 'Ref ID', type: 'string', accessor: (b) => b.refId },
+      { key: 'created', label: 'Created', type: 'date', accessor: (b) => b.createdAt },
+      { key: 'lane', label: 'Lane', type: 'string', accessor: (b) => `${b.origin} → ${b.destination}` },
+      { key: 'container', label: 'Container', type: 'string', accessor: (b) => b.containerType },
+      {
+        key: 'carriers',
+        label: 'Carriers',
+        type: 'string',
+        accessor: (b) => (Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : ''),
+      },
+      { key: 'status', label: 'Status', type: 'string', accessor: (b) => b.status },
+      { key: 'client', label: 'Client', type: 'string', accessor: (b) => b.clientName },
+    ];
+    const buildRow = (b) => {
+      const created = new Date(b.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+      const statusCls =
+        b.status === 'complete' ? 'success' : b.status === 'partial' ? 'info' : 'error';
+      const carriers = Array.isArray(b.carrierCodes) ? b.carrierCodes.join(', ') : '';
+      return `<tr class="clickable" data-refid="${b.refId}">
+        <td><code>${esc(b.refId)}</code></td>
+        <td>${created}</td>
+        <td>${esc(b.origin)} → ${esc(b.destination)}</td>
+        <td>${esc(b.containerType)}</td>
+        <td>${esc(carriers)}</td>
+        <td><span class="status-inline ${statusCls}">${esc(b.status)}</span></td>
+        <td>${esc(b.clientName || '—')}</td>
+      </tr>`;
+    };
+    renderSortableTable(table, columns, data.bundles, bundlesSortState, buildRow, (t) => {
+      t.querySelectorAll('tr.clickable').forEach((row) => {
+        row.addEventListener('click', () => loadBundleDetail(row.dataset.refid));
+      });
     });
   } catch (err) {
     table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;
@@ -2130,20 +2200,25 @@ async function loadHistory() {
       table.innerHTML = thead + '<tbody><tr><td colspan="4" class="empty">No quotes yet. Run one from the "New quote" tab.</td></tr></tbody>';
       return;
     }
-    const rows = data.quotes
-      .map((q) => {
-        const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
-        return `<tr class="clickable" data-id="${q.id}">
-          <td class="rank">#${q.id}</td>
-          <td>${created}</td>
-          <td>${esc(q.origin)} → ${esc(q.destination)}</td>
-          <td>${esc(q.containerType)}</td>
-        </tr>`;
-      })
-      .join('');
-    table.innerHTML = thead + '<tbody>' + rows + '</tbody>';
-    table.querySelectorAll('tr.clickable').forEach((row) => {
-      row.addEventListener('click', () => loadQuote(row.dataset.id));
+    const columns = [
+      { key: 'id', label: 'ID', type: 'number', accessor: (q) => q.id },
+      { key: 'created', label: 'Created', type: 'date', accessor: (q) => q.createdAt },
+      { key: 'lane', label: 'Lane', type: 'string', accessor: (q) => `${q.origin} → ${q.destination}` },
+      { key: 'container', label: 'Container', type: 'string', accessor: (q) => q.containerType },
+    ];
+    const buildRow = (q) => {
+      const created = new Date(q.createdAt).toISOString().slice(0, 16).replace('T', ' ');
+      return `<tr class="clickable" data-id="${q.id}">
+        <td class="rank">#${q.id}</td>
+        <td>${created}</td>
+        <td>${esc(q.origin)} → ${esc(q.destination)}</td>
+        <td>${esc(q.containerType)}</td>
+      </tr>`;
+    };
+    renderSortableTable(table, columns, data.quotes, historySortState, buildRow, (t) => {
+      t.querySelectorAll('tr.clickable').forEach((row) => {
+        row.addEventListener('click', () => loadQuote(row.dataset.id));
+      });
     });
   } catch (err) {
     table.innerHTML = `<tbody><tr><td class="empty">Error: ${esc(err.message)}</td></tr></tbody>`;

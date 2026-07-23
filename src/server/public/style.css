@@ -259,6 +259,18 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: #f8fafc; }
 
+thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable:hover { background: #f1f5f9; color: var(--ink-soft); }
+thead th.sortable:hover .sort-ind { color: var(--muted); }
+thead th.sorted { color: var(--accent); }
+thead th .sort-ind {
+  display: inline-block;
+  width: 0.9em;
+  margin-left: 2px;
+  font-size: 9px;
+  color: var(--accent);
+}
+
 .rank { font-weight: 700; font-variant-numeric: tabular-nums; }
 .price { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 .your-price { color: var(--success); }
