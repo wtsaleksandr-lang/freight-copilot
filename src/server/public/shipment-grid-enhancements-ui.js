@@ -37,7 +37,7 @@
     bar.innerHTML = `
       <div class="shipment-grid-toolbar-main">
         <strong>Shipment spreadsheet</strong>
-        <span class="muted small">Grab and drag to pan · double-click a cell to edit · drag a column edge to resize · paste rows from Excel.</span>
+        <span class="muted small">Edit cells, resize or drag columns, and paste rows from Excel.</span>
       </div>
       <div class="shipment-grid-toolbar-actions">
         <button type="button" id="shipment-columns-btn" aria-expanded="false" aria-controls="shipment-columns-menu">Columns</button>
@@ -134,18 +134,6 @@
     }
   }
 
-  // The 2nd frozen column (Ref) must pin exactly at the right edge of the 1st
-  // (Status). Measure Status's real width and publish it as the CSS var the
-  // sticky rule reads — otherwise the old hard-coded 40px leaves a visible gap.
-  function syncFrozenOffsets() {
-    const table = getTable();
-    if (!table) return;
-    const firstTh = table.querySelector('thead tr:first-child th:first-child');
-    if (!firstTh) return;
-    const w = firstTh.getBoundingClientRect().width;
-    if (w > 0) table.style.setProperty('--ship-frozen-2-left', Math.round(w) + 'px');
-  }
-
   function applyPreferences() {
     const table = getTable();
     if (!table) return;
@@ -177,7 +165,6 @@
     });
     wireHeaders();
     wireCells();
-    syncFrozenOffsets();
   }
 
   function wireHeaders() {
@@ -232,8 +219,6 @@
             const cell = row.children[index];
             if (cell) { cell.style.width = `${width}px`; cell.style.minWidth = `${width}px`; }
           });
-          // Resizing the Status column changes where Ref must pin.
-          if (index === 0) syncFrozenOffsets();
         };
         const finish = () => {
           document.removeEventListener('pointermove', move);
@@ -396,7 +381,6 @@
     if (!table) return setTimeout(start, 150);
     observer.observe(table, { childList: true, subtree: true });
     scheduleEnhance();
-    window.addEventListener('resize', syncFrozenOffsets);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

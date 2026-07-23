@@ -1426,11 +1426,8 @@ body.is-col-resizing * {
 }
 .ship-table thead th:nth-child(1),
 .ship-table tbody td:nth-child(1) { left: 0; }
-/* left offset of the 2nd frozen column = the ACTUAL width of the 1st (STATUS)
-   column, set by JS (syncFrozenOffsets). The old hard-coded 40px assumed STATUS
-   was 40px wide; it isn't, which left a gap between STATUS and Ref. */
 .ship-table thead th:nth-child(2),
-.ship-table tbody td:nth-child(2) { left: var(--ship-frozen-2-left, 40px); }
+.ship-table tbody td:nth-child(2) { left: 40px; }
 .ship-table thead th:nth-child(2) { z-index: 3; }
 .ship-table thead th:nth-child(1) { z-index: 3; }
 /* Right shadow on the second sticky column = visual edge between the

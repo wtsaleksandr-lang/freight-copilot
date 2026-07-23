@@ -23,8 +23,3 @@
 #ship-table tbody tr:hover td{background-color:rgba(56,189,248,.055)}
 #ship-table tbody tr.is-selected td{background-color:rgba(56,189,248,.1)}
 @media(max-width:900px){.shipment-grid-toolbar{align-items:flex-start;flex-direction:column}.shipment-grid-toolbar-actions{width:100%}.shipment-grid-toolbar-actions button{flex:1}.shipment-columns-menu{left:0;right:auto;width:min(320px,92vw)}}
-
-/* The toolbar sits on a dark slate bar; the .muted subtitle resolved to a dark
-   grey (var(--muted)) and was invisible. Give it a translucent near-white. */
-.shipment-grid-toolbar .muted,
-.shipment-grid-toolbar .muted.small{color:rgba(248,250,252,.72)}
