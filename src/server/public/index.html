@@ -411,8 +411,8 @@
       <!-- Rate library card — top of the Drayage tab. AI extracts every
            rate from a dropped/pasted file and APPENDS to the database
            (price-history preserved). User filters / searches below. -->
-      <div class="card">
-        <h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2>
+      <details class="card dr-fold">
+        <summary class="dr-fold-summary"><h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2></summary>
         <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Claude extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
         <div id="dr-lib-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -447,7 +447,7 @@
           </div>
           <p class="muted small" style="margin-top: 6px;">Edit any field directly. Use ✕ to drop a row. Hit Save when ready — every kept row is appended to the library.</p>
         </div>
-      </div>
+      </details>
 
       <!-- Intake card -->
       <div class="card">
@@ -597,16 +597,26 @@
 
       <!-- Saved rates database — every rate ever saved, per-column
            filters, append-only history. -->
-      <div class="card">
-        <div class="card-header">
+      <details class="card dr-fold">
+        <summary class="dr-fold-summary">
           <h2>Saved drayage rates database <span class="muted-inline" id="dr-lib-count"></span></h2>
+        </summary>
+        <div class="card-header" style="margin-top: 4px;">
+          <p class="muted small" style="margin: 0;">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
           <button id="dr-lib-refresh-btn" class="btn-sm">↻ Refresh</button>
         </div>
-        <p class="muted small">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
+        <div id="dr-lib-preset-bar" class="dr-preset-bar">
+          <select id="dr-lib-preset-select" class="dr-preset-select" title="Saved filter presets">
+            <option value="">Saved filters…</option>
+          </select>
+          <button id="dr-lib-preset-apply" class="btn-sm" title="Apply the selected preset">Apply</button>
+          <button id="dr-lib-preset-delete" class="btn-sm" title="Delete the selected preset">Delete</button>
+          <button id="dr-lib-preset-save" class="btn-sm" title="Save the current column filters as a named preset">＋ Save current filters</button>
+        </div>
         <div class="ship-table-wrap" style="max-height: 540px;">
           <table id="dr-lib-table" class="ship-table"></table>
         </div>
-      </div>
+      </details>
     </section>
 
     <section id="tab-trucking" class="tab-pane">

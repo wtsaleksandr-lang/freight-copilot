@@ -57,22 +57,38 @@
     };
   }
 
-  function host() {
+  // Where the estimate panel should render. Preferred anchor is the
+  // "Matching rates" area (#dr-matches-wrap) so the estimate appears right
+  // where the user is working — NOT appended far below the saved-rates DB.
+  function anchor() {
     const pane = document.getElementById('tab-drayage');
     if (!pane) return null;
-    return pane.querySelector('[id*="result"][class*="card"]') || pane;
+    return (
+      pane.querySelector('#dr-matches-wrap') ||
+      pane.querySelector('[id*="result"][class*="card"]') ||
+      pane
+    );
   }
 
   function renderEstimate(rate) {
-    const card = host();
-    if (!card) return;
+    const anchorEl = anchor();
+    if (!anchorEl) return;
     installStyles();
     let panel = document.getElementById('dr-estimate-panel');
     if (!panel) {
       panel = document.createElement('div');
       panel.id = 'dr-estimate-panel';
       panel.className = 'dr-estimate-panel';
-      card.appendChild(panel);
+    }
+    // Only (re)position when the panel isn't already placed, so a refreshed
+    // estimate stays put. Insert immediately after the matches wrap (as a
+    // sibling inside its card); fall back to appending into the anchor.
+    if (!panel.isConnected) {
+      if (anchorEl.id === 'dr-matches-wrap' && anchorEl.parentNode) {
+        anchorEl.after(panel);
+      } else {
+        anchorEl.appendChild(panel);
+      }
     }
     const confidence = ['high','medium','low'].includes(rate.confidence) ? rate.confidence : 'low';
     const range = Number.isFinite(Number(rate.estimateLow)) && Number.isFinite(Number(rate.estimateHigh)) ? `${money(rate.estimateLow, rate.currency)} – ${money(rate.estimateHigh, rate.currency)}` : '—';

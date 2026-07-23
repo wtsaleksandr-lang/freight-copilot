@@ -8187,6 +8187,90 @@ function esc(s) {
 
   refreshBtn?.addEventListener('click', loadList);
 
+  // ---- Saved filter presets ----
+  // Persist named sets of column filters (e.g. "my top lanes") so the user
+  // can re-apply a common drill-down without re-typing every column.
+  const PRESETS_KEY = 'freight.drayage.filterPresets';
+  const presetSelect = document.getElementById('dr-lib-preset-select');
+  const presetApplyBtn = document.getElementById('dr-lib-preset-apply');
+  const presetDeleteBtn = document.getElementById('dr-lib-preset-delete');
+  const presetSaveBtn = document.getElementById('dr-lib-preset-save');
+
+  function loadPresets() {
+    try {
+      const raw = localStorage.getItem(PRESETS_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function savePresets(obj) {
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(obj)); } catch (_) { /* private mode */ }
+  }
+
+  function refreshPresetSelect(selected) {
+    if (!presetSelect) return;
+    const presets = loadPresets();
+    const names = Object.keys(presets).sort((a, b) => a.localeCompare(b));
+    presetSelect.innerHTML =
+      '<option value="">Saved filters…</option>' +
+      names
+        .map((n) => `<option value="${esc(n)}"${n === selected ? ' selected' : ''}>${esc(n)}</option>`)
+        .join('');
+  }
+
+  function applyPreset(name) {
+    const presets = loadPresets();
+    const preset = presets[name];
+    if (!preset || typeof preset !== 'object') return;
+    Object.keys(colFilters).forEach((k) => delete colFilters[k]);
+    Object.entries(preset).forEach(([k, v]) => {
+      if (v !== '' && v != null) colFilters[k] = String(v);
+    });
+    renderRows();
+  }
+
+  presetSaveBtn?.addEventListener('click', () => {
+    const active = Object.entries(colFilters).filter(([, v]) => v !== '' && v != null);
+    if (active.length === 0) {
+      toast('Set at least one column filter before saving a preset.', 'error');
+      return;
+    }
+    const name = (prompt('Name this filter preset (e.g. "my top lanes"):') || '').trim();
+    if (!name) return;
+    const presets = loadPresets();
+    presets[name] = Object.fromEntries(active.map(([k, v]) => [k, String(v)]));
+    savePresets(presets);
+    refreshPresetSelect(name);
+    toast(`Saved filter preset "${name}".`, 'success');
+  });
+
+  presetApplyBtn?.addEventListener('click', () => {
+    const name = presetSelect?.value;
+    if (!name) return;
+    applyPreset(name);
+  });
+
+  presetSelect?.addEventListener('change', () => {
+    const name = presetSelect.value;
+    if (name) applyPreset(name);
+  });
+
+  presetDeleteBtn?.addEventListener('click', () => {
+    const name = presetSelect?.value;
+    if (!name) return;
+    if (!confirm(`Delete filter preset "${name}"?`)) return;
+    const presets = loadPresets();
+    delete presets[name];
+    savePresets(presets);
+    refreshPresetSelect();
+    toast(`Deleted filter preset "${name}".`, 'info');
+  });
+
+  refreshPresetSelect();
+
   // Initial load + refresh whenever the user opens the Drayage tab.
   loadList();
   document
