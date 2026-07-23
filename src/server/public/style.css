@@ -1140,6 +1140,12 @@ label.check-line input[type="checkbox"] {
   user-select: none;
   scroll-behavior: smooth;
   border-radius: 4px;
+  /* The JS drag-to-pan (app.js, pointer events + capture) is the SOLE owner of
+     drag gestures here. Without this the browser also runs its own native
+     touch/inertial pan on the same gesture and the two fight over scrollLeft
+     every frame -> the twitch/jitter on touch + trackpad. Wheel scrolling is
+     unaffected. */
+  touch-action: none;
 }
 .ship-table-wrap.is-dragging { cursor: grabbing; scroll-behavior: auto; }
 .ship-table-wrap.is-dragging * { user-select: none !important; }

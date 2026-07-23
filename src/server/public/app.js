@@ -6448,15 +6448,25 @@ function formatMoney(n, cur) {
   // text selection inside an editing cell or interfere with buttons).
   const wrap = document.getElementById('ship-table-wrap');
   if (wrap) {
+    // Drag-to-pan via POINTER events + pointer capture (not mouse events). This
+    // is what stops the twitch on touch / trackpad: with plain mouse events the
+    // browser ALSO runs its own native touch/inertial scroll on the same
+    // gesture, and the two fight over scrollLeft every frame -> jitter. Capturing
+    // the pointer + `touch-action:none` (see style.css) makes the JS the SOLE
+    // owner of the gesture, so there is nothing to fight. Pointer capture also
+    // keeps the drag alive when the cursor leaves the element (no more
+    // mouseleave dropping the drag mid-pan).
     let isDown = false;
+    let pid = null;
     let startX = 0;
     let startY = 0;
     let scrollX = 0;
     let scrollY = 0;
-    wrap.addEventListener('mousedown', (e) => {
+    wrap.addEventListener('pointerdown', (e) => {
+      // Mouse: left button only. Touch/pen: always.
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       // Don't start a pan from interactive elements, nor from the column
-      // reorder headers / resize handles — those own their own drag gestures
-      // and a native HTML5 drag started here would fight the pan (jitter).
+      // reorder headers / resize handles — those own their own drag gestures.
       if (
         e.target.closest(
           '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"], th[draggable="true"], .shipment-column-resizer'
@@ -6465,29 +6475,31 @@ function formatMoney(n, cur) {
         return;
       }
       isDown = true;
+      pid = e.pointerId;
       wrap.classList.add('is-dragging');
-      startX = e.pageX - wrap.offsetLeft;
-      startY = e.pageY - wrap.offsetTop;
+      startX = e.clientX;
+      startY = e.clientY;
       scrollX = wrap.scrollLeft;
       scrollY = wrap.scrollTop;
-      // Suppress the default mousedown side-effects that make the pan twitch:
-      // focusing a tabindex cell (which fires a scrollIntoView snap) and
-      // starting a text selection. Row click-to-select still fires on click.
+      // Route every subsequent pointer event for this gesture to `wrap` and
+      // suppress the default (focus snap, text selection, native scroll).
+      try { wrap.setPointerCapture(e.pointerId); } catch (_) {}
       e.preventDefault();
     });
     function endDrag() {
+      if (!isDown) return;
       isDown = false;
       wrap.classList.remove('is-dragging');
+      try { if (pid != null) wrap.releasePointerCapture(pid); } catch (_) {}
+      pid = null;
     }
-    wrap.addEventListener('mouseleave', endDrag);
-    wrap.addEventListener('mouseup', endDrag);
-    wrap.addEventListener('mousemove', (e) => {
-      if (!isDown) return;
+    wrap.addEventListener('pointerup', endDrag);
+    wrap.addEventListener('pointercancel', endDrag);
+    wrap.addEventListener('pointermove', (e) => {
+      if (!isDown || e.pointerId !== pid) return;
       e.preventDefault();
-      const dx = (e.pageX - wrap.offsetLeft) - startX;
-      const dy = (e.pageY - wrap.offsetTop) - startY;
-      wrap.scrollLeft = scrollX - dx;
-      wrap.scrollTop = scrollY - dy;
+      wrap.scrollLeft = scrollX - (e.clientX - startX);
+      wrap.scrollTop = scrollY - (e.clientY - startY);
     });
   }
 
