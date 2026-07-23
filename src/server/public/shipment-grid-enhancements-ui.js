@@ -2,7 +2,7 @@
   'use strict';
 
   const PREF_KEY = 'loadmode.shipmentGrid.preferences.v1';
-  const DEFAULT_PREFS = { order: [], hidden: [], widths: {}, freezeCol: null };
+  const DEFAULT_PREFS = { order: [], hidden: [], widths: {}, freezeCol: null, density: 'comfortable' };
   const editableBlocked = new Set(['operationalStatus', 'refId', 'createdAt', 'cargo', 'soldRate', 'ourCost', 'profit']);
   const numericFields = new Set(['containerQuantity']);
 
@@ -14,6 +14,7 @@
         hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
         widths: parsed.widths && typeof parsed.widths === 'object' ? parsed.widths : {},
         freezeCol: typeof parsed.freezeCol === 'string' ? parsed.freezeCol : null,
+        density: parsed.density === 'compact' ? 'compact' : 'comfortable',
       };
     } catch {
       return { ...DEFAULT_PREFS };
@@ -41,6 +42,7 @@
         <span class="muted small">Grab and drag to pan · double-click a cell to edit · drag a column edge to resize · paste rows from Excel.</span>
       </div>
       <div class="shipment-grid-toolbar-actions">
+        <button type="button" id="shipment-density-btn" aria-pressed="false" title="Toggle compact row height">Compact rows</button>
         <button type="button" id="shipment-columns-btn" aria-expanded="false" aria-controls="shipment-columns-menu">Columns</button>
         <button type="button" id="shipment-reset-layout-btn">Reset layout</button>
       </div>
@@ -58,6 +60,19 @@
     bar.querySelector('#shipment-reset-layout-btn').addEventListener('click', () => {
       localStorage.removeItem(PREF_KEY);
       location.reload();
+    });
+
+    const densityButton = bar.querySelector('#shipment-density-btn');
+    const syncDensityButton = () => {
+      densityButton.setAttribute('aria-pressed', String(readPrefs().density === 'compact'));
+    };
+    syncDensityButton();
+    densityButton.addEventListener('click', () => {
+      const prefs = readPrefs();
+      prefs.density = prefs.density === 'compact' ? 'comfortable' : 'compact';
+      savePrefs(prefs);
+      applyDensity();
+      syncDensityButton();
     });
     document.addEventListener('click', (event) => {
       const menu = bar.querySelector('#shipment-columns-menu');
@@ -100,13 +115,43 @@
     });
   }
 
+  // Reorder a column within prefs.order by stepping it one slot (dir -1 up / +1
+  // down). The order list follows the same shape applyPreferences consumes: the
+  // full ordered key list minus the trailing __actions column. Persist + re-apply
+  // through the existing order path, then re-render the menu keeping focus.
+  function moveColumnOrder(key, dir) {
+    const keys = columnMeta().map((c) => c.key).filter((k) => k !== '__actions');
+    const from = keys.indexOf(key);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= keys.length) return;
+    keys.splice(to, 0, keys.splice(from, 1)[0]);
+    const prefs = readPrefs();
+    prefs.order = keys;
+    savePrefs(prefs);
+    applyPreferences();
+    const menu = document.getElementById('shipment-columns-menu');
+    if (menu && !menu.hidden) {
+      renderColumnsMenu(menu);
+      const move = dir < 0 ? 'up' : 'down';
+      const same = menu.querySelector(`.shipment-column-move-btn[data-column="${key}"][data-move="${move}"]`);
+      if (same && !same.disabled) same.focus();
+      else menu.querySelector(`.shipment-column-move-btn[data-column="${key}"]:not([disabled])`)?.focus();
+    }
+  }
+
   function renderColumnsMenu(menu) {
     assignHeaderKeys();
     const prefs = readPrefs();
     const cols = columnMeta().filter((c) => c.key !== '__actions');
-    menu.innerHTML = `<strong>Visible columns</strong>${cols.map((col) => `
-      <label><input type="checkbox" data-column="${col.key}" ${prefs.hidden.includes(col.key) ? '' : 'checked'}> ${col.label}</label>`).join('')}`;
-    menu.querySelectorAll('[data-column]').forEach((input) => {
+    menu.innerHTML = `<strong>Visible columns</strong>${cols.map((col, i) => `
+      <div class="shipment-column-row">
+        <label><input type="checkbox" data-column="${col.key}" ${prefs.hidden.includes(col.key) ? '' : 'checked'}> ${col.label}</label>
+        <span class="shipment-column-move">
+          <button type="button" class="shipment-column-move-btn" data-move="up" data-column="${col.key}" aria-label="Move ${col.label} earlier" title="Move earlier"${i === 0 ? ' disabled' : ''}>&#9650;</button>
+          <button type="button" class="shipment-column-move-btn" data-move="down" data-column="${col.key}" aria-label="Move ${col.label} later" title="Move later"${i === cols.length - 1 ? ' disabled' : ''}>&#9660;</button>
+        </span>
+      </div>`).join('')}`;
+    menu.querySelectorAll('input[data-column]').forEach((input) => {
       input.addEventListener('change', () => {
         const key = input.dataset.column;
         const current = readPrefs();
@@ -115,6 +160,11 @@
         current.hidden = Array.from(next);
         savePrefs(current);
         applyPreferences();
+      });
+    });
+    menu.querySelectorAll('.shipment-column-move-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        moveColumnOrder(btn.dataset.column, btn.dataset.move === 'up' ? -1 : 1);
       });
     });
   }
@@ -180,6 +230,18 @@
     applyFreeze();
   }
 
+  // ── Row density ──────────────────────────────────────────────────────────
+  // Compact mode tightens vertical rhythm via a class toggle; 'comfortable' is
+  // the default look. Re-applied on every enhance so it survives table redraws.
+  function applyDensity() {
+    const table = getTable();
+    if (!table) return;
+    const compact = readPrefs().density === 'compact';
+    table.classList.toggle('is-compact', compact);
+    const wrap = table.closest('.table-wrap');
+    if (wrap) wrap.classList.toggle('is-compact', compact);
+  }
+
   function applyPreferences() {
     const table = getTable();
     if (!table) return;
@@ -212,6 +274,7 @@
     wireHeaders();
     wireCells();
     applyFreeze();
+    applyDensity();
   }
 
   function wireHeaders() {

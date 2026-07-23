@@ -8,6 +8,15 @@
 .shipment-columns-menu{position:absolute;right:10px;top:calc(100% + 6px);z-index:120;display:grid;gap:7px;min-width:240px;max-height:420px;overflow:auto;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:10px;background:#0b1629;color:#f8fafc;box-shadow:0 18px 50px rgba(0,0,0,.45)}
 .shipment-columns-menu[hidden]{display:none}
 .shipment-columns-menu label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+/* Column row = visibility checkbox on the left, reorder controls on the right. */
+.shipment-column-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.shipment-column-row label{flex:1;min-width:0}
+.shipment-column-move{display:inline-flex;gap:2px;flex:none}
+.shipment-column-move-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;font-size:10px;line-height:1;border:1px solid rgba(148,163,184,.35);border-radius:6px;background:#16243b;color:#f8fafc;cursor:pointer}
+.shipment-column-move-btn:hover:not([disabled]),.shipment-column-move-btn:focus-visible{background:#23466f;color:#fff;border-color:#38bdf8;outline:2px solid rgba(56,189,248,.45)}
+.shipment-column-move-btn[disabled]{opacity:.35;cursor:default}
+/* Density toggle mirrors the pressed state of the other toolbar buttons. */
+.shipment-grid-toolbar button[aria-pressed=true]{background:#23466f!important;color:#fff!important;border-color:#38bdf8!important}
 .table-wrap:has(#ship-table){min-width:0;overflow-x:auto;overflow-y:visible;overflow-anchor:none;scrollbar-gutter:stable}
 #ship-table{table-layout:fixed;width:max-content;min-width:100%}
 #ship-table th,#ship-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -47,3 +56,10 @@
 /* The boundary column casts a soft right-edge shadow so the frozen block reads
    as a distinct pinned panel. */
 .ship-table .is-freeze-edge{box-shadow:3px 0 6px -2px rgba(17,24,39,.28)}
+
+/* ── Row density ─────────────────────────────────────────────────────────────
+   Compact mode tightens vertical rhythm only. Horizontal padding, frozen-column
+   left offsets (set inline) and the absolutely-positioned resizer are untouched,
+   so pinning and column-resize keep working. 'comfortable' = the default look. */
+#ship-table.is-compact tbody td,#ship-table.is-compact tbody th{padding-top:3px;padding-bottom:3px;line-height:1.25}
+#ship-table.is-compact thead th{padding-top:4px;padding-bottom:4px}
