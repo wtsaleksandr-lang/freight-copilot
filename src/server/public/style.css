@@ -2963,12 +2963,28 @@ td.empty {
 }
 
 /* Themed confirm modal — reuses the image-modal / clarify-frame shell as a
-   promise-based replacement for the native window.confirm(). */
+   promise-based replacement for the native window.confirm(). Must explicitly
+   override the image-modal base (dark #0d0d0d, 92vh height, flex:1 body) which
+   otherwise wins by source order and makes the panel a tall dark-on-dark box. */
 .confirm-modal-frame {
   width: min(440px, 92vw);
+  height: auto;
+  max-height: 88vh;
+  background: #ffffff;
+}
+.confirm-modal-frame .image-modal-toolbar {
+  background: #f9fafb;
+  color: #111827;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 14px;
 }
 .confirm-modal-body {
   display: block;
+  flex: none;
+  overflow: visible;
+  background: #ffffff;
+  color: #111827;
+  padding: 16px 18px 18px;
 }
 .confirm-modal-message {
   margin: 0;
@@ -2980,7 +2996,12 @@ td.empty {
 }
 .confirm-modal-actions {
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 20px;
+}
+.confirm-modal-actions button {
+  flex: 0 0 auto;
+  width: auto;
 }
 .confirm-modal-frame button.primary.danger {
   background: var(--error);
