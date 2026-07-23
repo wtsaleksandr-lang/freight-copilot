@@ -13,9 +13,11 @@ Rules:
 7. Capture destination detention and demurrage free time when stated.
 8. Capture transit_days as an integer; for a range use the lower value.
 9. Return validity dates as YYYY-MM-DD when shown.
-10. Read amounts exactly. Do not round, summarize, skip or invent charges.
-11. Leave fields null when unsupported by the source.
-12. Return JSON only.`;
+10. Read amounts exactly. Do not round, summarize, skip or invent charges — including surcharges and fees that appear ONLY in prose, footnotes or a "Notes" section, not just the charge tables.
+11. Charges are frequently written as prose, e.g. "Subject to <name>: <amount> <currency> per Bill of Lading" (or per container / per shipment). These are REAL charges — never skip them. Put each into freight_charges (origin, documentation, security-manifest, B/L and other freight-side fees) or destination_charges (destination fees) with basis set to the stated per-unit basis plus any condition, e.g. "per Bill of Lading" or "per Bill of Lading; only on service WC4". Be consistent across currencies: if you fold a "per Bill of Lading" fee into a total for one side (e.g. a destination documentation fee), do the same for the freight side (e.g. security-manifest and document fees).
+12. Include per-Bill-of-Lading document/security/B-L fees in the matching total for ONE Bill of Lading, EXCEPT charges gated by a condition that clearly does not apply to this lane/service — capture those as line items but keep them out of the total.
+13. Leave fields null when unsupported by the source.
+14. Return JSON only.`;
 
 const ChargeSchema = z.object({
   name: z.string(), amount: z.number(), currency: z.string(),
