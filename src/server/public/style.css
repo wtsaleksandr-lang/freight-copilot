@@ -2877,6 +2877,35 @@ td.empty {
   user-select: none;
 }
 
+/* Themed confirm modal — reuses the image-modal / clarify-frame shell as a
+   promise-based replacement for the native window.confirm(). */
+.confirm-modal-frame {
+  width: min(440px, 92vw);
+}
+.confirm-modal-body {
+  display: block;
+}
+.confirm-modal-message {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #111827;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.confirm-modal-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+.confirm-modal-frame button.primary.danger {
+  background: var(--error);
+  border-color: var(--error);
+}
+.confirm-modal-frame button.primary.danger:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
+}
+
 /* Artifact proof links next to each carrier badge */
 .artifact-link {
   font-size: 11.5px;
