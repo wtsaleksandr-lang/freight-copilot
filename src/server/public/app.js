@@ -3017,10 +3017,12 @@ async function loadCredList() {
 
     setStatus('sheet-status', 'Sending to Claude…', 'info');
     try {
+      const keepEl = document.getElementById('sheet-keep-original');
+      const keepOriginal = !!(keepEl && keepEl.checked);
       const r = await fetch('/api/rates/parse-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: payload }),
+        body: JSON.stringify({ files: payload, keepOriginal }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'parse failed');
@@ -3032,9 +3034,15 @@ async function loadCredList() {
             (n, l) => n + l.rates_per_container.length,
             0
           );
+          // Show whether the original was kept (rate sheet / forced) or the
+          // throwaway input was discarded after extracting its data.
+          const storageNote =
+            res.kept === null || res.kept === undefined
+              ? ' · original discarded'
+              : ' · original saved';
           setItemState(
             i,
-            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)`,
+            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)${storageNote}`,
             'success'
           );
         } else {
@@ -3052,9 +3060,11 @@ async function loadCredList() {
           ),
         0
       );
+      const keptCount = okResults.filter((r) => r.kept).length;
+      const store = data.durableStorage ? 'Cloudflare R2' : 'local disk';
       setStatus(
         'sheet-status',
-        `${okResults.length}/${data.results.length} parsed · ${totalRates} rates total · saved to ${data.outputFolder}`,
+        `${okResults.length}/${data.results.length} parsed · ${totalRates} rates · ${keptCount} original(s) kept (${store})`,
         okResults.length === data.results.length ? 'success' : 'info'
       );
       renderSheetResults(data);

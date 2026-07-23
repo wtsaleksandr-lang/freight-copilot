@@ -67,6 +67,10 @@
 
         <div class="row">
           <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+          <label id="sheet-keep-original-label" class="keep-original-toggle" title="By default the original file is kept only when it is a carrier rate sheet; customer quote-request screenshots are parsed then discarded. Tick this to always keep the original.">
+            <input id="sheet-keep-original" type="checkbox" />
+            <span>📌 Always keep original</span>
+          </label>
           <div id="sheet-status" class="status-inline"></div>
         </div>
 

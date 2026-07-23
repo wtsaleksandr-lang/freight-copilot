@@ -287,6 +287,12 @@ export const sheetUploads = pgTable('sheet_uploads', {
   exportDeclarationFee: doublePrecision('export_declaration_fee').notNull().default(0),
   /** Whatever JSON the original parse_sheet endpoint returned (keep for replay). */
   rawResultsJson: jsonb('raw_results_json').$type<unknown>(),
+  /** AI classification of the dropped file: rate_sheet | quote_request | other. */
+  documentType: text('document_type'),
+  /** Storage key of the kept ORIGINAL file, or null when it was discarded. */
+  keptStorageKey: text('kept_storage_key'),
+  /** Backend the kept original lives in: 'r2' | 'disk' (null when discarded). */
+  keptBackend: text('kept_backend'),
   createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
     .defaultNow(),

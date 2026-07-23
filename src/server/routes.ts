@@ -64,6 +64,12 @@ import {
   type RateSheetMediaType,
 } from '../llm/parseRateSheet.js';
 import {
+  storeKeptFile,
+  readKeptFile,
+  isDurableStorageConfigured,
+  type StoredKeptFile,
+} from './keptFileStore.js';
+import {
   saveSheetUpload,
   updateSheetUploadEmail,
   searchSheetUploads,
@@ -1299,6 +1305,8 @@ export function registerApiRoutes(app: Express): void {
         contentBase64: string;
         mediaType: RateSheetMediaType;
       }>;
+      /** When true, keep the ORIGINAL file even if it isn't classified a rate sheet. */
+      keepOriginal?: boolean;
     };
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
@@ -1306,56 +1314,65 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
 
-    // Group all files in this submission under one refId folder for audit.
+    // Group all files in this submission under one refId (used as the storage
+    // folder / object-key prefix). We no longer eagerly write every dropped
+    // file to disk — throwaway inputs are parsed then discarded (see below).
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
     const refId = `RS-${date}-${rand}`;
     const outDir = resolve('./parsed-sheets', refId);
-    const { mkdir, writeFile } = await import('node:fs/promises');
-    await mkdir(outDir, { recursive: true });
 
     const results: Array<{
       filename: string;
       ok: boolean;
       reason?: string;
       parsed?: import('../llm/parseRateSheet.js').RateSheetResult;
-      artifacts?: { source: string; parsed: string };
+      documentType?: string;
+      /** null = intentionally discarded (throwaway input). */
+      kept?: StoredKeptFile | null;
     }> = [];
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i]!;
       const filename = f.filename ?? `sheet-${i + 1}`;
-      const safe = filename.replace(/[^a-z0-9._-]/gi, '_');
-      const ext =
-        f.mediaType === 'application/pdf'
-          ? 'pdf'
-          : f.mediaType.split('/')[1] ?? 'bin';
-      const sourcePath = resolve(outDir, `${i + 1}-${safe}`);
-      const parsedPath = resolve(outDir, `${i + 1}-${safe}.parsed.json`);
       try {
-        await writeFile(sourcePath, Buffer.from(f.contentBase64, 'base64'));
         const parsed = await parseRateSheet({
           fileBase64: f.contentBase64,
           mediaType: f.mediaType,
           filename,
         });
-        await writeFile(parsedPath, JSON.stringify(parsed, null, 2));
+        // Storage optimization: keep the ORIGINAL only when it's worth keeping
+        // — a real rate sheet, or the user explicitly asked to keep it. A
+        // customer quote-request screenshot / misc image is parsed for its
+        // data and then discarded (never persisted), so storage stays lean.
+        const shouldKeep =
+          body.keepOriginal === true || parsed.document_type === 'rate_sheet';
+        let kept: StoredKeptFile | null = null;
+        if (shouldKeep) {
+          kept = await storeKeptFile({
+            refId,
+            index: i,
+            filename,
+            bytes: Buffer.from(f.contentBase64, 'base64'),
+            contentType: f.mediaType,
+          });
+        } else {
+          console.log(
+            `[api/rates/parse-sheet] discarded original "${filename}" (document_type=${parsed.document_type})`
+          );
+        }
         results.push({
           filename,
           ok: true,
           parsed,
-          artifacts: {
-            source: `/parsed-sheets-files/${refId}/${i + 1}-${safe}`,
-            parsed: `/parsed-sheets-files/${refId}/${i + 1}-${safe}.parsed.json`,
-          },
+          documentType: parsed.document_type,
+          kept,
         });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         console.error(`[api/rates/parse-sheet] ${filename}:`, reason);
         results.push({ filename, ok: false, reason });
       }
-      // Suppress unused-var warning when ext isn't read
-      void ext;
     }
 
     // Persist parsed-sheet results so the user can search past quotes by
@@ -1363,24 +1380,59 @@ export function registerApiRoutes(app: Express): void {
     // shouldn't fail the parse response.
     try {
       const okFiles = results
-        .filter((r) => r.ok && r.parsed && r.artifacts)
+        .filter((r) => r.ok && r.parsed)
         .map((r) => ({
           filename: r.filename,
           parsed: r.parsed!,
-          sourceUrl: r.artifacts!.source,
+          sourceUrl: r.kept?.servedUrl ?? null,
         }));
       const ratesForDb = ratesFromParsedResults(okFiles);
+      const firstKept = results.find((r) => r.kept)?.kept ?? null;
+      const primaryType =
+        results.find((r) => r.ok && r.documentType)?.documentType ?? null;
       await saveSheetUpload({
         refId,
         outputFolder: outDir,
         rows: ratesForDb,
         rawResults: { refId, outputFolder: outDir, results },
+        documentType: primaryType,
+        keptStorageKey: firstKept?.key ?? null,
+        keptBackend: firstKept?.backend ?? null,
       });
     } catch (err) {
       console.error('[api/rates/parse-sheet] persist error:', err);
     }
 
-    res.json({ refId, outputFolder: outDir, results });
+    res.json({
+      refId,
+      outputFolder: outDir,
+      durableStorage: isDurableStorageConfigured(),
+      results,
+    });
+  });
+
+  // Serve-back for kept ORIGINAL files stored in R2 (behind the app's auth).
+  // Disk-backed kept files are served by the existing /parsed-sheets-files
+  // static mount; this route handles the durable R2 backend.
+  app.get('/api/kept-file', async (req: Request, res: Response) => {
+    const key = typeof req.query.key === 'string' ? req.query.key : '';
+    if (!key) {
+      res.status(400).json({ error: 'missing key' });
+      return;
+    }
+    try {
+      const file = await readKeptFile(key);
+      if (!file) {
+        res.status(404).json({ error: 'not found' });
+        return;
+      }
+      res.setHeader('Content-Type', file.contentType);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.send(file.bytes);
+    } catch (err) {
+      console.error('[api/kept-file] error:', err);
+      res.status(500).json({ error: 'read failed' });
+    }
   });
 
   // Search past parsed-sheet quotes by POL/POD substring.

@@ -859,6 +859,15 @@ label.check-line input[type="checkbox"] {
 }
 .sheet-dropzone:hover { border-color: #58a6ff; background: rgba(88,166,255,0.04); }
 .sheet-dropzone.is-drag { border-color: #2ea043; background: rgba(46,160,67,0.08); }
+.keep-original-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--muted); cursor: pointer;
+  padding: 4px 8px; border-radius: 6px; user-select: none;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.keep-original-toggle:hover { color: var(--text); background: rgba(88,166,255,0.08); }
+.keep-original-toggle input { cursor: pointer; margin: 0; }
+.keep-original-toggle:has(input:checked) { color: var(--text); }
 .sheet-drop-prompt {
   display: flex;
   flex-direction: column;

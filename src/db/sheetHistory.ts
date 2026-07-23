@@ -33,6 +33,9 @@ export interface SheetUploadInput {
   rawResults: unknown;
   markupPct?: number;
   markupFlat?: number;
+  documentType?: string | null;
+  keptStorageKey?: string | null;
+  keptBackend?: string | null;
 }
 
 function searchKeyFor(r: SheetUploadRowInput): string {
@@ -57,6 +60,9 @@ export async function saveSheetUpload(
       addExportDeclaration: false,
       exportDeclarationFee: 0,
       rawResultsJson: input.rawResults,
+      documentType: input.documentType ?? null,
+      keptStorageKey: input.keptStorageKey ?? null,
+      keptBackend: input.keptBackend ?? null,
     })
     .returning({ id: sheetUploads.id });
   if (!upload) throw new Error('Failed to insert sheet_uploads row');
@@ -263,7 +269,7 @@ export function ratesFromParsedResults(
   files: Array<{
     filename: string;
     parsed: RateSheetResult;
-    sourceUrl: string;
+    sourceUrl: string | null;
   }>
 ): SheetUploadRowInput[] {
   const rows: SheetUploadRowInput[] = [];
