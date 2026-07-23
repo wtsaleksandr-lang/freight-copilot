@@ -173,7 +173,12 @@
     Array.from(table.querySelectorAll('thead tr:first-child th')).forEach((th) => {
       if (th.dataset.gridEnhanced === '1') return;
       th.dataset.gridEnhanced = '1';
-      th.draggable = th.dataset.gridKey !== '__actions';
+      // Headers are NOT draggable: grabbing a header should PAN the table (the
+      // natural instinct on a wide grid), not reorder the column. Native
+      // header-drag reorder was also what fed the colgroup twitch loop. Column
+      // resizing still works via the resize handle; show/hide via the Columns
+      // menu. (Drag-reorder can return later as a menu control if wanted.)
+      th.draggable = false;
       th.addEventListener('dragstart', (event) => {
         event.dataTransfer?.setData('text/plain', th.dataset.gridKey || '');
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
