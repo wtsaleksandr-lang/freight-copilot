@@ -2,7 +2,7 @@
   'use strict';
 
   const PREF_KEY = 'loadmode.shipmentGrid.preferences.v1';
-  const DEFAULT_PREFS = { order: [], hidden: [], widths: {} };
+  const DEFAULT_PREFS = { order: [], hidden: [], widths: {}, freezeCol: null };
   const editableBlocked = new Set(['operationalStatus', 'refId', 'createdAt', 'cargo', 'soldRate', 'ourCost', 'profit']);
   const numericFields = new Set(['containerQuantity']);
 
@@ -13,6 +13,7 @@
         order: Array.isArray(parsed.order) ? parsed.order : [],
         hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
         widths: parsed.widths && typeof parsed.widths === 'object' ? parsed.widths : {},
+        freezeCol: typeof parsed.freezeCol === 'string' ? parsed.freezeCol : null,
       };
     } catch {
       return { ...DEFAULT_PREFS };
@@ -134,6 +135,51 @@
     }
   }
 
+  // ── Freeze / pin columns ─────────────────────────────────────────────────
+  // A single freeze boundary: pinning column N keeps columns 1..N fixed while
+  // the rest scroll horizontally. Offsets are MEASURED (not hard-coded) so
+  // resizing a frozen column keeps the boundary exact. position:sticky is
+  // forced with !important because the table's own rules otherwise win.
+  const PIN_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+
+  function applyFreeze() {
+    const table = getTable();
+    if (!table) return;
+    const headers = Array.from(table.querySelectorAll('thead tr:first-child th'));
+    // Clear any existing freeze.
+    table.querySelectorAll('.is-frozen-col').forEach((el) => {
+      el.classList.remove('is-frozen-col', 'is-freeze-edge');
+      el.style.removeProperty('left');
+    });
+    const key = readPrefs().freezeCol;
+    const boundary = key ? headers.findIndex((th) => th.dataset.gridKey === key) : -1;
+    if (boundary >= 0) {
+      let cum = 0;
+      for (let i = 0; i <= boundary; i++) {
+        const w = headers[i].getBoundingClientRect().width;
+        table.querySelectorAll('tr').forEach((row) => {
+          const cell = row.children[i];
+          if (!cell) return;
+          cell.classList.add('is-frozen-col');
+          cell.style.setProperty('left', `${Math.round(cum)}px`, 'important');
+          if (i === boundary) cell.classList.add('is-freeze-edge');
+        });
+        cum += w;
+      }
+    }
+    headers.forEach((th) => {
+      const pin = th.querySelector('.ship-col-pin');
+      if (pin) pin.classList.toggle('is-active', th.dataset.gridKey === key && key != null);
+    });
+  }
+
+  function toggleFreeze(key) {
+    const prefs = readPrefs();
+    prefs.freezeCol = prefs.freezeCol === key ? null : key;
+    savePrefs(prefs);
+    applyFreeze();
+  }
+
   function applyPreferences() {
     const table = getTable();
     if (!table) return;
@@ -165,6 +211,7 @@
     });
     wireHeaders();
     wireCells();
+    applyFreeze();
   }
 
   function wireHeaders() {
@@ -205,6 +252,23 @@
       handle.setAttribute('aria-orientation', 'vertical');
       handle.setAttribute('aria-label', `Resize ${th.textContent?.trim() || 'column'}`);
       th.appendChild(handle);
+
+      // Freeze pin — click to keep this column + everything left of it fixed
+      // while the rest scrolls sideways. (Not on the trailing actions column.)
+      if (th.dataset.gridKey !== '__actions') {
+        const pin = document.createElement('button');
+        pin.type = 'button';
+        pin.className = 'ship-col-pin';
+        pin.title = 'Freeze columns up to here';
+        pin.setAttribute('aria-label', `Freeze columns up to ${th.textContent?.trim() || 'this column'}`);
+        pin.innerHTML = PIN_SVG;
+        pin.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleFreeze(th.dataset.gridKey);
+        });
+        th.appendChild(pin);
+      }
       handle.addEventListener('pointerdown', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -219,6 +283,8 @@
             const cell = row.children[index];
             if (cell) { cell.style.width = `${width}px`; cell.style.minWidth = `${width}px`; }
           });
+          // Resizing a frozen column shifts the freeze boundary — re-measure.
+          applyFreeze();
         };
         const finish = () => {
           document.removeEventListener('pointermove', move);
@@ -381,6 +447,7 @@
     if (!table) return setTimeout(start, 150);
     observer.observe(table, { childList: true, subtree: true });
     scheduleEnhance();
+    window.addEventListener('resize', applyFreeze);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
