@@ -27,6 +27,17 @@
       if (changed.length && changed.every((node) => node instanceof Element && node.classList.contains('shipment-column-resizer'))) return true;
     }
 
+    // Column reordering ALSO moves <col> nodes inside the <colgroup>
+    // (moveColumn, shipment-grid-enhancements-ui.js). The original guard only
+    // caught the TH/TD row moves above and missed this, so the enhancement
+    // observer reacted to its OWN colgroup reorder and re-ran the ordering pass
+    // forever — the header-drag "twitch" (hundreds of colgroup/th mutations, no
+    // scroll). Treat a colgroup that only moved <col> children as internal.
+    if (target instanceof Element && target.tagName === 'COLGROUP') {
+      const moved = [...record.addedNodes, ...record.removedNodes];
+      if (moved.length && moved.every((node) => node instanceof Element && node.tagName === 'COL')) return true;
+    }
+
     return false;
   }
 
