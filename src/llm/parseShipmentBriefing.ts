@@ -427,8 +427,24 @@ export async function parseShipmentBriefing(
     `[parseShipmentBriefing] Calling Claude with ${files.length} file(s)…`
   );
 
-  // First-pass extraction with the cheap primary model.
-  let parsedData = await callExtract(client, content, aiCfg.model, aiCfg.provider);
+  // First-pass extraction with the configured primary provider/model.
+  // Cross-provider safety net: if a non-Anthropic provider fails outright
+  // (e.g. Gemini 429/404/credits-depleted/dead-model), fall back to Anthropic
+  // so extraction still succeeds instead of surfacing a raw provider error to
+  // the user. Anthropic is the reliable, always-configured baseline here.
+  let parsedData: ShipmentBriefing;
+  try {
+    parsedData = await callExtract(client, content, aiCfg.model, aiCfg.provider);
+  } catch (primaryErr) {
+    if (aiCfg.provider === 'anthropic') throw primaryErr;
+    const anthKey = (await loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY;
+    if (!anthKey || anthKey === PLACEHOLDER_KEY) throw primaryErr;
+    console.warn(
+      `[parseShipmentBriefing] ${aiCfg.provider} failed (${primaryErr instanceof Error ? primaryErr.message.slice(0, 140) : String(primaryErr)}); falling back to Anthropic`
+    );
+    const anthClient = new Anthropic({ apiKey: anthKey });
+    parsedData = await callExtract(anthClient, content, 'claude-haiku-4-5-20251001', 'anthropic');
+  }
 
   // Audit math + quantity consistency. On discrepancy, retry — and
   // when fallback is enabled, the retry uses the STRONGER model so
