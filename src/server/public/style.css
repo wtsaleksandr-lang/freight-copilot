@@ -3232,3 +3232,17 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
   cursor: pointer;
 }
 .date-clear-btn:hover { background: #e2e8f0; }
+
+/* ── Shipment grid: autosuggest editor (ports + pickup address) ──────────── */
+.grid-autosuggest { display: flex; gap: 8px; align-items: flex-start; width: 340px; }
+.grid-autosuggest .autosuggest-wrap { flex: 1; min-width: 0; }
+.grid-autosuggest .as-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card);
+}
+.grid-autosuggest .as-save-btn { padding: 8px 14px; border-radius: 8px; font-size: 12.5px; white-space: nowrap; }

@@ -5102,6 +5102,69 @@ function formatMoney(n, cur) {
     if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
   }
 
+  // ── Grid autosuggest editor (ports + pickup address) ─────────────────────
+  // A floating single-line editor that reuses the app's existing Autosuggest
+  // popover. Ports come from the bundled MAJOR_PORTS lookup (250 UN/LOCODE
+  // entries); the pickup address comes from the free OpenStreetMap Nominatim
+  // geocoder (/api/data/geocode) — no API key, North-American results as typed.
+  function portSuggestFetch(q) {
+    const ports = (typeof LOOKUPS !== 'undefined' && LOOKUPS && LOOKUPS.ports) || [];
+    const lower = q.toLowerCase();
+    return ports
+      .filter((p) => p.name.toLowerCase().includes(lower) || p.code.toLowerCase().includes(lower) || p.country.toLowerCase().includes(lower))
+      .slice(0, 10)
+      .map((p) => ({ primary: p.name, secondary: `${p.code} · ${p.country}`, data: p }));
+  }
+  function openGridAutosuggest(td, refId, field, currentValue, cfg) {
+    closeFloatingEditor();
+    const box = document.createElement('div');
+    box.className = 'grid-autosuggest floating-cell-editor';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'as-input';
+    input.value = currentValue || '';
+    input.placeholder = cfg.placeholder || 'Type to search…';
+    input.autocomplete = 'off';
+    box.appendChild(input);
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'primary as-save-btn';
+    saveBtn.textContent = 'Save';
+    box.appendChild(saveBtn);
+    document.body.appendChild(box);
+    positionFloating(box, td);
+    // Attach the shared Autosuggest popover to the input.
+    try {
+      new Autosuggest(input, cfg.fetchFn, (item) => { input.value = cfg.pickValue(item); }, {
+        minChars: cfg.minChars ?? 2,
+        debounceMs: cfg.debounceMs ?? 220,
+      });
+    } catch (_) { /* Autosuggest optional — plain input still works */ }
+    async function commit() {
+      const value = (input.value || '').trim() || null;
+      closeFloatingEditor();
+      try {
+        await patchField(refId, field, value);
+        td.textContent = value ? truncate(value, cfg.truncate || 40) : '';
+        td.classList.toggle('cell-empty', !value);
+        td.classList.add('is-saved');
+        setTimeout(() => td.classList.remove('is-saved'), 1000);
+        const ref = (allRows || []).find((r) => r.refId === refId);
+        if (ref) ref[field] = value;
+      } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+    }
+    saveBtn.addEventListener('click', commit);
+    input.addEventListener('keydown', (e) => {
+      // A highlighted suggestion is consumed by Autosuggest (it fills the
+      // input); on the next tick we commit whatever is now in the field. Plain
+      // Enter with no suggestion commits the typed value directly.
+      if (e.key === 'Enter') setTimeout(() => { if (floatingEditor === box) commit(); }, 0);
+    });
+    installFloatingDismiss(box);
+    input.focus();
+    input.select();
+  }
+
   // ── Frosted "peek" popup for truncated cells ──────────────────────────────
   // When a cell's content is clipped by a narrow column, hovering shows the
   // full value in a premium frosted popup just above the cell. It appears and
@@ -5241,6 +5304,18 @@ function formatMoney(n, cur) {
       // Profit cell is read-only; nothing to wire.
       if (kind === 'profit') return;
 
+      // Pickup address → autosuggest via free OSM (Nominatim /api/data/geocode)
+      if (field === 'loadingAddress') {
+        onActivate(td, () => openGridAutosuggest(td, refId, 'loadingAddress', row.loadingAddress || '', {
+          placeholder: 'Search pickup address…',
+          minChars: 3,
+          truncate: 35,
+          fetchFn: (q) => (typeof geocodeFetch === 'function' ? geocodeFetch(q) : Promise.resolve([])),
+          pickValue: (item) => item.primary,
+        }));
+        return;
+      }
+
       // Notes / Cargo / short-modal → double-click OR long-press opens editor
       if (kind === 'notes-modal' || kind === 'cargo-modal' || kind === 'short-modal') {
         onActivate(td, () => {
@@ -5278,6 +5353,18 @@ function formatMoney(n, cur) {
       // Shipment Type → double-click / long-press opens dropdown
       if (kind === 'shipment-type') {
         onActivate(td, () => openShipmentTypePicker(td, refId, row.shipmentType || ''));
+        return;
+      }
+
+      // Ports / terminals (FPOL / POL / POD) → autosuggest from MAJOR_PORTS
+      if (field === 'fpol' || field === 'pol' || field === 'pod') {
+        onActivate(td, () => openGridAutosuggest(td, refId, field, row[field] || '', {
+          placeholder: 'Search port / terminal…',
+          minChars: 1,
+          truncate: 28,
+          fetchFn: (q) => portSuggestFetch(q),
+          pickValue: (item) => item.primary,
+        }));
         return;
       }
 
