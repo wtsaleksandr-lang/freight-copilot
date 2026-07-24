@@ -955,6 +955,12 @@ label.check-line input[type="checkbox"] {
 .keep-original-toggle:hover { color: var(--text); background: rgba(88,166,255,0.08); }
 .keep-original-toggle input { cursor: pointer; margin: 0; }
 .keep-original-toggle:has(input:checked) { color: var(--text); }
+.ship-import-preview { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 12px; }
+.ship-import-head { font-size: 13px; color: var(--ink-soft); margin-bottom: 8px; }
+.ship-import-table-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.ship-import-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ship-import-table th { position: sticky; top: 0; background: #f1f5f9; color: var(--ink-soft); text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ship-import-table td { padding: 6px 9px; border-bottom: 1px solid var(--border); color: var(--ink); white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .sheet-drop-prompt {
   display: flex;
   flex-direction: column;

@@ -85,6 +85,10 @@ import {
   getShipment,
 } from '../db/shipmentBoard.js';
 import {
+  parseShipmentSheet,
+  type ShipmentSheetMediaType,
+} from '../llm/parseShipmentSheet.js';
+import {
   parseShipmentBriefing,
   detectMediaType,
   isMsgFile,
@@ -1682,6 +1686,120 @@ export function registerApiRoutes(app: Express): void {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+  );
+
+  // ---- Bulk import from a company tracking sheet (CSV / PDF / screenshot) ----
+  // Map the AI's snake_case row → the shipment-board patch (camelCase).
+  const toShipmentPatch = (
+    row: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const s = (k: string): string | null => {
+      const v = row[k];
+      return v == null || v === '' ? null : String(v);
+    };
+    const n = (k: string): number | null => {
+      const v = row[k];
+      if (typeof v === 'number') return Math.trunc(v);
+      if (v != null && v !== '' && Number.isFinite(Number(v))) return Math.trunc(Number(v));
+      return null;
+    };
+    return {
+      refId: s('ref_id'),
+      operationalStatus: s('operational_status'),
+      bookingRef: s('booking_ref'),
+      customerName: s('customer_name'),
+      shipperName: s('shipper_name'),
+      receiverName: s('receiver_name'),
+      fpol: s('fpol'),
+      pol: s('pol'),
+      pod: s('pod'),
+      carrierPreference: s('carrier_preference'),
+      containerType: s('container_type'),
+      containerQuantity: n('container_quantity'),
+      cutOffDate: s('cut_off_date'),
+      siDate: s('si_date'),
+      seaAirCargo: s('sea_air_cargo'),
+      vgm: s('vgm'),
+      draftDate: s('draft_date'),
+      loadingDate: s('loading_date'),
+      trucker: s('trucker'),
+      etd: s('etd'),
+      eta: s('eta'),
+      bolType: s('bol_type'),
+      quoteRef: s('quote_ref'),
+      aes: s('aes'),
+      notes: s('notes'),
+    };
+  };
+
+  /** Parse an uploaded sheet into shipment rows (preview — creates nothing). */
+  app.post(
+    '/api/shipments/import-preview',
+    async (req: Request, res: Response) => {
+      const body = (req.body ?? {}) as {
+        file?: { filename?: string; mediaType?: string; fileBase64?: string };
+      };
+      const f = body.file;
+      if (!f?.fileBase64) {
+        res.status(400).json({ error: 'Provide a file (fileBase64 + mediaType).' });
+        return;
+      }
+      try {
+        const { shipments } = await parseShipmentSheet({
+          fileBase64: f.fileBase64,
+          mediaType: (f.mediaType ?? 'text/csv') as ShipmentSheetMediaType,
+          filename: f.filename,
+        });
+        res.json({ shipments, count: shipments.length });
+      } catch (err) {
+        console.error('[api/shipments/import-preview] error:', err);
+        res.status(422).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  /** Commit reviewed import rows — upsert by ref (create new, update existing). */
+  app.post(
+    '/api/shipments/import-commit',
+    async (req: Request, res: Response) => {
+      const body = (req.body ?? {}) as {
+        shipments?: Array<Record<string, unknown>>;
+      };
+      const rows = Array.isArray(body.shipments) ? body.shipments : [];
+      if (rows.length === 0) {
+        res.status(400).json({ error: 'No shipments to import.' });
+        return;
+      }
+      let created = 0;
+      let updated = 0;
+      const errors: Array<{ refId: string; error: string }> = [];
+      for (const row of rows) {
+        const patch = toShipmentPatch(row);
+        const refId = String(patch.refId ?? '').trim();
+        if (!refId) {
+          errors.push({ refId: '(missing)', error: 'Row has no ref number' });
+          continue;
+        }
+        try {
+          const existing = await getShipment(refId);
+          if (existing) {
+            await updateShipment(refId, patch as Parameters<typeof updateShipment>[1]);
+            updated++;
+          } else {
+            await createShipment(patch as Parameters<typeof createShipment>[0]);
+            created++;
+          }
+        } catch (err) {
+          errors.push({
+            refId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      res.json({ created, updated, errors, total: rows.length });
     }
   );
 

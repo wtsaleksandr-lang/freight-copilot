@@ -894,7 +894,7 @@
     <section id="tab-shipments" class="tab-pane">
       <div class="card">
         <h2>Shipment board <span class="muted-inline">— booked &amp; in-progress</span></h2>
-        <p class="muted">Drop email screenshots, PDFs, or booking briefings — Claude reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit. Reference numbers (<code>S00001</code>, <code>S00002</code>…) are auto-allocated.</p>
+        <p class="muted">Drop email screenshots, PDFs, or booking briefings — Claude reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit, ref included. <strong>Ref numbers are yours</strong> (your File# / typed in) — LoadMode never assigns them. Bulk-load a whole tracking sheet with <strong>Import tracking sheet</strong>.</p>
 
         <div id="ship-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -908,12 +908,15 @@
         <div class="row" style="gap: 12px; flex-wrap: wrap;">
           <button id="ship-parse-btn" class="primary" disabled>Extract &amp; create shipment</button>
           <button id="ship-add-blank-btn" class="btn-sm">+ Add blank row</button>
+          <button id="ship-import-btn" class="btn-sm" title="Bulk-import a full tracking sheet (CSV / PDF / screenshot)">📄 Import tracking sheet</button>
+          <input id="ship-import-file" type="file" accept=".csv,text/csv,application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp" hidden />
           <label class="ship-ephemeral-toggle">
             <input type="checkbox" id="ship-ephemeral" />
             <span>Don't save these files (extract only)</span>
           </label>
           <div id="ship-status" class="status-inline"></div>
         </div>
+        <div id="ship-import-preview" class="ship-import-preview" hidden></div>
       </div>
 
       <div class="card">

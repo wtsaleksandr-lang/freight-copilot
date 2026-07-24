@@ -4371,6 +4371,103 @@ function formatMoney(n, cur) {
   refreshBtn?.addEventListener('click', loadList);
   // Reload after an inline ref rename (the row's identity changes).
   document.addEventListener('shipments-reload', loadList);
+
+  // --- Bulk import a whole tracking sheet (CSV / PDF / screenshot) ---
+  const importBtn = document.getElementById('ship-import-btn');
+  const importFileInput = document.getElementById('ship-import-file');
+  const importPreview = document.getElementById('ship-import-preview');
+  const impEsc = (v) =>
+    String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  function fileToB64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  importBtn?.addEventListener('click', () => importFileInput?.click());
+  importFileInput?.addEventListener('change', async () => {
+    const file = importFileInput.files && importFileInput.files[0];
+    importFileInput.value = '';
+    if (!file) return;
+    if (importPreview) { importPreview.hidden = true; importPreview.innerHTML = ''; }
+    setStatus('ship-status', `Reading ${file.name}…`, 'info');
+    try {
+      const fileBase64 = await fileToB64(file);
+      const mediaType =
+        file.type ||
+        (file.name.toLowerCase().endsWith('.csv') ? 'text/csv' : 'application/octet-stream');
+      setStatus('ship-status', 'Claude is reading every row…', 'info');
+      const r = await fetch('/api/shipments/import-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: { filename: file.name, mediaType, fileBase64 } }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'import parse failed');
+      renderImportPreview(data.shipments || []);
+    } catch (err) {
+      setStatus('ship-status', 'Import failed: ' + err.message, 'error');
+    }
+  });
+
+  function renderImportPreview(rows) {
+    if (!importPreview) return;
+    if (!rows.length) {
+      setStatus('ship-status', 'No shipment rows found in that file.', 'error');
+      return;
+    }
+    setStatus('ship-status', `${rows.length} row(s) parsed — review, then confirm.`, 'success');
+    const head = ['Ref', 'Status', 'Client', 'Shipper', 'POD', 'Cntr', 'Qty', 'Booking', 'ETD', 'ETA'];
+    const body = rows
+      .map(
+        (s) =>
+          `<tr><td>${impEsc(s.ref_id)}</td><td>${impEsc(s.operational_status)}</td><td>${impEsc(s.customer_name)}</td><td>${impEsc(s.shipper_name)}</td><td>${impEsc(s.pod)}</td><td>${impEsc(s.container_type)}</td><td>${impEsc(s.container_quantity)}</td><td>${impEsc(s.booking_ref)}</td><td>${impEsc(s.etd)}</td><td>${impEsc(s.eta)}</td></tr>`
+      )
+      .join('');
+    importPreview.innerHTML = `
+      <div class="ship-import-head"><strong>${rows.length} shipment(s) from your sheet.</strong> Refs come from your File# column — existing refs are updated, new ones created.</div>
+      <div class="ship-import-table-wrap"><table class="ship-import-table"><thead><tr>${head
+        .map((h) => `<th>${h}</th>`)
+        .join('')}</tr></thead><tbody>${body}</tbody></table></div>
+      <div class="row" style="gap:10px;margin-top:10px">
+        <button id="ship-import-commit" class="primary">Create / update ${rows.length} shipment(s)</button>
+        <button id="ship-import-cancel" class="btn-sm">Cancel</button>
+      </div>`;
+    importPreview.hidden = false;
+    document.getElementById('ship-import-cancel')?.addEventListener('click', () => {
+      importPreview.hidden = true;
+      importPreview.innerHTML = '';
+      setStatus('ship-status', 'Import cancelled.', 'info');
+    });
+    document.getElementById('ship-import-commit')?.addEventListener('click', async () => {
+      const btn = document.getElementById('ship-import-commit');
+      if (btn) btn.disabled = true;
+      setStatus('ship-status', 'Creating shipments…', 'info');
+      try {
+        const r = await fetch('/api/shipments/import-commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shipments: rows }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'import failed');
+        const errCount = (data.errors || []).length;
+        setStatus(
+          'ship-status',
+          `Imported: ${data.created} created, ${data.updated} updated${errCount ? ` · ${errCount} skipped` : ''}.`,
+          errCount ? 'info' : 'success'
+        );
+        importPreview.hidden = true;
+        importPreview.innerHTML = '';
+        await loadList();
+      } catch (err) {
+        setStatus('ship-status', 'Import failed: ' + err.message, 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
   let searchTimer = null;
   searchInput?.addEventListener('input', () => {
     if (searchTimer) clearTimeout(searchTimer);
