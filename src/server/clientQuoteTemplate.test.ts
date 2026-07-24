@@ -58,6 +58,22 @@ test('commercial notes can be omitted without changing rates', () => {
   assert.doesNotMatch(html, /Commercial review|Rate basis:/);
 });
 
+test('statutory charges pass through at cost; firm charges carry the markup', () => {
+  const html = buildClientQuoteHtml({
+    template: 'import_usa',
+    hiddenMarkupPct: 100, // doubles any marked-up amount, so the effect is unmistakable
+    services: [
+      { label: 'Import duty', amount: 1000, basis: '5%', category: 'statutory' },
+      { label: 'Brokerage', amount: 200, basis: 'per entry', category: 'firm' },
+    ],
+  });
+  // Duty is a government pass-through: shown at cost, never doubled.
+  assert.match(html, /USD 1,000\.00/);
+  assert.doesNotMatch(html, /USD 2,000\.00/);
+  // Brokerage is a service charge: 200 -> 400 with the 100% markup.
+  assert.match(html, /USD 400\.00/);
+});
+
 test('export clearance uses export wording instead of an import template', () => {
   const html = buildClientQuoteHtml({
     template: 'export_clearance',
