@@ -422,6 +422,22 @@ export const shipments = pgTable('shipments', {
       addedAt?: string;
     }>
   >(),
+  // --- Operational milestone dates + fields imported from the ops tracking
+  //     sheet. Dates are stored as free text (e.g. "Jul 10" / "2026-07-10")
+  //     to match how the tracking sheet records them. All nullable + hideable
+  //     via the grid's column show/hide (persisted per-browser). ---
+  cutOffDate: text('cut_off_date'),
+  siDate: text('si_date'),
+  seaAirCargo: text('sea_air_cargo'),
+  vgm: text('vgm'),
+  draftDate: text('draft_date'),
+  loadingDate: text('loading_date'),
+  trucker: text('trucker'),
+  etd: text('etd'),
+  eta: text('eta'),
+  bolType: text('bol_type'),
+  quoteRef: text('quote_ref'),
+  aes: text('aes'),
 });
 
 /**
