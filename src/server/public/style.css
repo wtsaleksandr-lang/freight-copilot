@@ -424,7 +424,7 @@ table.bd-mini tr.bd-total td {
 /* ---- Mobile (≤640px) ---- */
 @media (max-width: 640px) {
   header {
-    padding: 12px 16px;
+    padding: 12px 6px;
     gap: 12px;
     flex-wrap: wrap;
   }
@@ -438,11 +438,13 @@ table.bd-mini tr.bd-total td {
   .tab { padding: 5px 10px; font-size: 12.5px; flex-shrink: 0; }
 
   main {
-    padding: 0 12px;
+    padding: 0 1px;
     margin: 14px auto 32px;
     gap: 12px;
   }
-  .card { padding: 14px 14px; }
+  /* Shipments tab has its own wider-main rule (higher specificity); override it too. */
+  body:has(#tab-shipments.active) main { padding: 0 1px; }
+  .card { padding: 14px 8px; }
   .card h2 { font-size: 14px; }
 
   .grid {
