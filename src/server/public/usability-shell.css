@@ -1,8 +1,9 @@
 .legacy-nav-hidden{display:none!important}
 header.shell-active{flex-wrap:wrap;gap:12px 20px}
 .header-controls{margin-left:auto;display:flex;align-items:center;gap:10px;position:relative}
-.status-indicator{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;border:1px solid rgba(148,163,184,.34);background:#17233a;cursor:pointer;padding:0}
-.status-indicator:hover,.status-indicator:focus-visible{border-color:#38bdf8;background:#1e3a5f;outline:none;box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+.status-indicator{display:inline-flex;align-items:center;justify-content:center;width:26px;height:32px;border:0;background:none;cursor:pointer;padding:0}
+.status-indicator:hover .readiness-dot{transform:scale(1.18)}
+.status-indicator:focus-visible{outline:2px solid #38bdf8;outline-offset:3px;border-radius:50%}
 .hamburger-btn{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:38px;height:34px;border-radius:9px;border:1px solid rgba(148,163,184,.34);background:#17233a;cursor:pointer;padding:0}
 .hamburger-btn>span{display:block;width:18px;height:2px;border-radius:2px;background:#f8fafc}
 .hamburger-btn:hover,.hamburger-btn:focus-visible{border-color:#38bdf8;background:#1e3a5f;outline:none;box-shadow:0 0 0 3px rgba(56,189,248,.18)}
@@ -13,11 +14,11 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
 .simple-nav .simple-primary:hover,.simple-nav .simple-primary:focus-visible{background:linear-gradient(135deg,#67e8f9,#60a5fa)!important;color:#07111f!important;border-color:transparent!important}
 .simple-nav button.active{border-color:#38bdf8!important;background:#dbeafe!important;color:#0f172a!important;box-shadow:0 0 0 2px rgba(56,189,248,.18)!important}
 .simple-nav button.active:hover,.simple-nav button.active:focus-visible{background:#bfdbfe!important;color:#0f172a!important}
-.readiness-dot{width:10px;height:10px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 3px rgba(148,163,184,.15)}.status-indicator[data-state="ready"] .readiness-dot{background:#22c55e}.status-indicator[data-state="degraded"] .readiness-dot,.status-indicator[data-state="setup"] .readiness-dot{background:#f59e0b}.status-indicator[data-state="unavailable"] .readiness-dot{background:#ef4444}
+.readiness-dot{width:12px;height:12px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 3px rgba(148,163,184,.18);transition:transform .12s ease}.status-indicator[data-state="ready"] .readiness-dot{background:#22c55e}.status-indicator[data-state="degraded"] .readiness-dot,.status-indicator[data-state="setup"] .readiness-dot{background:#f59e0b}.status-indicator[data-state="unavailable"] .readiness-dot{background:#ef4444}
 .simple-more-wrap{position:relative}
-.simple-more-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:90;min-width:210px;padding:7px;border:1px solid rgba(148,163,184,.24);border-radius:11px;background:#0f1b30;color:#f8fafc;box-shadow:0 18px 45px rgba(0,0,0,.35)}
-.simple-more-menu button{display:block;width:100%;text-align:left;border:0!important;background:transparent!important;color:#f8fafc!important;padding:10px;border-radius:7px;cursor:pointer}
-.simple-more-menu button:hover,.simple-more-menu button:focus-visible{background:#1e3a5f!important;color:#fff!important;outline:2px solid #38bdf8!important;outline-offset:-2px}
+.simple-more-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:90;min-width:214px;padding:7px;border:1px solid var(--border);border-radius:11px;background:var(--card);color:var(--ink);box-shadow:0 18px 45px rgba(15,23,42,.18)}
+.simple-more-menu button{display:block;width:100%;text-align:left;border:0!important;background:transparent!important;color:var(--ink)!important;padding:10px;border-radius:7px;cursor:pointer;font-weight:600}
+.simple-more-menu button:hover,.simple-more-menu button:focus-visible{background:#f1f5f9!important;color:var(--ink)!important;outline:2px solid #38bdf8!important;outline-offset:-2px}
 .simple-dialog-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(2,6,23,.76);backdrop-filter:blur(5px)}
 .simple-dialog{width:min(680px,100%);border:1px solid rgba(148,163,184,.25);border-radius:16px;background:#0b1629;color:#f8fafc;padding:20px;box-shadow:0 24px 80px rgba(0,0,0,.5)}
 .simple-dialog-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}

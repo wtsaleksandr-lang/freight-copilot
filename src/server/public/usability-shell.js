@@ -165,7 +165,7 @@
     const controls = document.createElement('div');
     controls.className = 'header-controls';
     controls.innerHTML = `
-      <button type="button" class="status-indicator" data-action="system-check-primary" data-state="checking" aria-label="Feature readiness" title="Feature readiness"><span class="readiness-dot" aria-hidden="true"></span></button>
+      <button type="button" class="status-indicator" data-action="system-check-primary" data-state="checking" aria-label="System status" title="Checking system status…"><span class="readiness-dot" aria-hidden="true"></span></button>
       <div class="simple-more-wrap">
         <button type="button" class="hamburger-btn" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu" aria-label="Open menu"><span></span><span></span><span></span></button>
         <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
@@ -277,7 +277,12 @@
       const needsSetup = features.some((item) => item.state === 'setup_required' || item.state === 'unavailable');
       const state = detail.status === 'unavailable' ? 'unavailable' : detail.status === 'ready' && !needsSetup ? 'ready' : 'degraded';
       readinessButton.dataset.state = state;
-      readinessButton.title = state === 'ready' ? 'Core system and configured features are ready' : 'Some features need setup or attention';
+      const statusTitles = {
+        ready: 'System ready — core services and configured AI providers are working. Click for details.',
+        degraded: 'Attention needed — some features need setup or are degraded. Click for details.',
+        unavailable: 'Status unavailable — the readiness check could not be reached. Click for details.',
+      };
+      readinessButton.title = statusTitles[state] || 'Checking system status…';
     });
 
     const brand = header.querySelector('.brand');
