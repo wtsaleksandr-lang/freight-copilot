@@ -163,11 +163,13 @@
     nav.className = 'simple-nav';
     nav.setAttribute('aria-label', 'Primary');
     nav.innerHTML = `
+      <div class="simple-nav-scroll">
       <button type="button" class="simple-primary" data-simple-tab="shipments">Shipments</button>
       <button type="button" data-simple-tab="new">Ocean freight</button>
       <button type="button" data-simple-tab="drayage">Drayage</button>
       <button type="button" data-simple-tab="clearance">Customs clearance</button>
       <button type="button" class="readiness-button" data-action="system-check-primary" data-state="checking" aria-label="Open feature readiness"><span class="readiness-dot" aria-hidden="true"></span><span>Readiness</span></button>
+      </div>
       <div class="simple-more-wrap">
         <button type="button" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu">More</button>
         <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
