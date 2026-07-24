@@ -7709,10 +7709,10 @@ function esc(s) {
   const PRESETS = {
     default: {
       provider: 'gemini',
-      model: 'gemini-2.0-flash',
-      fallback: 'gemini-1.5-pro',
+      model: 'gemini-2.5-flash',
+      fallback: 'gemini-flash-latest',
       agent: 'claude-haiku-4-5-20251001',
-      label: 'Gemini Flash · Pro fallback · Haiku agent',
+      label: 'Gemini 2.5 Flash · latest fallback · Haiku agent',
     },
     power: {
       provider: 'anthropic',
@@ -7730,9 +7730,9 @@ function esc(s) {
       { value: 'claude-opus-4-7',           label: 'Claude Opus 4.7  ·  best quality' },
     ],
     gemini: [
-      { value: 'gemini-2.0-flash',  label: 'Gemini 2.0 Flash  ·  cheapest, vision-strong' },
-      { value: 'gemini-1.5-flash',  label: 'Gemini 1.5 Flash  ·  cheap, older' },
-      { value: 'gemini-1.5-pro',    label: 'Gemini 1.5 Pro  ·  highest Gemini quality' },
+      { value: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash  ·  fast, vision-strong' },
+      { value: 'gemini-flash-latest',    label: 'Gemini Flash (latest)  ·  always-current' },
+      { value: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite  ·  cheapest' },
     ],
   };
 
