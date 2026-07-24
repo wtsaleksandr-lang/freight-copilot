@@ -6,23 +6,14 @@ export type ShipmentRow = typeof shipments.$inferSelect;
 export type NewShipment = typeof shipments.$inferInsert;
 
 /**
- * Allocate the next available ref-id in the S00001 / S00002 format.
- * Pulls the current max counter (everything after the leading "S") and
- * adds one. Pads to 5 digits but allows growth past 99999 naturally.
+ * Draft placeholder ref for a manually-added blank row. LoadMode NEVER mints
+ * real ref numbers — a shipment's ref belongs to the company's own numbering
+ * system (S00043252, …). It comes from the import (the sheet's File# column)
+ * or is typed/edited inline by the user; a blank row starts with this obvious
+ * placeholder so the user can immediately replace it with the real number.
  */
-async function nextRefId(): Promise<string> {
-  const db = createDbClient();
-  const all = await db.select({ refId: shipments.refId }).from(shipments);
-  let max = 0;
-  for (const r of all) {
-    const m = /^S(\d+)$/i.exec(r.refId ?? '');
-    if (m) {
-      const n = parseInt(m[1]!, 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  const next = max + 1;
-  return 'S' + String(next).padStart(5, '0');
+function draftRef(): string {
+  return 'DRAFT-' + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
 export async function listShipments(
@@ -57,7 +48,9 @@ export async function createShipment(
   patch: Partial<NewShipment>
 ): Promise<ShipmentRow> {
   const db = createDbClient();
-  const refId = patch.refId ?? (await nextRefId());
+  // Never mint a company ref: use the caller-provided ref (import File# / typed),
+  // else a clearly-temporary DRAFT placeholder the user edits inline.
+  const refId = (patch.refId ?? '').trim() || draftRef();
   const now = new Date();
   const insert: NewShipment = {
     refId,
@@ -88,6 +81,18 @@ export async function createShipment(
     shipmentType: patch.shipmentType ?? null,
     operationalStatus: patch.operationalStatus ?? null,
     notes: patch.notes ?? null,
+    cutOffDate: patch.cutOffDate ?? null,
+    siDate: patch.siDate ?? null,
+    seaAirCargo: patch.seaAirCargo ?? null,
+    vgm: patch.vgm ?? null,
+    draftDate: patch.draftDate ?? null,
+    loadingDate: patch.loadingDate ?? null,
+    trucker: patch.trucker ?? null,
+    etd: patch.etd ?? null,
+    eta: patch.eta ?? null,
+    bolType: patch.bolType ?? null,
+    quoteRef: patch.quoteRef ?? null,
+    aes: patch.aes ?? null,
     artifactsJson: patch.artifactsJson ?? null,
   };
   const [row] = await db.insert(shipments).values(insert).returning();
@@ -119,6 +124,18 @@ const EDITABLE_FIELDS = new Set<keyof ShipmentRow>([
   'shipmentType',
   'operationalStatus',
   'notes',
+  'cutOffDate',
+  'siDate',
+  'seaAirCargo',
+  'vgm',
+  'draftDate',
+  'loadingDate',
+  'trucker',
+  'etd',
+  'eta',
+  'bolType',
+  'quoteRef',
+  'aes',
 ]);
 
 export async function updateShipment(
@@ -141,6 +158,42 @@ export async function updateShipment(
     .where(eq(shipments.refId, refId))
     .returning();
   return row ?? null;
+}
+
+/**
+ * Rename a shipment's ref (the company's S-number). Used by inline editing of
+ * the Ref cell and to replace a blank row's DRAFT placeholder. LoadMode does
+ * not mint refs, so the user owns this value. Rejects empty / duplicate refs.
+ * A ref that already has child rows (ops/follow-ups) can't be renamed here
+ * (FK) — surfaced as a clear error rather than a crash.
+ */
+export async function renameRefId(
+  oldRefId: string,
+  newRefId: string
+): Promise<{ ok: true; row: ShipmentRow } | { ok: false; error: string }> {
+  const next = (newRefId ?? '').trim();
+  if (!next) return { ok: false, error: 'Ref cannot be empty.' };
+  if (next === oldRefId) {
+    const row = await getShipment(oldRefId);
+    return row ? { ok: true, row } : { ok: false, error: 'Shipment not found.' };
+  }
+  const existing = await getShipment(next);
+  if (existing) return { ok: false, error: `Ref "${next}" already exists.` };
+  const db = createDbClient();
+  try {
+    const [row] = await db
+      .update(shipments)
+      .set({ refId: next, updatedAt: new Date() })
+      .where(eq(shipments.refId, oldRefId))
+      .returning();
+    return row ? { ok: true, row } : { ok: false, error: 'Shipment not found.' };
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Cannot change this ref — it already has tracking or follow-up records attached.',
+    };
+  }
 }
 
 export async function getShipment(

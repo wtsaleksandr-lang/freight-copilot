@@ -3,7 +3,7 @@
 
   const PREF_KEY = 'loadmode.shipmentGrid.preferences.v1';
   const DEFAULT_PREFS = { order: [], hidden: [], widths: {}, freezeCol: null, density: 'comfortable' };
-  const editableBlocked = new Set(['operationalStatus', 'refId', 'createdAt', 'cargo', 'soldRate', 'ourCost', 'profit']);
+  const editableBlocked = new Set(['operationalStatus', 'createdAt', 'cargo', 'soldRate', 'ourCost', 'profit']);
   const numericFields = new Set(['containerQuantity']);
 
   function readPrefs() {

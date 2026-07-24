@@ -80,6 +80,7 @@ import {
   listShipments,
   createShipment,
   updateShipment,
+  renameRefId,
   deleteShipment,
   getShipment,
 } from '../db/shipmentBoard.js';
@@ -1656,6 +1657,33 @@ export function registerApiRoutes(app: Express): void {
       });
     }
   });
+
+  /** Rename a shipment's ref (the company S-number). LoadMode never mints refs;
+   *  this replaces a blank row's DRAFT placeholder or corrects a typed ref. */
+  app.patch(
+    '/api/shipments/:refId/rename',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const oldRef = Array.isArray(rawId) ? rawId[0] : rawId;
+      const body = (req.body ?? {}) as { newRefId?: string };
+      if (!oldRef) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      try {
+        const result = await renameRefId(oldRef, String(body.newRefId ?? ''));
+        if (!result.ok) {
+          res.status(400).json({ error: result.error });
+          return;
+        }
+        res.json(result.row);
+      } catch (err) {
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
 
   /**
    * Drop-on-row update: AI-extract from a file dropped onto an existing

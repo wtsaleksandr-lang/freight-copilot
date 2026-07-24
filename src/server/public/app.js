@@ -4000,7 +4000,7 @@ function statusFor(value) {
 const SHIP_COLS = [
   // Status — colored dot, hover label, double-click to change.
   { key: 'operationalStatus', label: 'Status', editable: true, kind: 'status', cls: 'track-cell' },
-  { key: 'refId', label: 'Ref', editable: false, cls: 'ref-cell' },
+  { key: 'refId', label: 'Ref', editable: true, cls: 'ref-cell' },
   { key: 'createdAt', label: 'Created', editable: false, cls: 'when-cell' },
   { key: 'shipperName', label: 'Shipper', editable: true },
   { key: 'receiverName', label: 'Receiver', editable: true },
@@ -4028,6 +4028,20 @@ const SHIP_COLS = [
   { key: 'carrierPreference', label: 'Carrier', editable: true },
   // Booking Ref — carrier's booking number (separate from our internal ref).
   { key: 'bookingRef', label: 'Book#', editable: true },
+  // --- Operational tracking columns (imported from the company sheet).
+  //     Hide any you don't want via the Columns menu; the choice persists. ---
+  { key: 'cutOffDate', label: 'Cut-off', editable: true },
+  { key: 'siDate', label: 'SI', editable: true },
+  { key: 'seaAirCargo', label: 'Sea-Air', editable: true },
+  { key: 'vgm', label: 'VGM', editable: true },
+  { key: 'draftDate', label: 'Draft', editable: true },
+  { key: 'loadingDate', label: 'Loading', editable: true },
+  { key: 'etd', label: 'ETD', editable: true },
+  { key: 'eta', label: 'ETA', editable: true },
+  { key: 'trucker', label: 'Trucker', editable: true },
+  { key: 'bolType', label: 'BOL', editable: true },
+  { key: 'quoteRef', label: 'Quote#', editable: true },
+  { key: 'aes', label: 'AES', editable: true },
   { key: 'notes', label: 'Notes', editable: true, kind: 'notes-modal' },
 ];
 
@@ -4347,7 +4361,7 @@ function formatMoney(n, cur) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'create failed');
-      setStatus('ship-status', `Created ${data.refId} — start filling.`, 'success');
+      setStatus('ship-status', `Blank row added (${data.refId}) — click the Ref cell to set your S-number.`, 'success');
       await loadList();
     } catch (err) {
       setStatus('ship-status', err.message, 'error');
@@ -4355,6 +4369,8 @@ function formatMoney(n, cur) {
   });
 
   refreshBtn?.addEventListener('click', loadList);
+  // Reload after an inline ref rename (the row's identity changes).
+  document.addEventListener('shipments-reload', loadList);
   let searchTimer = null;
   searchInput?.addEventListener('input', () => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -4894,6 +4910,23 @@ function formatMoney(n, cur) {
   }
 
   async function patchField(refId, field, value) {
+    // The ref (company S-number) is renamed via a dedicated endpoint — LoadMode
+    // never mints refs, and changing it must stay unique + FK-safe. After a
+    // rename the row's identity changes, so reload the grid to stay consistent.
+    if (field === 'refId') {
+      const r = await fetch(
+        `/api/shipments/${encodeURIComponent(refId)}/rename`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newRefId: value }),
+        }
+      );
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'rename failed');
+      document.dispatchEvent(new CustomEvent('shipments-reload'));
+      return data;
+    }
     const r = await fetch(`/api/shipments/${encodeURIComponent(refId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
