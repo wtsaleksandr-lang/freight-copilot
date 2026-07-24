@@ -21,19 +21,57 @@
     return true;
   }
 
-  function clearanceServices(kind) {
-    if (kind === 'export') {
+  // ── Customs clearance workspace ───────────────────────────────────────────
+  // A self-contained inline calculator: movement type drives the template AND
+  // which statutory fees apply, duty + government fees are computed from the
+  // commercial value and rates, service charges are structured rows, and the
+  // whole quote is previewed / exported from the page (no modal). Government
+  // pass-throughs (duty, MPF/HMF, GST/HST) are never marked up; only the firm /
+  // conditional service charges carry the hidden markup.
+  const CLR_STAT = {
+    mpfPct: 0.3464, mpfMin: 32.71, mpfMax: 634.62, // US CBP Merchandise Processing Fee (formal entry)
+    hmfPct: 0.125, // US Harbor Maintenance Fee (ocean imports)
+    gstPct: 5, // Canada federal GST (HST varies by province — override the rate field)
+  };
+  const CLR_ROUND = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const CLR_USD = (n) => 'USD ' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const CLR_NUM = (v) => {
+    const n = Number(String(v ?? '').replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  function clearanceDefaultLines(template) {
+    if (template === 'export_clearance') {
       return [
-        { label: 'Export customs declaration / filing', amount: null, basis: 'per shipment', category: 'firm' },
-        { label: 'Document handling', amount: null, basis: 'per shipment', category: 'firm' },
-        { label: 'Permit, inspection or examination charges', amount: null, basis: 'if applicable', category: 'conditional' },
+        { label: 'Export customs declaration / filing', amount: '', basis: 'per shipment', category: 'firm' },
+        { label: 'Document handling', amount: '', basis: 'per shipment', category: 'firm' },
+        { label: 'Permit / inspection / examination', amount: '', basis: 'if applicable', category: 'conditional' },
       ];
     }
     return [
-      { label: 'Customs clearance / entry', amount: null, basis: 'per entry', category: 'firm' },
-      { label: 'Brokerage and document handling', amount: null, basis: 'per shipment', category: 'firm' },
-      { label: 'Bond, permit or examination charges', amount: null, basis: 'if applicable', category: 'conditional' },
+      { label: 'Customs clearance / entry', amount: '', basis: 'per entry', category: 'firm' },
+      { label: 'Brokerage & document handling', amount: '', basis: 'per shipment', category: 'firm' },
+      { label: 'Bond / permit / examination', amount: '', basis: 'if applicable', category: 'conditional' },
     ];
+  }
+
+  // Formulaic government charges. Duty from the entered rate; US adds MPF + HMF,
+  // Canada adds GST/HST on (value + duty); export carries none.
+  function clearanceStatutory(template, value, dutyPct, gstPct) {
+    const items = [];
+    const v = CLR_NUM(value);
+    if (template === 'export_clearance' || v <= 0) return items;
+    const duty = CLR_ROUND(v * CLR_NUM(dutyPct) / 100);
+    items.push({ label: 'Import duty', amount: duty, basis: `${CLR_NUM(dutyPct)}% of ${CLR_USD(v)}`, category: 'statutory' });
+    if (template === 'import_usa') {
+      const mpf = Math.min(Math.max(CLR_ROUND(v * CLR_STAT.mpfPct / 100), CLR_STAT.mpfMin), CLR_STAT.mpfMax);
+      items.push({ label: 'Merchandise Processing Fee (MPF)', amount: mpf, basis: `${CLR_STAT.mpfPct}% · ${CLR_USD(CLR_STAT.mpfMin)}–${CLR_USD(CLR_STAT.mpfMax)}`, category: 'statutory' });
+      items.push({ label: 'Harbor Maintenance Fee (HMF)', amount: CLR_ROUND(v * CLR_STAT.hmfPct / 100), basis: `${CLR_STAT.hmfPct}% (ocean)`, category: 'statutory' });
+    } else if (template === 'import_canada') {
+      const g = gstPct === '' || gstPct == null ? CLR_STAT.gstPct : CLR_NUM(gstPct);
+      items.push({ label: `GST/HST (${g}%)`, amount: CLR_ROUND((v + duty) * g / 100), basis: 'on value + duty', category: 'statutory' });
+    }
+    return items;
   }
 
   function installClearanceWorkspace(main) {
@@ -43,59 +81,231 @@
     pane.className = 'tab-pane';
     pane.innerHTML = `
       <div class="card clearance-intro">
-        <h2>Import / export clearance quotes</h2>
-        <p class="muted">Prepare customs-clearance quotations separately from ocean and drayage. Enter the request details, then choose the applicable movement type.</p>
-        <div class="clearance-choice-grid">
-          <button type="button" class="clearance-choice" data-clearance-kind="import" data-clearance-template="import_usa" data-clearance-title="USA import customs clearance quotation">
-            <strong>USA import clearance</strong>
-            <span>Brokerage, entry, bond, duties/taxes and conditional customs charges.</span>
-          </button>
-          <button type="button" class="clearance-choice" data-clearance-kind="import" data-clearance-template="import_canada" data-clearance-title="Canada import customs clearance quotation">
-            <strong>Canada import clearance</strong>
-            <span>Canadian customs-clearance services, taxes and delivery-related charges.</span>
-          </button>
-          <button type="button" class="clearance-choice" data-clearance-kind="export" data-clearance-template="export_clearance" data-clearance-title="Export customs clearance quotation">
-            <strong>Export clearance</strong>
-            <span>Export declaration, filing, document handling and conditional examination charges.</span>
-          </button>
+        <h2>Customs clearance quote</h2>
+        <p class="muted">Build the whole quote here — pick the movement type, enter the shipment, and duty + government fees are calculated automatically. Preview or export the PDF without leaving the page.</p>
+        <div class="clearance-move" role="tablist" aria-label="Movement type">
+          <button type="button" class="clearance-move-btn active" data-template="import_usa" role="tab" aria-selected="true">USA import</button>
+          <button type="button" class="clearance-move-btn" data-template="import_canada" role="tab" aria-selected="false">Canada import</button>
+          <button type="button" class="clearance-move-btn" data-template="export_clearance" role="tab" aria-selected="false">Export</button>
         </div>
       </div>
       <div class="card">
-        <h2>Clearance request details</h2>
-        <p class="muted small">These values are transferred into the client quote builder and remain editable before preview or PDF creation.</p>
-        <div class="grid">
-          <label>Country / jurisdiction<input id="clearance-country" placeholder="United States or Canada"></label>
+        <h2>Shipment &amp; classification</h2>
+        <div class="grid clearance-grid">
+          <label>Quote title<input id="clearance-title" placeholder="USA import customs clearance"></label>
           <label>Port / border crossing<input id="clearance-port" placeholder="Newark, Detroit, Toronto Pearson…"></label>
           <label>Commodity<input id="clearance-commodity" placeholder="Machinery, household goods…"></label>
-          <label>HS code<input id="clearance-hs" placeholder="6–10 digit code"></label>
-          <label>Commercial value<input id="clearance-value" placeholder="USD 25,000"></label>
+          <label>HS code<input id="clearance-hs" placeholder="6–10 digit code" inputmode="numeric"></label>
+          <label>Commercial value (USD)<input id="clearance-value" placeholder="25000" inputmode="decimal"></label>
+          <label>Duty rate %<input id="clearance-duty" placeholder="0" inputmode="decimal"></label>
+          <label id="clearance-gst-wrap" hidden>GST/HST %<input id="clearance-gst" placeholder="5" inputmode="decimal"></label>
           <label>Importer / exporter<input id="clearance-party" placeholder="Company name"></label>
-          <label class="full">Operational notes<textarea id="clearance-notes" rows="5" placeholder="Entry type, bond requirement, PGA/permit requirements, delivery terms, exam risk, special documents…"></textarea></label>
+          <label>POL / origin<input id="clearance-pol" placeholder="Optional"></label>
+          <label>POD / destination<input id="clearance-pod" placeholder="Optional"></label>
+          <label>Place of delivery<input id="clearance-delivery" placeholder="Optional"></label>
+          <label>Rate validity<input id="clearance-validity" placeholder="e.g. 14 days"></label>
+          <label class="full">Customs examination note<input id="clearance-exam" placeholder="Exam risk / hold conditions (optional)"></label>
+          <label class="full">Operational notes<textarea id="clearance-notes" rows="3" placeholder="Entry type, bond, PGA/permit, delivery terms, special documents…"></textarea></label>
+        </div>
+      </div>
+      <div class="card clearance-calc">
+        <h2>Duty &amp; government charges <span class="muted small">computed from value &amp; rates · pass-through, never marked up</span></h2>
+        <table class="clearance-table clearance-stat">
+          <thead><tr><th>Charge</th><th class="clearance-amt">Amount</th><th>Basis</th></tr></thead>
+          <tbody id="clearance-stat-body"></tbody>
+        </table>
+        <p class="muted small" id="clearance-stat-empty" hidden>No government charges for this movement type (export declaration only).</p>
+      </div>
+      <div class="card clearance-services-card">
+        <div class="clearance-svc-head">
+          <h2>Service charges <span class="muted small">your brokerage / handling — markup applies</span></h2>
+          <button type="button" class="btn-sm" id="clearance-add-line">+ Add line</button>
+        </div>
+        <table class="clearance-table clearance-svc">
+          <thead><tr><th>Service</th><th class="clearance-amt">Amount (cost)</th><th>Basis</th><th>Category</th><th aria-label="Remove"></th></tr></thead>
+          <tbody id="clearance-svc-body"></tbody>
+        </table>
+        <div class="clearance-markup">
+          <label>Hidden profit / rate (USD)<input id="clearance-markup-flat" type="number" value="0" step="1"></label>
+          <label>Hidden markup %<input id="clearance-markup-pct" type="number" value="0" step="0.5"></label>
+          <span class="muted small">Internal only — never shown on the client PDF.</span>
+        </div>
+      </div>
+      <div class="card clearance-summary">
+        <div class="clearance-sum-grid">
+          <div><span class="muted small">Government charges</span><strong id="clearance-sum-stat">USD 0.00</strong></div>
+          <div><span class="muted small">Services (sell)</span><strong id="clearance-sum-svc">USD 0.00</strong></div>
+          <div class="clearance-sum-profit"><span class="muted small">Your profit (internal)</span><strong id="clearance-sum-profit">USD 0.00</strong></div>
+          <div class="clearance-sum-total"><span class="muted small">Client total</span><strong id="clearance-sum-total">USD 0.00</strong></div>
+        </div>
+        <div class="clearance-actions">
+          <button type="button" class="btn-sm" id="clearance-preview">Preview</button>
+          <button type="button" class="primary" id="clearance-pdf">Create PDF</button>
+          <span id="clearance-status" class="status-inline" role="status" aria-live="polite"></span>
         </div>
       </div>`;
     main.appendChild(pane);
+    wireClearanceWorkspace(pane);
+  }
 
-    pane.querySelectorAll('[data-clearance-template]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const kind = button.dataset.clearanceKind || 'import';
-        document.dispatchEvent(new CustomEvent('client-quote-open', {
-          detail: {
-            template: button.dataset.clearanceTemplate,
-            title: button.dataset.clearanceTitle,
-            hsCode: pane.querySelector('#clearance-hs')?.value || '',
-            terminal: pane.querySelector('#clearance-port')?.value || '',
-            services: clearanceServices(kind),
-            notes: [
-              pane.querySelector('#clearance-country')?.value,
-              pane.querySelector('#clearance-commodity')?.value,
-              pane.querySelector('#clearance-value')?.value,
-              pane.querySelector('#clearance-party')?.value,
-              pane.querySelector('#clearance-notes')?.value,
-            ].filter(Boolean),
-          },
-        }));
+  function wireClearanceWorkspace(pane) {
+    const $ = (sel) => pane.querySelector(sel);
+    const statBody = $('#clearance-stat-body');
+    const svcBody = $('#clearance-svc-body');
+    let template = 'import_usa';
+
+    function currentValue(id) { return ($('#' + id)?.value ?? '').trim(); }
+
+    function sellOf(amount) {
+      const pct = CLR_NUM(currentValue('clearance-markup-pct'));
+      const flat = CLR_NUM(currentValue('clearance-markup-flat'));
+      return CLR_ROUND(Number(amount) * (1 + pct / 100) + flat);
+    }
+
+    function readServiceRows() {
+      return Array.from(svcBody.querySelectorAll('tr')).map((tr) => ({
+        label: tr.querySelector('.clr-svc-label')?.value.trim() || '',
+        amount: tr.querySelector('.clr-svc-amount')?.value.trim() || '',
+        basis: tr.querySelector('.clr-svc-basis')?.value.trim() || '',
+        category: tr.querySelector('.clr-svc-cat')?.value || 'firm',
+      })).filter((r) => r.label || r.amount);
+    }
+
+    function addServiceRow(line = { label: '', amount: '', basis: '', category: 'firm' }) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input class="clr-svc-label" value="${(line.label || '').replace(/"/g, '&quot;')}" placeholder="Service"></td>
+        <td><input class="clr-svc-amount clearance-amt-input" value="${line.amount ?? ''}" placeholder="0.00" inputmode="decimal"></td>
+        <td><input class="clr-svc-basis" value="${(line.basis || '').replace(/"/g, '&quot;')}" placeholder="per entry"></td>
+        <td><select class="clr-svc-cat">
+          <option value="firm"${line.category === 'firm' ? ' selected' : ''}>Firm</option>
+          <option value="conditional"${line.category === 'conditional' ? ' selected' : ''}>Conditional</option>
+        </select></td>
+        <td><button type="button" class="clr-svc-remove" aria-label="Remove line" title="Remove">✕</button></td>`;
+      tr.querySelector('.clr-svc-remove').addEventListener('click', () => { tr.remove(); recompute(); });
+      tr.querySelectorAll('input, select').forEach((el) => el.addEventListener('input', recompute));
+      svcBody.appendChild(tr);
+    }
+
+    function seedServiceRows() {
+      svcBody.innerHTML = '';
+      clearanceDefaultLines(template).forEach(addServiceRow);
+    }
+
+    function statItems() {
+      return clearanceStatutory(template, currentValue('clearance-value'), currentValue('clearance-duty'), currentValue('clearance-gst'));
+    }
+
+    function recompute() {
+      const items = statItems();
+      statBody.innerHTML = items.map((it) => `<tr><td>${it.label}</td><td class="clearance-amt">${CLR_USD(it.amount)}</td><td class="muted small">${it.basis}</td></tr>`).join('');
+      $('#clearance-stat-empty').hidden = items.length > 0;
+      const statTotal = items.reduce((s, it) => s + Number(it.amount), 0);
+
+      const svc = readServiceRows();
+      const svcCost = svc.reduce((s, r) => s + CLR_NUM(r.amount), 0);
+      const svcSell = svc.reduce((s, r) => s + sellOf(CLR_NUM(r.amount)), 0);
+
+      $('#clearance-sum-stat').textContent = CLR_USD(statTotal);
+      $('#clearance-sum-svc').textContent = CLR_USD(svcSell);
+      $('#clearance-sum-profit').textContent = CLR_USD(svcSell - svcCost);
+      $('#clearance-sum-total').textContent = CLR_USD(statTotal + svcSell);
+    }
+
+    function setTemplate(next) {
+      template = next;
+      pane.querySelectorAll('.clearance-move-btn').forEach((b) => {
+        const on = b.dataset.template === next;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', String(on));
       });
-    });
+      $('#clearance-gst-wrap').hidden = next !== 'import_canada';
+      // Duty / value are irrelevant to an export declaration.
+      $('#clearance-duty').closest('label').hidden = next === 'export_clearance';
+      $('#clearance-value').closest('label').hidden = next === 'export_clearance';
+      seedServiceRows();
+      recompute();
+    }
+
+    function assemblePayload() {
+      const notes = [
+        currentValue('clearance-commodity') ? `Commodity: ${currentValue('clearance-commodity')}` : '',
+        currentValue('clearance-value') && template !== 'export_clearance' ? `Commercial value: ${CLR_USD(CLR_NUM(currentValue('clearance-value')))}` : '',
+        currentValue('clearance-party') ? `Importer / exporter: ${currentValue('clearance-party')}` : '',
+        currentValue('clearance-notes'),
+      ].filter(Boolean);
+      const services = [...statItems(), ...readServiceRows()].map((it) => ({
+        label: it.label,
+        amount: it.amount === '' || it.amount == null ? null : Number(it.amount),
+        currency: 'USD',
+        basis: it.basis || null,
+        note: null,
+        category: it.category || 'firm',
+      }));
+      const dutyPct = CLR_NUM(currentValue('clearance-duty'));
+      return {
+        template,
+        title: currentValue('clearance-title') || null,
+        pol: currentValue('clearance-pol') || null,
+        pod: currentValue('clearance-pod') || null,
+        placeOfDelivery: currentValue('clearance-delivery') || null,
+        terminal: currentValue('clearance-port') || null,
+        hsCode: currentValue('clearance-hs') || null,
+        dutyRate: template !== 'export_clearance' && dutyPct ? `${dutyPct}%` : null,
+        customsExamNote: currentValue('clearance-exam') || null,
+        validity: currentValue('clearance-validity') || null,
+        includeCommercialNotes: true,
+        hiddenMarkupFlat: CLR_NUM(currentValue('clearance-markup-flat')),
+        hiddenMarkupPct: CLR_NUM(currentValue('clearance-markup-pct')),
+        services,
+        options: [],
+        notes,
+      };
+    }
+
+    async function errText(res, fallback) {
+      try { return (await res.json()).error || fallback; } catch { return fallback; }
+    }
+    async function preview() {
+      const status = $('#clearance-status');
+      const w = window.open('', 'clearance-preview');
+      if (!w) { status.textContent = 'Pop-up blocked — allow pop-ups and retry.'; return; }
+      w.document.write('<p style="font-family:Arial;padding:20px">Creating preview…</p>');
+      status.textContent = 'Creating preview…';
+      try {
+        const r = await fetch('/api/client-quotes/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assemblePayload()) });
+        if (!r.ok) { status.textContent = await errText(r, 'Preview failed'); w.close(); return; }
+        const html = await r.text();
+        w.document.open(); w.document.write(html); w.document.close();
+        status.textContent = 'Preview opened.';
+      } catch (e) { status.textContent = 'Preview failed: ' + (e && e.message ? e.message : e); w.close(); }
+    }
+    async function createPdf() {
+      const status = $('#clearance-status');
+      status.textContent = 'Creating PDF…';
+      try {
+        const r = await fetch('/api/client-quotes/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assemblePayload()) });
+        if (!r.ok) { status.textContent = await errText(r, 'PDF failed'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'customs-clearance-quote.pdf';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        status.textContent = 'PDF created.';
+      } catch (e) { status.textContent = 'PDF failed: ' + (e && e.message ? e.message : e); }
+    }
+
+    pane.querySelectorAll('.clearance-move-btn').forEach((b) => b.addEventListener('click', () => setTemplate(b.dataset.template)));
+    ['clearance-value', 'clearance-duty', 'clearance-gst', 'clearance-markup-flat', 'clearance-markup-pct'].forEach((id) => $('#' + id).addEventListener('input', recompute));
+    $('#clearance-add-line').addEventListener('click', () => { addServiceRow(); recompute(); });
+    $('#clearance-preview').addEventListener('click', preview);
+    $('#clearance-pdf').addEventListener('click', createPdf);
+
+    setTemplate('import_usa');
   }
 
   function moveTruckingIntoDrayage() {

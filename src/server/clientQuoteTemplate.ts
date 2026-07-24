@@ -63,7 +63,11 @@ function sell(amount: number, input: ClientQuoteInput): number {
 
 function serviceSection(label: string, rows: ClientQuoteLine[], input: ClientQuoteInput, currency: string): string {
   if (!rows.length) return '';
-  const body = rows.map((line) => `<tr class="${line.emphasis ? 'emphasis' : ''}"><td>${esc(line.label)}</td><td class="amount">${line.amount == null ? '' : money(sell(line.amount, input), line.currency || currency)}</td><td>${esc(line.basis || '')}</td><td>${esc(line.note || '')}</td></tr>`).join('');
+  // Statutory charges (duty, MPF/HMF, GST/HST) are government pass-throughs and
+  // must NOT carry the hidden markup — only firm/conditional service charges do.
+  const priceOf = (line: ClientQuoteLine): number =>
+    line.category === 'statutory' ? Number(line.amount) : sell(Number(line.amount), input);
+  const body = rows.map((line) => `<tr class="${line.emphasis ? 'emphasis' : ''}"><td>${esc(line.label)}</td><td class="amount">${line.amount == null ? '' : money(priceOf(line), line.currency || currency)}</td><td>${esc(line.basis || '')}</td><td>${esc(line.note || '')}</td></tr>`).join('');
   return `<tr class="section-row"><th colspan="4">${esc(label)}</th></tr>${body}`;
 }
 
