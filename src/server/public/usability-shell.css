@@ -87,6 +87,10 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
 .readiness-v2 .feature-readiness-main strong{color:#20242c}
 .readiness-v2 .feature-readiness-main p{margin:3px 0;color:#3a3f47;font-size:13px}
 .readiness-v2 .feature-readiness-main small{display:block;color:#6b6f76;font-size:12px}
+.readiness-v2 .rem-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.readiness-v2 .rem-btn{font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px;border:1px solid #d7d3ca;background:#fff;color:#20242c;cursor:pointer;line-height:1.2}
+.readiness-v2 .rem-btn:hover,.readiness-v2 .rem-btn:focus-visible{background:#eceae4;outline:2px solid #8a8f98;outline-offset:-1px}
+.readiness-v2 .rem-fix{background:#f0efe8;border-color:#c9c4b8}
 .readiness-v2 .feature-state{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;background:#eceae4!important;color:#3a3f47!important;border:1px solid #e0ddd5!important}
 .readiness-v2 .feature-state::before{content:"";width:7px;height:7px;border-radius:50%;background:#9aa0a6}
 .readiness-v2 .feature-state-ready::before{background:#3f9142}
