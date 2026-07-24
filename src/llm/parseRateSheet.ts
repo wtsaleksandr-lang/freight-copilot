@@ -35,7 +35,10 @@ const LaneSchema = z.object({
   rates_per_container: z.array(RatesPerContainerSchema).min(1),
 });
 const RateSheetSchema = z.object({
-  carrier_code: z.string(), carrier_name_raw: z.string().nullable().optional(), validity_from: z.string().nullable().optional(),
+  // Nullable so a non-rate-sheet (e.g. a customer quote request with no carrier)
+  // still parses + classifies instead of failing schema validation; downstream
+  // code coalesces a null carrier to 'UNK'.
+  carrier_code: z.string().nullable().optional().default('UNK'), carrier_name_raw: z.string().nullable().optional(), validity_from: z.string().nullable().optional(),
   validity_to: z.string().nullable().optional(), lanes: z.array(LaneSchema), notes: z.string().nullable().optional(),
   document_type: z.enum(['rate_sheet', 'quote_request', 'other']).default('rate_sheet'),
 });

@@ -3277,17 +3277,26 @@ async function loadCredList() {
             (n, l) => n + l.rates_per_container.length,
             0
           );
-          // Show whether the original was kept (rate sheet / forced) or the
-          // throwaway input was discarded after extracting its data.
-          const storageNote =
-            res.kept === null || res.kept === undefined
-              ? ' · original discarded'
-              : ' · original saved';
-          setItemState(
-            i,
-            `${res.parsed.carrier_code} · ${lanes} lane(s) · ${rates} rate(s)${storageNote}`,
-            'success'
-          );
+          // A non-rate-sheet (customer quote request / other) is classified,
+          // its throwaway original discarded, and reported plainly.
+          if (res.documentType && res.documentType !== 'rate_sheet') {
+            setItemState(
+              i,
+              `Not a rate sheet (${res.documentType.replace(/_/g, ' ')}) · original discarded`,
+              'info'
+            );
+          } else {
+            // Whether the original was kept (rate sheet / forced) or discarded.
+            const storageNote =
+              res.kept === null || res.kept === undefined
+                ? ' · original discarded'
+                : ' · original saved';
+            setItemState(
+              i,
+              `${res.parsed.carrier_code || 'UNK'} · ${lanes} lane(s) · ${rates} rate(s)${storageNote}`,
+              'success'
+            );
+          }
         } else {
           setItemState(i, 'failed: ' + (res.reason || 'unknown'), 'error');
         }
