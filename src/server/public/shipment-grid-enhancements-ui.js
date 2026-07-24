@@ -264,7 +264,7 @@
       const hidden = prefs.hidden.includes(key);
       table.querySelectorAll('tr').forEach((row) => row.children[index]?.classList.toggle('shipment-column-hidden', hidden));
       const width = Number(prefs.widths[key]);
-      if (Number.isFinite(width) && width >= 70) {
+      if (Number.isFinite(width) && width >= 24) {
         table.querySelectorAll('tr').forEach((row) => {
           const cell = row.children[index];
           if (cell) { cell.style.width = `${width}px`; cell.style.minWidth = `${width}px`; }
@@ -340,7 +340,10 @@
         const startWidth = th.getBoundingClientRect().width;
         const key = th.dataset.gridKey;
         const move = (e) => {
-          const width = Math.max(70, Math.round(startWidth + e.clientX - startX));
+          // 24px floor: narrow enough to shrink a column to a sliver (the user
+          // wanted to drag columns much tighter) while still leaving the resize
+          // handle grabbable so it can never collapse to an unrecoverable 0px.
+          const width = Math.max(24, Math.round(startWidth + e.clientX - startX));
           const index = Array.from(th.parentElement.children).indexOf(th);
           table.querySelectorAll('tr').forEach((row) => {
             const cell = row.children[index];

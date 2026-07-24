@@ -2,6 +2,12 @@
   'use strict';
 
   function shipmentRefFromRow(row) {
+    // The grid stamps the ref on the row itself. Prefer that — it's reliable
+    // for every ref shape (company S-numbers, renamed refs, DRAFT-xxxx blanks),
+    // whereas the old <code>-scan only matched S\d+ and silently returned '' for
+    // the current markup, which left the whole Actions column blank.
+    const dataRef = (row.getAttribute('data-ref') || '').trim();
+    if (dataRef) return dataRef;
     const refs = [...row.querySelectorAll('code')].map((node) => node.textContent.trim());
     return refs.find((value) => /^S\d+$/i.test(value)) || '';
   }

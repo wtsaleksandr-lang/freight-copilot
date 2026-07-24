@@ -4845,8 +4845,326 @@ function formatMoney(n, cur) {
     window.__shipCopyKeyInstalled = true;
   }
 
+  // ── Universal cell activation: double-click OR long-press ─────────────────
+  // Desktop double-clicks and a ~500ms stationary touch/pen press both open the
+  // same editor for a cell. Long-press is the mobile equivalent of a
+  // double-click (there is no reliable touch dblclick). Movement cancels it so
+  // it never fires mid-scroll/mid-pan.
+  function attachLongPress(td, handler) {
+    let timer = null;
+    let sx = 0;
+    let sy = 0;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    td.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return; // touch / pen only
+      if (td.isContentEditable) return;
+      sx = e.clientX;
+      sy = e.clientY;
+      clear();
+      timer = setTimeout(() => { timer = null; handler(e); }, 500);
+    });
+    td.addEventListener('pointermove', (e) => {
+      if (Math.abs(e.clientX - sx) > 9 || Math.abs(e.clientY - sy) > 9) clear();
+    });
+    td.addEventListener('pointerup', clear);
+    td.addEventListener('pointercancel', clear);
+    td.addEventListener('pointerleave', clear);
+  }
+  function onActivate(td, handler) {
+    td.addEventListener('dblclick', handler);
+    attachLongPress(td, handler);
+  }
+  function activateCell(td) {
+    // Re-use whatever the cell does on double-click (inline edit / picker /
+    // modal). Used by the frosted peek popup when it's clicked.
+    td.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  }
+
+  // ── Shared floating editor (carrier picker, date picker) ──────────────────
+  let floatingEditor = null;
+  function closeFloatingEditor() {
+    if (!floatingEditor) return;
+    const el = floatingEditor;
+    floatingEditor = null;
+    el.remove();
+    document.removeEventListener('mousedown', onFloatingDocDown, true);
+    document.removeEventListener('keydown', onFloatingKey, true);
+  }
+  function onFloatingDocDown(e) {
+    if (floatingEditor && !floatingEditor.contains(e.target)) closeFloatingEditor();
+  }
+  function onFloatingKey(e) {
+    if (e.key === 'Escape') closeFloatingEditor();
+  }
+  function installFloatingDismiss(el) {
+    floatingEditor = el;
+    // Delay arming so the same tap/press that opened the panel (its trailing
+    // synthetic mouse event on touch) doesn't immediately dismiss it.
+    setTimeout(() => {
+      if (floatingEditor !== el) return;
+      document.addEventListener('mousedown', onFloatingDocDown, true);
+      document.addEventListener('keydown', onFloatingKey, true);
+    }, 260);
+  }
+  function positionFloating(el, td) {
+    const r = td.getBoundingClientRect();
+    el.style.position = 'fixed';
+    el.style.visibility = 'hidden';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    const ew = el.offsetWidth;
+    const eh = el.offsetHeight;
+    let left = r.left;
+    if (left + ew + 8 > window.innerWidth) left = window.innerWidth - ew - 8;
+    left = Math.max(8, left);
+    let top = r.bottom + 6;
+    if (top + eh + 8 > window.innerHeight) top = Math.max(8, r.top - eh - 6);
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+    el.style.visibility = 'visible';
+  }
+
+  // ── Learned ocean carriers ────────────────────────────────────────────────
+  // Seed = the container lines that move the most global volume. The set grows
+  // as the user (or an import) introduces carriers it didn't know, so the
+  // dropdown tracks THIS book of business over time.
+  const CARRIER_SEED = ['Maersk', 'MSC', 'CMA CGM', 'Hapag-Lloyd', 'COSCO', 'Evergreen', 'ONE', 'ZIM'];
+  const CARRIER_KEY = 'loadmode.carriers.learned.v1';
+  const MAX_CARRIERS = 2;
+  const DATE_FIELDS = new Set(['etd', 'eta', 'cutOffDate', 'siDate', 'draftDate', 'loadingDate']);
+  function learnedCarriers() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CARRIER_KEY) || '[]');
+      return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
+    } catch { return []; }
+  }
+  function learnCarrier(name) {
+    const clean = (name || '').trim();
+    if (!clean) return;
+    const known = new Set([...CARRIER_SEED, ...learnedCarriers()].map((c) => c.toLowerCase()));
+    if (known.has(clean.toLowerCase())) return;
+    try { localStorage.setItem(CARRIER_KEY, JSON.stringify([...learnedCarriers(), clean].slice(-40))); } catch {}
+  }
+  function splitCarriers(value) {
+    return String(value || '')
+      .split(/\s*(?:,|\/|&|\+)\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, MAX_CARRIERS);
+  }
+  function carrierOptions() {
+    const seen = new Set();
+    const out = [];
+    for (const c of [...CARRIER_SEED, ...learnedCarriers()]) {
+      const k = c.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); out.push(c); }
+    }
+    return out;
+  }
+  function seedCarriersFromRows(rows) {
+    (rows || []).forEach((r) => splitCarriers(r.carrierPreference).forEach(learnCarrier));
+  }
+
+  // ── Cargo-type directory ──────────────────────────────────────────────────
+  // A growing directory of cargo types: a seed of the most common categories
+  // plus anything the user types, so the dropdown stays useful without ever
+  // blocking a brand-new cargo type.
+  const CARGO_TYPE_SEED = [
+    'General', 'FAK', 'Hazardous', 'Reefer', 'Perishable', 'Foodstuffs',
+    'Machinery', 'Vehicles', 'Auto parts', 'Electronics', 'Furniture',
+    'Textiles', 'Chemicals', 'Building materials',
+  ];
+  const CARGO_TYPE_KEY = 'loadmode.cargoTypes.learned.v1';
+  function learnedCargoTypes() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CARGO_TYPE_KEY) || '[]');
+      return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
+    } catch { return []; }
+  }
+  function learnCargoType(name) {
+    const clean = (name || '').trim();
+    if (!clean) return;
+    const known = new Set([...CARGO_TYPE_SEED, ...learnedCargoTypes()].map((c) => c.toLowerCase()));
+    if (known.has(clean.toLowerCase())) return;
+    try { localStorage.setItem(CARGO_TYPE_KEY, JSON.stringify([...learnedCargoTypes(), clean].slice(-60))); } catch {}
+  }
+  function cargoTypeOptions() {
+    const seen = new Set();
+    const out = [];
+    for (const c of [...CARGO_TYPE_SEED, ...learnedCargoTypes()]) {
+      const k = c.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); out.push(c); }
+    }
+    return out;
+  }
+  function seedCargoTypesFromRows(rows) {
+    (rows || []).forEach((r) => learnCargoType(r.cargoType));
+  }
+
+  function openCarrierPicker(td, refId, currentValue) {
+    closeFloatingEditor();
+    const selected = splitCarriers(currentValue);
+    const panel = document.createElement('div');
+    panel.className = 'carrier-picker floating-cell-editor';
+    function toggle(name) {
+      const i = selected.findIndex((s) => s.toLowerCase() === name.toLowerCase());
+      if (i >= 0) selected.splice(i, 1);
+      else if (selected.length >= MAX_CARRIERS) { toast(`Up to ${MAX_CARRIERS} carriers per shipment.`, 'info'); return; }
+      else selected.push(name);
+      render();
+    }
+    function addCustom() {
+      const input = panel.querySelector('.carrier-custom-input');
+      const v = (input.value || '').trim();
+      if (!v) return;
+      const already = selected.some((s) => s.toLowerCase() === v.toLowerCase());
+      if (selected.length >= MAX_CARRIERS && !already) { toast(`Up to ${MAX_CARRIERS} carriers per shipment.`, 'info'); return; }
+      learnCarrier(v);
+      if (!already) selected.push(v);
+      input.value = '';
+      render();
+    }
+    async function commit() {
+      const value = selected.join(', ') || null;
+      selected.forEach(learnCarrier);
+      closeFloatingEditor();
+      try {
+        await patchField(refId, 'carrierPreference', value);
+        td.textContent = value || '';
+        td.classList.toggle('cell-empty', !value);
+        td.classList.add('is-saved');
+        setTimeout(() => td.classList.remove('is-saved'), 1000);
+        const ref = (allRows || []).find((r) => r.refId === refId);
+        if (ref) ref.carrierPreference = value;
+      } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+    }
+    function render() {
+      panel.innerHTML = `
+        <div class="carrier-picker-head">Ocean carrier <span class="muted small">pick up to ${MAX_CARRIERS}</span></div>
+        <div class="carrier-picker-grid">${carrierOptions().map((c) => `
+          <button type="button" class="carrier-chip${selected.some((s) => s.toLowerCase() === c.toLowerCase()) ? ' is-picked' : ''}" data-carrier="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+        <div class="carrier-picker-custom">
+          <input type="text" class="carrier-custom-input" placeholder="Add another carrier…" autocomplete="off">
+          <button type="button" class="carrier-add-btn">Add</button>
+        </div>
+        <div class="carrier-picker-foot">
+          <span class="carrier-picker-sel muted small">${selected.length ? esc(selected.join(', ')) : 'None selected'}</span>
+          <span class="carrier-picker-actions">
+            <button type="button" class="carrier-clear-btn">Clear</button>
+            <button type="button" class="primary carrier-done-btn">Done</button>
+          </span>
+        </div>`;
+      panel.querySelectorAll('.carrier-chip').forEach((btn) => btn.addEventListener('click', () => toggle(btn.dataset.carrier)));
+      panel.querySelector('.carrier-add-btn').addEventListener('click', addCustom);
+      const input = panel.querySelector('.carrier-custom-input');
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } });
+      panel.querySelector('.carrier-clear-btn').addEventListener('click', () => { selected.length = 0; render(); });
+      panel.querySelector('.carrier-done-btn').addEventListener('click', commit);
+    }
+    render();
+    document.body.appendChild(panel);
+    positionFloating(panel, td);
+    installFloatingDismiss(panel);
+  }
+
+  function toIsoDate(v) {
+    if (!v) return '';
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  }
+  function openDatePicker(td, refId, field, currentValue) {
+    closeFloatingEditor();
+    const box = document.createElement('div');
+    box.className = 'date-picker floating-cell-editor';
+    box.innerHTML = `<input type="date" class="date-picker-input" value="${toIsoDate(currentValue)}">
+      <button type="button" class="date-clear-btn" title="Clear date">Clear</button>`;
+    const input = box.querySelector('.date-picker-input');
+    async function commit(value) {
+      closeFloatingEditor();
+      try {
+        await patchField(refId, field, value || null);
+        td.textContent = value || '';
+        td.classList.toggle('cell-empty', !value);
+        td.classList.add('is-saved');
+        setTimeout(() => td.classList.remove('is-saved'), 1000);
+        const ref = (allRows || []).find((r) => r.refId === refId);
+        if (ref) ref[field] = value || null;
+      } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+    }
+    input.addEventListener('change', () => commit(input.value));
+    box.querySelector('.date-clear-btn').addEventListener('click', () => commit(''));
+    document.body.appendChild(box);
+    positionFloating(box, td);
+    installFloatingDismiss(box);
+    input.focus();
+    if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
+  }
+
+  // ── Frosted "peek" popup for truncated cells ──────────────────────────────
+  // When a cell's content is clipped by a narrow column, hovering shows the
+  // full value in a premium frosted popup just above the cell. It appears and
+  // vanishes fast; clicking it drops straight into edit mode for that cell.
+  let peekEl = null;
+  let peekTd = null;
+  let peekShowT = null;
+  let peekHideT = null;
+  function ensurePeek() {
+    if (peekEl) return peekEl;
+    peekEl = document.createElement('div');
+    peekEl.className = 'cell-peek';
+    peekEl.addEventListener('mouseenter', () => clearTimeout(peekHideT));
+    peekEl.addEventListener('mouseleave', hidePeekSoon);
+    peekEl.addEventListener('click', () => {
+      const td = peekTd;
+      hidePeek();
+      if (td && td.isConnected) activateCell(td);
+    });
+    document.body.appendChild(peekEl);
+    return peekEl;
+  }
+  function cellIsTruncated(td) { return td.scrollWidth - td.clientWidth > 1; }
+  function fullCellValue(row, field, td) {
+    if (row) {
+      if (field === 'cargo') return [row.cargoType, row.cargoName].filter(Boolean).join(' — ');
+      const v = row[field];
+      if (v != null && v !== '') return String(v);
+    }
+    return (td.textContent || '').trim();
+  }
+  function showPeek(td, text) {
+    const el = ensurePeek();
+    peekTd = td;
+    el.textContent = text;
+    el.classList.add('is-visible');
+    el.style.visibility = 'hidden';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    const r = td.getBoundingClientRect();
+    let left = r.left;
+    if (left + el.offsetWidth + 8 > window.innerWidth) left = window.innerWidth - el.offsetWidth - 8;
+    left = Math.max(8, left);
+    let top = r.top - el.offsetHeight - 8;
+    let below = false;
+    if (top < 8) { top = r.bottom + 8; below = true; }
+    el.classList.toggle('is-below', below);
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+    el.style.visibility = 'visible';
+  }
+  function hidePeek() {
+    clearTimeout(peekShowT);
+    clearTimeout(peekHideT);
+    if (peekEl) peekEl.classList.remove('is-visible');
+    peekTd = null;
+  }
+  function hidePeekSoon() { clearTimeout(peekHideT); peekHideT = setTimeout(hidePeek, 120); }
+
   function wireCellInteractions(rows) {
     const byRef = new Map(rows.map((r) => [r.refId, r]));
+    seedCarriersFromRows(rows);
+    seedCargoTypesFromRows(rows);
     table.querySelectorAll('tbody td[data-field]').forEach((td) => {
       const kind = td.getAttribute('data-kind');
       const field = td.getAttribute('data-field');
@@ -4856,9 +5174,23 @@ function formatMoney(n, cur) {
       const row = byRef.get(refId);
       if (!row) return;
 
+      // Frosted "peek" popup on hover when the cell's content is clipped by a
+      // narrow column. Skipped for the status icon and the computed profit.
+      if (kind !== 'status' && kind !== 'profit') {
+        td.addEventListener('mouseenter', () => {
+          if (td.isContentEditable || floatingEditor) return;
+          if (!cellIsTruncated(td)) return;
+          const full = fullCellValue(row, field, td);
+          if (!full) return;
+          clearTimeout(peekHideT);
+          peekShowT = setTimeout(() => showPeek(td, full), 130);
+        });
+        td.addEventListener('mouseleave', () => { clearTimeout(peekShowT); hidePeekSoon(); });
+      }
+
       // Our Cost cell:
       //   single click → compact breakdown panel (review the audit trail)
-      //   double click → inline edit (manually override the total)
+      //   double click / long-press → inline edit (manually override total)
       if (kind === 'cost-modal') {
         let clickTimer = null;
         td.addEventListener('click', (e) => {
@@ -4877,6 +5209,9 @@ function formatMoney(n, cur) {
           }
           startInlineEdit(td, refId, 'ourCost', { type: 'number', side: 'cost' });
         });
+        // Touch: long-press opens the editable breakdown (there's no hover/
+        // single-vs-double distinction on a phone).
+        attachLongPress(td, () => openBreakdownModal('cost', row, refId, td));
         return;
       }
 
@@ -4899,15 +5234,16 @@ function formatMoney(n, cur) {
           }
           startInlineEdit(td, refId, 'soldRate', { type: 'number', side: 'sold' });
         });
+        attachLongPress(td, () => openBreakdownModal('sold', row, refId, td));
         return;
       }
 
       // Profit cell is read-only; nothing to wire.
       if (kind === 'profit') return;
 
-      // Notes / Cargo / short-modal → double-click opens modal
+      // Notes / Cargo / short-modal → double-click OR long-press opens editor
       if (kind === 'notes-modal' || kind === 'cargo-modal' || kind === 'short-modal') {
-        td.addEventListener('dblclick', () => {
+        onActivate(td, () => {
           if (kind === 'cargo-modal') openCargoModal(row, refId);
           else if (kind === 'notes-modal') openTextModal('Notes', row.notes, async (v) => {
             await patchField(refId, 'notes', v);
@@ -4939,16 +5275,26 @@ function formatMoney(n, cur) {
         return;
       }
 
-      // Shipment Type → double-click opens dropdown
+      // Shipment Type → double-click / long-press opens dropdown
       if (kind === 'shipment-type') {
-        td.addEventListener('dblclick', () => {
-          openShipmentTypePicker(td, refId, row.shipmentType || '');
-        });
+        onActivate(td, () => openShipmentTypePicker(td, refId, row.shipmentType || ''));
         return;
       }
 
-      // Generic editable text/number → double-click activates contenteditable
-      td.addEventListener('dblclick', () => {
+      // Ocean carrier → dropdown of common + learned carriers (max 2)
+      if (field === 'carrierPreference') {
+        onActivate(td, () => openCarrierPicker(td, refId, row.carrierPreference || ''));
+        return;
+      }
+
+      // Date columns (ETD/ETA, cut-off, SI, draft, loading) → calendar popup
+      if (DATE_FIELDS.has(field)) {
+        onActivate(td, () => openDatePicker(td, refId, field, row[field] || ''));
+        return;
+      }
+
+      // Generic editable text/number → double-click / long-press → contenteditable
+      onActivate(td, () => {
         const original = td.textContent;
         td.contentEditable = 'true';
         td.classList.add('is-editing');
@@ -5804,6 +6150,18 @@ function formatMoney(n, cur) {
     cargoFields.hidden = false;
     cargoTypeIn.value = row.cargoType || '';
     cargoNameIn.value = row.cargoName || '';
+    // Back the cargo-type field with a growing directory of common types.
+    // The user can pick a common category from the dropdown or type a brand
+    // new one (which is remembered for next time).
+    let dl = document.getElementById('cargo-type-directory');
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = 'cargo-type-directory';
+      document.body.appendChild(dl);
+    }
+    dl.innerHTML = cargoTypeOptions().map((t) => `<option value="${esc(t)}"></option>`).join('');
+    cargoTypeIn.setAttribute('list', 'cargo-type-directory');
+    cargoTypeIn.setAttribute('placeholder', 'Pick or type a cargo type…');
     modal.hidden = false;
     setTimeout(() => cargoNameIn.focus(), 30);
 
@@ -5819,6 +6177,7 @@ function formatMoney(n, cur) {
       try {
         const t = cargoTypeIn.value.trim() || null;
         const n = cargoNameIn.value.trim() || null;
+        if (t) learnCargoType(t);
         await patchField(refId, 'cargoType', t);
         await patchField(refId, 'cargoName', n);
         await loadList();
@@ -6858,7 +7217,16 @@ function formatMoney(n, cur) {
     // owner of the gesture, so there is nothing to fight. Pointer capture also
     // keeps the drag alive when the cursor leaves the element (no more
     // mouseleave dropping the drag mid-pan).
+    // Pointer capture is DEFERRED until the pointer actually moves past a small
+    // threshold. Capturing on pointerdown (the old behaviour) routed the whole
+    // gesture to `wrap` and preventDefault'd it — which SWALLOWED the click /
+    // double-click / tap on the cell underneath, so status-cell clicks and
+    // double-click-to-edit silently stopped working. Now a stationary press is
+    // left untouched (the click/dblclick/long-press reaches the cell), and we
+    // only take over once it's clearly a drag.
+    const PAN_THRESHOLD = 6;
     let isDown = false;
+    let panning = false;
     let pid = null;
     let startX = 0;
     let startY = 0;
@@ -6877,31 +7245,41 @@ function formatMoney(n, cur) {
         return;
       }
       isDown = true;
+      panning = false;
       pid = e.pointerId;
-      wrap.classList.add('is-dragging');
       startX = e.clientX;
       startY = e.clientY;
       scrollX = wrap.scrollLeft;
       scrollY = wrap.scrollTop;
-      // Route every subsequent pointer event for this gesture to `wrap` and
-      // suppress the default (focus snap, text selection, native scroll).
-      try { wrap.setPointerCapture(e.pointerId); } catch (_) {}
-      e.preventDefault();
+      // NB: no capture / preventDefault here — a plain click or tap must still
+      // reach the cell. Capture happens in pointermove once we know it's a drag.
     });
     function endDrag() {
       if (!isDown) return;
       isDown = false;
-      wrap.classList.remove('is-dragging');
-      try { if (pid != null) wrap.releasePointerCapture(pid); } catch (_) {}
+      if (panning) {
+        wrap.classList.remove('is-dragging');
+        try { if (pid != null) wrap.releasePointerCapture(pid); } catch (_) {}
+      }
+      panning = false;
       pid = null;
     }
     wrap.addEventListener('pointerup', endDrag);
     wrap.addEventListener('pointercancel', endDrag);
     wrap.addEventListener('pointermove', (e) => {
       if (!isDown || e.pointerId !== pid) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!panning) {
+        if (Math.abs(dx) < PAN_THRESHOLD && Math.abs(dy) < PAN_THRESHOLD) return;
+        // Movement crossed the threshold — commit to a pan and take the pointer.
+        panning = true;
+        wrap.classList.add('is-dragging');
+        try { wrap.setPointerCapture(pid); } catch (_) {}
+      }
       e.preventDefault();
-      wrap.scrollLeft = scrollX - (e.clientX - startX);
-      wrap.scrollTop = scrollY - (e.clientY - startY);
+      wrap.scrollLeft = scrollX - dx;
+      wrap.scrollTop = scrollY - dy;
     });
   }
 

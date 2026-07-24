@@ -3107,3 +3107,128 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
   color: var(--ink);
   font-size: 12.5px;
 }
+
+/* ── Shipment grid: frosted "peek" tooltip for truncated cells ──────────────
+   Premium frosted-glass popup that appears fast above a clipped cell showing
+   its full value. Clicking it drops into edit mode for that cell. */
+.cell-peek {
+  position: fixed;
+  z-index: 1400;
+  max-width: 360px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: rgba(17, 24, 39, 0.72);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  backdrop-filter: saturate(180%) blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 12px 34px rgba(2, 6, 23, 0.36);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity .09s ease, transform .09s ease;
+  cursor: pointer;
+}
+.cell-peek.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.cell-peek::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  transform: rotate(45deg);
+  -webkit-backdrop-filter: inherit;
+  backdrop-filter: inherit;
+}
+.cell-peek.is-below::after { top: -5px; bottom: auto; transform: rotate(225deg); }
+
+/* ── Shipment grid: floating cell editors (carrier picker, date picker) ──── */
+.floating-cell-editor {
+  position: fixed;
+  z-index: 1410;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  color: var(--ink);
+  padding: 12px;
+}
+.carrier-picker { width: 288px; display: grid; gap: 10px; }
+.carrier-picker-head { font-weight: 700; font-size: 13px; display: flex; align-items: baseline; gap: 7px; }
+.carrier-picker-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.carrier-chip {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .12s ease, background .12s ease;
+}
+.carrier-chip:hover { border-color: var(--accent); background: #eef2ff; }
+.carrier-chip.is-picked { border-color: var(--accent); background: var(--accent); color: #fff; }
+.carrier-picker-custom { display: flex; gap: 6px; }
+.carrier-custom-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--card);
+}
+.carrier-add-btn {
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.carrier-add-btn:hover { background: #e2e8f0; }
+.carrier-picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 2px; }
+.carrier-picker-actions { display: flex; gap: 7px; }
+.carrier-clear-btn {
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.carrier-done-btn { padding: 6px 14px; border-radius: 8px; font-size: 12.5px; }
+
+.date-picker { display: flex; align-items: center; gap: 8px; }
+.date-picker-input {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card);
+}
+.date-clear-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+.date-clear-btn:hover { background: #e2e8f0; }
