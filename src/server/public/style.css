@@ -2501,10 +2501,19 @@ td.empty {
 }
 .clarify-body {
   padding: 16px 18px 18px;
-  display: block;
+  /* Must beat .image-modal-body (display:flex + dark bg) which otherwise wins
+     by source order and lays the questions/uploader/buttons out in a row. */
+  display: block !important;
   overflow-y: auto;
-  background: #ffffff;
+  background: #ffffff !important;
   color: #111827;
+}
+.clarify-body > .row {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  gap: 10px;
+  align-items: center;
 }
 .clarify-body > p.muted.small {
   margin: 0 0 14px;
