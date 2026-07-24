@@ -158,20 +158,16 @@
     installWorkspaceGuides();
 
     oldNav.classList.add('legacy-nav-hidden');
-    const nav = document.createElement('nav');
-    nav.id = 'simple-nav';
-    nav.className = 'simple-nav';
-    nav.setAttribute('aria-label', 'Primary');
-    nav.innerHTML = `
-      <div class="simple-nav-scroll">
-      <button type="button" class="simple-primary" data-simple-tab="shipments">Shipments</button>
-      <button type="button" data-simple-tab="new">Ocean freight</button>
-      <button type="button" data-simple-tab="drayage">Drayage</button>
-      <button type="button" data-simple-tab="clearance">Customs clearance</button>
-      <button type="button" class="readiness-button" data-action="system-check-primary" data-state="checking" aria-label="Open feature readiness"><span class="readiness-dot" aria-hidden="true"></span><span>Readiness</span></button>
-      </div>
+    header.classList.add('shell-active');
+
+    // Brand-line controls: a colored status indicator + a hamburger menu,
+    // pinned to the top-right so the workflow tabs get a clean, scroll-free row.
+    const controls = document.createElement('div');
+    controls.className = 'header-controls';
+    controls.innerHTML = `
+      <button type="button" class="status-indicator" data-action="system-check-primary" data-state="checking" aria-label="Feature readiness" title="Feature readiness"><span class="readiness-dot" aria-hidden="true"></span></button>
       <div class="simple-more-wrap">
-        <button type="button" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu">More</button>
+        <button type="button" class="hamburger-btn" data-action="more" aria-expanded="false" aria-haspopup="menu" aria-controls="simple-more-menu" aria-label="Open menu"><span></span><span></span><span></span></button>
         <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
           <button type="button" role="menuitem" data-action="import">Import rate files</button>
           <button type="button" role="menuitem" data-action="client-quote">Create client quote</button>
@@ -184,11 +180,22 @@
           <button type="button" role="menuitem" data-action="help">Help</button>
         </div>
       </div>`;
+    header.appendChild(controls);
+
+    const nav = document.createElement('nav');
+    nav.id = 'simple-nav';
+    nav.className = 'simple-nav';
+    nav.setAttribute('aria-label', 'Primary');
+    nav.innerHTML = `
+      <button type="button" class="simple-primary" data-simple-tab="shipments">Shipments</button>
+      <button type="button" data-simple-tab="new">Ocean</button>
+      <button type="button" data-simple-tab="drayage">Drayage</button>
+      <button type="button" data-simple-tab="clearance">Customs</button>`;
     header.appendChild(nav);
 
-    const moreButton = nav.querySelector('[data-action="more"]');
-    const moreMenu = nav.querySelector('.simple-more-menu');
-    const readinessButton = nav.querySelector('[data-action="system-check-primary"]');
+    const moreButton = controls.querySelector('[data-action="more"]');
+    const moreMenu = controls.querySelector('.simple-more-menu');
+    const readinessButton = controls.querySelector('[data-action="system-check-primary"]');
     const menuItems = () => Array.from(moreMenu.querySelectorAll('[role="menuitem"]'));
     const closeMore = (restoreFocus = false) => {
       moreMenu.hidden = true;
@@ -200,7 +207,7 @@
       moreButton.setAttribute('aria-expanded', 'true');
     };
 
-    nav.querySelectorAll('[data-simple-tab]').forEach((button) => {
+    header.querySelectorAll('[data-simple-tab]').forEach((button) => {
       button.addEventListener('click', () => {
         activateTab(button.dataset.simpleTab);
         closeMore();
@@ -239,15 +246,15 @@
         items.at(-1)?.focus();
       }
     });
-    nav.querySelector('[data-action="import"]').addEventListener('click', () => {
+    controls.querySelector('[data-action="import"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('universal-rate-import-open'));
       closeMore();
     });
-    nav.querySelector('[data-action="client-quote"]').addEventListener('click', () => {
+    controls.querySelector('[data-action="client-quote"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('client-quote-open'));
       closeMore();
     });
-    nav.querySelector('[data-action="show-all"]').addEventListener('click', () => {
+    controls.querySelector('[data-action="show-all"]').addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('workflow-show-all'));
       closeMore();
     });
@@ -255,14 +262,14 @@
       document.dispatchEvent(new CustomEvent('system-check-open'));
       closeMore();
     };
-    nav.querySelector('[data-action="system-check"]').addEventListener('click', openReadiness);
+    controls.querySelector('[data-action="system-check"]').addEventListener('click', openReadiness);
     readinessButton.addEventListener('click', openReadiness);
-    nav.querySelector('[data-action="help"]').addEventListener('click', () => {
+    controls.querySelector('[data-action="help"]').addEventListener('click', () => {
       document.getElementById('help-btn')?.click();
       closeMore();
     });
     document.addEventListener('click', (event) => {
-      if (!nav.querySelector('.simple-more-wrap').contains(event.target)) closeMore();
+      if (!controls.querySelector('.simple-more-wrap').contains(event.target)) closeMore();
     });
     document.addEventListener('system-readiness-updated', (event) => {
       const detail = event.detail || {};
