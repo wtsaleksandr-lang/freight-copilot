@@ -28,6 +28,7 @@ const CLIENT_SCRIPTS = [
   'shipment-actions-ui.js',
   'trucking-estimate-ui.js',
   'drayage-estimate-ui.js',
+  'drayage-matrix-ui.js',
   'trucking-ingestion-ui.js',
   'drayage-ingestion-ui.js',
   'app.js',
