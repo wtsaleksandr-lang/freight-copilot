@@ -97,13 +97,13 @@ export function buildStatusGroups(input: {
   const optional: StatusItem[] = [];
   const experimental: StatusItem[] = [];
 
-  // Secret encryption status — a prod-missing key is a data-loss risk (red).
-  if (!masterKey.productionSafe) {
-    critical.push({ id: 'secrets-key', name: 'Encryption master key', detail: 'SECRETS_MASTER_KEY is not set in production. Stored provider keys cannot be encrypted or decrypted safely.', action: 'Set SECRETS_MASTER_KEY in the deployment Secrets and republish.' });
-  } else if (!masterKey.configured) {
-    setup.push({ id: 'secrets-key', name: 'Encryption master key', detail: 'Using a development fallback key. Fine locally; set SECRETS_MASTER_KEY before deploying.', action: 'Add SECRETS_MASTER_KEY to Secrets for production.' });
+  // Secret encryption status. AI provider keys are ENVIRONMENT-ONLY now, so the
+  // master key only affects the optional carrier-login vault — not the core AI
+  // path — hence this is setup-level guidance, never a blocking red.
+  if (masterKey.configured) {
+    operational.push({ id: 'secrets-key', name: 'Carrier-secret encryption', detail: `SECRETS_MASTER_KEY configured (source: ${masterKey.source}). Used only for stored carrier logins; AI keys are read from the environment.` });
   } else {
-    operational.push({ id: 'secrets-key', name: 'Encryption master key', detail: `Configured (source: ${masterKey.source}). SESSION_SECRET is unrelated and kept separate.` });
+    setup.push({ id: 'secrets-key', name: 'Carrier-secret encryption', detail: 'SECRETS_MASTER_KEY is not set. Only needed if you store carrier login credentials in-app; AI provider keys do not use it.', action: 'Set SECRETS_MASTER_KEY in Secrets only if you use the carrier-rate bots.' });
   }
 
   // Database connection + schema.
@@ -120,16 +120,13 @@ export function buildStatusGroups(input: {
     }
   }
 
-  // Provider keys — a locked stored key is a real blocking problem (red).
+  // AI provider keys — environment-only, so a provider is simply configured or
+  // not. Nothing can be "locked".
   const usable = providers.filter((p) => p.usable);
-  const locked = providers.filter((p) => p.state === 'stored_locked');
-  for (const p of locked) {
-    critical.push({ id: `provider-${p.provider}`, name: `${p.provider} key locked`, detail: 'A key is stored but cannot be decrypted with the current master key (it was not lost).', action: 'Restore the original SECRETS_MASTER_KEY, or Replace the key.' });
-  }
   if (usable.length === 0) {
-    setup.push({ id: 'providers', name: 'AI provider keys', detail: 'No usable AI provider key. AI-assisted features are disabled.', action: 'Add a provider key (or import environment keys) in AI settings.' });
+    setup.push({ id: 'providers', name: 'AI provider keys', detail: 'No AI provider key found in the environment. AI-assisted features are disabled.', action: 'Set a provider key as a Secret (e.g. ANTHROPIC_API_KEY) and republish.' });
   } else {
-    verify.push({ id: 'ai', name: 'AI-assisted features', detail: `Usable providers: ${usable.map((p) => p.provider).join(', ')}. Verify AI output before sending to customers.` });
+    verify.push({ id: 'ai', name: 'AI-assisted features', detail: `Configured providers: ${usable.map((p) => p.provider).join(', ')}. Verify AI output before sending to customers.` });
   }
 
   // Security.

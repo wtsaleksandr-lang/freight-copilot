@@ -8452,16 +8452,12 @@ function esc(s) {
 })();
 
 // =====================================================================
-// AI provider keys vault (Carrier secrets tab)
+// AI provider keys — ENVIRONMENT ONLY (Carrier secrets tab)
+// Keys live in environment Secrets. This panel just shows which providers are
+// configured and lets you test that a configured key actually works. There is
+// no vault, no master key, and nothing that can be "locked".
 // =====================================================================
-(function wireAiKeysVault() {
-  const provSel = document.getElementById('ai-key-provider');
-  const keyIn = document.getElementById('ai-key-value');
-  const labelIn = document.getElementById('ai-key-label');
-  const saveBtn = document.getElementById('ai-key-save-btn');
-  const importBtn = document.getElementById('ai-key-import-btn');
-  const status = document.getElementById('ai-key-status');
-  const masterKeyBox = document.getElementById('ai-key-masterkey');
+(function wireAiKeysStatus() {
   const table = document.getElementById('ai-key-list-table');
   const refreshBtn = document.getElementById('ai-key-refresh-btn');
   if (!table) return;
@@ -8473,83 +8469,33 @@ function esc(s) {
     deepseek: 'DeepSeek',
     xai: 'xAI / Grok',
   };
-  // 5 explicit statuses (Objective 5). One provider failing never blanks the rest.
   const STATE_BADGE = {
-    stored_usable: { label: 'Stored securely', cls: 'green' },
-    env_fallback: { label: 'Environment fallback', cls: 'blue' },
-    stored_locked: { label: 'Stored but locked', cls: 'red' },
-    missing: { label: 'Missing', cls: 'gray' },
+    configured: { label: 'Configured (environment)', cls: 'green' },
+    missing: { label: 'Not set', cls: 'gray' },
   };
-
-  function setStat(msg, kind) {
-    status.textContent = msg || '';
-    status.className = 'status-inline' + (kind ? ' status-' + kind : '');
-  }
-
-  function renderMasterKey(mk) {
-    if (!masterKeyBox) return;
-    if (!mk) { masterKeyBox.textContent = ''; return; }
-    if (!mk.productionSafe) {
-      masterKeyBox.className = 'status-inline status-error';
-      masterKeyBox.textContent = '⚠ SECRETS_MASTER_KEY is not set in production — set it in Secrets and republish before saving keys.';
-    } else if (!mk.configured) {
-      masterKeyBox.className = 'status-inline status-info';
-      masterKeyBox.textContent = 'SECRETS_MASTER_KEY: using a development fallback. Set it in Secrets before deploying.';
-    } else {
-      masterKeyBox.className = 'status-inline status-success';
-      masterKeyBox.textContent = `SECRETS_MASTER_KEY configured (source: ${mk.source}). SESSION_SECRET is separate.`;
-    }
-  }
 
   async function loadList() {
     try {
       const r = await fetch('/api/ai-keys');
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'load failed');
-      renderMasterKey(data.masterKey);
       const providers = Array.isArray(data.providers) ? data.providers : [];
-      const head = `<thead><tr><th>Provider</th><th>Status</th><th>Label</th><th>Key</th><th>Updated</th><th>Actions</th></tr></thead>`;
+      const head = `<thead><tr><th>Provider</th><th>Status</th><th>Environment variable</th><th>Test</th></tr></thead>`;
       const body = providers
         .map((p) => {
           const badge = STATE_BADGE[p.state] || { label: p.state, cls: 'gray' };
-          const ready = p.usable ? '<span class="feature-state feature-state-ready" title="A key is available at runtime">Ready</span> ' : '';
-          const updated = p.updatedAt ? new Date(p.updatedAt).toISOString().slice(0, 10) : '—';
-          const masked = p.keyMasked ? `<code>${esc(p.keyMasked)}</code>` : '<span class="muted small">—</span>';
-          const testBtn = `<button class="btn-sm ai-key-test" data-prov="${esc(p.provider)}" title="Cheap metadata call — no data sent">Test</button>`;
-          const rmBtn = p.storedRow
-            ? `<button class="ship-delete-btn ai-key-del" data-prov="${esc(p.provider)}" title="Remove from vault (env var unaffected)">✕</button>`
+          const testBtn = p.hasEnv
+            ? `<button class="btn-sm ai-key-test" data-prov="${esc(p.provider)}" title="Cheap metadata call — verifies the key works">Test</button>`
             : '';
           return `<tr data-prov="${esc(p.provider)}">
             <td>${esc(PROV_LABEL[p.provider] || p.provider)}</td>
-            <td>${ready}<span class="feature-state feature-state-${badge.cls}" data-badge="${esc(p.state)}">${esc(badge.label)}</span></td>
-            <td>${esc(p.label || '—')}</td>
-            <td>${masked}</td>
-            <td class="when-cell">${updated}</td>
-            <td class="actions-cell"><span class="ai-key-test-result muted small"></span> ${testBtn}${rmBtn}</td>
+            <td><span class="feature-state feature-state-${badge.cls}" data-badge="${esc(p.state)}">${esc(badge.label)}</span></td>
+            <td><code>${esc(p.envVar)}</code></td>
+            <td class="actions-cell"><span class="ai-key-test-result muted small"></span> ${testBtn}</td>
           </tr>`;
         })
         .join('');
       table.innerHTML = head + `<tbody>${body}</tbody>`;
-      table.querySelectorAll('.ai-key-del').forEach((b) => {
-        b.addEventListener('click', async () => {
-          const prov = b.getAttribute('data-prov');
-          if (!(await confirmModal({
-            title: 'Remove vault key',
-            message: `⚠ Remove the stored ${prov} key from the encrypted vault?\n\nThis is a destructive action. The matching environment variable (if any) is NOT affected.`,
-            confirmLabel: 'Remove key',
-            danger: true,
-          }))) return;
-          try {
-            const r = await fetch(`/api/ai-keys/${encodeURIComponent(prov)}`, { method: 'DELETE' });
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error || 'delete failed');
-            await loadList();
-            toast(`${prov} key removed.`, 'success');
-          } catch (err) {
-            toast(err.message, 'error');
-          }
-        });
-      });
       table.querySelectorAll('.ai-key-test').forEach((b) => {
         b.addEventListener('click', async () => {
           const prov = b.getAttribute('data-prov');
@@ -8571,59 +8517,12 @@ function esc(s) {
         });
       });
     } catch (err) {
-      // A single failure must not blank the whole panel silently.
-      table.innerHTML = `<tbody><tr><td class="empty">Status unavailable: ${esc(err.message)}. Stored keys were not affected.</td></tr></tbody>`;
+      table.innerHTML = `<tbody><tr><td class="empty">Status unavailable: ${esc(err.message)}.</td></tr></tbody>`;
     }
   }
 
-  importBtn?.addEventListener('click', async () => {
-    importBtn.disabled = true;
-    setStat('Importing environment keys…', 'info');
-    try {
-      const r = await fetch('/api/ai-keys/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'import failed');
-      const imported = (data.results || []).filter((x) => x.action === 'imported').map((x) => x.provider);
-      setStat(imported.length ? `Imported: ${imported.join(', ')}.` : 'No new keys to import.', 'success');
-      await loadList();
-    } catch (err) {
-      setStat(err.message, 'error');
-    } finally {
-      importBtn.disabled = false;
-    }
-  });
-
-  saveBtn?.addEventListener('click', async () => {
-    const provider = provSel.value;
-    const key = keyIn.value.trim();
-    const label = labelIn.value.trim() || undefined;
-    if (!key) { setStat('Enter the API key.', 'error'); return; }
-    saveBtn.disabled = true;
-    setStat('Saving…', 'info');
-    try {
-      const r = await fetch(`/api/ai-keys/${encodeURIComponent(provider)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, label }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'save failed');
-      setStat(`${provider} key saved.`, 'success');
-      keyIn.value = '';
-      labelIn.value = '';
-      await loadList();
-    } catch (err) {
-      setStat(err.message, 'error');
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
-
   refreshBtn?.addEventListener('click', loadList);
-  // Refresh whenever the user opens the secrets tab.
-  document
-    .querySelector('[data-tab="secrets"]')
-    ?.addEventListener('click', loadList);
+  document.querySelector('[data-tab="secrets"]')?.addEventListener('click', loadList);
   loadList();
 })();
 
