@@ -61,6 +61,7 @@ import {
   searchUsHs as searchUsHsCode,
   calculateUsCustoms as calculateUsCustomsQuote,
 } from './customsCalc.js';
+import { computeDrayageMatrix, DRAYAGE_ACCESSORIALS, tariffPortCodes } from './drayageRating.js';
 import {
   getCachedProbeResults,
   probeCarrierSession,
@@ -961,6 +962,56 @@ export function registerApiRoutes(app: Express): void {
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  });
+
+  // Structured drayage RATE from the ported zone-tariff + accessorial matrix
+  // (ported from QuoteFleet). Anchors on a tariff port, prices by distance ring
+  // to the door, adds auto/selected accessorials + fuel + margin.
+  app.get('/api/drayage/accessorials', (_req: Request, res: Response) => {
+    res.json({
+      tariffPorts: tariffPortCodes(),
+      accessorials: DRAYAGE_ACCESSORIALS.map((a) => ({ code: a.code, label: a.label, kind: a.kind, trigger: a.trigger })),
+    });
+  });
+
+  app.post('/api/drayage/matrix-quote', async (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const portCode = String(body.portCode ?? '').trim().toUpperCase();
+      if (!portCode) return res.status(400).json({ error: 'portCode is required (a tariff-anchored port).' });
+      let doorLat = Number(body.doorLat);
+      let doorLng = Number(body.doorLng);
+      if (!Number.isFinite(doorLat) || !Number.isFinite(doorLng)) {
+        const query = String(body.doorQuery ?? '').trim();
+        if (query.length < 3) return res.status(400).json({ error: 'Provide doorLat/doorLng, or a doorQuery (delivery address / ZIP) to locate the door.' });
+        const cc = ['us', 'ca'].includes(String(body.doorCountry ?? '').toLowerCase()) ? String(body.doorCountry).toLowerCase() : 'us,ca';
+        const url = new URL('https://nominatim.openstreetmap.org/search');
+        url.searchParams.set('format', 'json');
+        url.searchParams.set('limit', '1');
+        url.searchParams.set('countrycodes', cc);
+        url.searchParams.set('q', query);
+        const gr = await fetch(url, { headers: { 'User-Agent': 'freight-copilot/1.0 (personal-use freight forwarder app)', Accept: 'application/json' } });
+        if (!gr.ok) return res.status(502).json({ error: `Address lookup failed (${gr.status}).` });
+        const arr = (await gr.json()) as Array<{ lat?: string; lon?: string }>;
+        const first = Array.isArray(arr) ? arr[0] : undefined;
+        if (!first?.lat || !first?.lon) return res.status(422).json({ error: 'Could not locate the delivery address — enter it more specifically.' });
+        doorLat = Number(first.lat);
+        doorLng = Number(first.lon);
+      }
+      const result = computeDrayageMatrix({
+        portCode,
+        doorLat,
+        doorLng,
+        flags: (body.flags ?? {}) as Record<string, never>,
+        selectedAccessorialCodes: Array.isArray(body.selectedAccessorialCodes) ? (body.selectedAccessorialCodes as string[]) : [],
+        fuelPerMile: Number(body.fuelPerMile) || 0,
+        marginPct: Number(body.marginPct) || 0,
+        currency: body.currency === 'CAD' ? 'CAD' : body.currency === 'USD' ? 'USD' : undefined,
+      });
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
