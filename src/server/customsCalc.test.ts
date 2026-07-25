@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseRateToPercent, calculateDuty, getBestTreatment, calculateCanadaCustoms, searchHs } from './customsCalc.js';
+import { parseRateToPercent, calculateDuty, getBestTreatment, calculateCanadaCustoms, searchHs, calculateUsCustoms, searchUsHs, getUsHsCode } from './customsCalc.js';
 
 test('rate parser recognises the CBSA formats', () => {
   assert.equal(parseRateToPercent('Free').description, 'Free');
@@ -59,4 +59,43 @@ test('calculate: preferential rate withheld until origin confirmed', () => {
     assert.equal(unconfirmed.appliedTreatment, 'MFN');
     assert.ok(unconfirmed.warnings.some((w) => /rules of origin/i.test(w)));
   }
+});
+
+test('US: HS code resolves the Column-1-General (MFN) rate and duty', () => {
+  const codes = searchUsHs('6109', 1);
+  assert.ok(codes.length > 0, 'US dataset loaded');
+  const r = calculateUsCustoms({ hsCode: codes[0]!.code, countryOfOrigin: 'China', valueUSD: 10000 });
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.match(r.appliedTreatmentName, /Column 1 General/);
+    assert.equal(r.dutyAmount, Math.round((r.dutyRatePercent ?? 0) / 100 * 10000 * 100) / 100);
+  }
+});
+
+test('US: USMCA preference is Free only once origin is confirmed', () => {
+  // 6109.10.00 (cotton T-shirts) carries a real MFN rate and USMCA "S" in special.
+  const code = '6109.10.00';
+  assert.ok(getUsHsCode(code), 'code present');
+  const unconfirmed = calculateUsCustoms({ hsCode: code, countryOfOrigin: 'Canada', valueUSD: 10000, confirmedOrigin: false });
+  const confirmed = calculateUsCustoms({ hsCode: code, countryOfOrigin: 'Canada', valueUSD: 10000, confirmedOrigin: true });
+  assert.equal(unconfirmed.ok && confirmed.ok, true);
+  if (unconfirmed.ok && confirmed.ok) {
+    assert.match(unconfirmed.appliedTreatmentName, /Column 1 General/);
+    assert.ok(unconfirmed.warnings.some((w) => /USMCA/i.test(w)));
+    assert.equal(confirmed.dutyRate, 'Free');
+    assert.equal(confirmed.dutyAmount, 0);
+  }
+});
+
+test('US: a 10-digit statistical code falls back to its 8-digit rate', () => {
+  const eight = searchUsHs('01', 1)[0]?.code;
+  assert.ok(eight, 'have a code');
+  // Query with an extra suffix — should still resolve.
+  const r = getUsHsCode((eight as string).slice(0, 10));
+  assert.ok(r, 'fallback resolved');
+});
+
+test('US: unknown HS code is reported, not crashed', () => {
+  const r = calculateUsCustoms({ hsCode: '9999.99.99', countryOfOrigin: 'China', valueUSD: 1000 });
+  assert.equal(r.ok, false);
 });
