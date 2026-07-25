@@ -167,6 +167,7 @@
           <div class="clearance-sum-total"><span class="muted small">Client total</span><strong id="clearance-sum-total">USD 0.00</strong></div>
         </div>
         <div class="clearance-actions">
+          <button type="button" class="btn-sm" id="clearance-copy">📋 Copy quote (email)</button>
           <button type="button" class="btn-sm" id="clearance-preview">Preview</button>
           <button type="button" class="primary" id="clearance-pdf">Create PDF</button>
           <span id="clearance-status" class="status-inline" role="status" aria-live="polite"></span>
@@ -310,6 +311,48 @@
         options: [],
         notes,
       };
+    }
+
+    // Build an email-ready plain-text version of the quote (paste into an email).
+    function buildQuoteText() {
+      const moveLabel = { import_usa: 'USA import', import_canada: 'Canada import', export_clearance: 'Export' }[template] || '';
+      const lines = [];
+      lines.push(`${currentValue('clearance-title') || 'Customs clearance quote'}${moveLabel ? ' — ' + moveLabel : ''}`);
+      const bits = [];
+      if (currentValue('clearance-hs')) bits.push('HS ' + currentValue('clearance-hs'));
+      if (currentValue('clearance-country')) bits.push('Origin: ' + currentValue('clearance-country'));
+      if (currentValue('clearance-value') && template !== 'export_clearance') bits.push('Value: ' + CLR_USD(CLR_NUM(currentValue('clearance-value'))));
+      if (bits.length) lines.push(bits.join(' · '));
+      lines.push('');
+      const stat = statItems();
+      if (stat.length) {
+        lines.push('Duty & government charges:');
+        stat.forEach((it) => lines.push(`  • ${it.label} — ${CLR_USD(it.amount)}`));
+      }
+      const svc = readServiceRows().filter((r) => r.label);
+      if (svc.length) {
+        lines.push('Service charges:');
+        svc.forEach((r) => {
+          if (r.amount === '' || r.amount == null) { lines.push(`  • ${r.label} — (if applicable)`); return; }
+          const sell = r.category === 'statutory' ? CLR_NUM(r.amount) : sellOf(CLR_NUM(r.amount));
+          lines.push(`  • ${r.label} — ${CLR_USD(sell)}`);
+        });
+      }
+      lines.push('');
+      lines.push(`Estimated total: ${$('#clearance-sum-total').textContent}`);
+      if (currentValue('clearance-validity')) lines.push(`Validity: ${currentValue('clearance-validity')}`);
+      lines.push('');
+      lines.push('Estimate only — not a formal customs quotation. Duties/taxes are calculated from published tariff schedules and may not include Section 301/232 tariffs, antidumping/countervailing duties, excise, or other government-agency fees. The final duty, tax and import-clearance cost is determined at formal cargo entry and customs evaluation. We are not a licensed customs broker and do not guarantee this estimate; a formal, reviewed quotation can be provided for an additional fee after a thorough evaluation of your documentation.');
+      return lines.join('\n');
+    }
+    async function copyQuote() {
+      const status = $('#clearance-status');
+      try {
+        await navigator.clipboard.writeText(buildQuoteText());
+        if (status) status.textContent = 'Quote copied — paste it into your email.';
+      } catch {
+        if (status) status.textContent = 'Copy blocked by the browser — use Preview and copy from there.';
+      }
     }
 
     async function errText(res, fallback) {
@@ -505,6 +548,7 @@
     $('#clearance-add-line').addEventListener('click', () => { addServiceRow(); recompute(); });
     $('#clearance-preview').addEventListener('click', preview);
     $('#clearance-pdf').addEventListener('click', createPdf);
+    $('#clearance-copy')?.addEventListener('click', copyQuote);
     $('#clearance-import-btn')?.addEventListener('click', () => $('#clearance-import-file')?.click());
     $('#clearance-import-file')?.addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
