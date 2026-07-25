@@ -143,3 +143,11 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
   .clearance-svc-head{align-items:flex-start}
   .clearance-table{display:block;overflow-x:auto;white-space:nowrap}
 }
+
+/* Customs: CBSA HS-code lookup fields */
+.clearance-confirm{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.clearance-confirm input{width:auto}
+.clearance-hs-status{font-size:12.5px;padding:8px 11px;border-radius:8px;background:#f1f5f9;color:var(--ink-soft,#334155);border:1px solid var(--border)}
+.clearance-hs-status.is-ok{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
+.clearance-hs-status.is-warn{background:#fffbeb;border-color:#fde68a;color:#92400e}
+.clearance-warn{color:#b45309}
