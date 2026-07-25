@@ -7,7 +7,7 @@ import { describeMasterKey } from './secretsCrypto.js';
 import { getDatabaseDiagnostics, type DatabaseDiagnostics } from './dbDiagnostics.js';
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
 
-const REQUIRED_TABLES = ['shipments', 'quote_bundles', 'drayage_quotes', 'trucking_quotes', 'shipment_containers', 'shipment_follow_ups'] as const;
+const REQUIRED_TABLES = ['shipments', 'quote_bundles', 'drayage_quotes', 'trucking_quotes', 'shipment_containers', 'shipment_follow_ups', 'drayage_rate_library'] as const;
 type FeatureState = 'ready' | 'review_required' | 'setup_required' | 'experimental' | 'unavailable';
 type FeatureReadiness = { id: string; name: string; area: string; state: FeatureState; summary: string; action?: string };
 
