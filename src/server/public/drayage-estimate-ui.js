@@ -12,6 +12,48 @@
     return `${esc(currency || 'USD')} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
+  // ── Email-ready "copy quote" for the drayage estimate ─────────────────────
+  function fieldVal(id) { return (document.getElementById(id)?.value || '').trim(); }
+  function endpointLabel(prefix) {
+    const type = document.querySelector(`input[name="dr-${prefix}-type"]:checked`)?.value;
+    if (type === 'CY') {
+      const n = fieldVal(`dr-${prefix}-port-name`) || fieldVal(`dr-${prefix}-port-code`);
+      return n ? `${n} (CY)` : 'Port (CY)';
+    }
+    const parts = [fieldVal(`dr-${prefix}-city`), fieldVal(`dr-${prefix}-state`), fieldVal(`dr-${prefix}-zip`)].filter(Boolean).join(', ');
+    return parts ? `${parts} (door)` : 'Door delivery';
+  }
+  function selectLabel(id) {
+    const el = document.getElementById(id);
+    if (!el) return '';
+    return (el.options && el.options[el.selectedIndex]?.text) || el.value || '';
+  }
+  function buildDrayageQuoteText(rate) {
+    const lines = [];
+    lines.push('Drayage estimate');
+    lines.push(`${endpointLabel('origin')} → ${endpointLabel('destination')}`);
+    const meta = [selectLabel('dr-container'), selectLabel('dr-cargo-type'), `${Number(rate.requestedContainerCount) || 1} container(s)`].filter(Boolean).join(' · ');
+    if (meta) lines.push(meta);
+    lines.push('');
+    lines.push(`Estimated all-in: ${money(rate.totalCost, rate.currency)}`);
+    if (Number.isFinite(Number(rate.estimateLow)) && Number.isFinite(Number(rate.estimateHigh))) {
+      lines.push(`Historical range: ${money(rate.estimateLow, rate.currency)} – ${money(rate.estimateHigh, rate.currency)}`);
+    }
+    lines.push(`Confidence: ${rate.confidence} (${Number(rate.sourceCount) || 0} supporting rate${Number(rate.sourceCount) === 1 ? '' : 's'})`);
+    lines.push('');
+    lines.push('Directional estimate only — chassis, fuel, tolls, overweight, pre-pull, storage, waiting time, permits and equipment availability must be confirmed with the drayage provider before quoting as firm.');
+    return lines.join('\n');
+  }
+  async function copyDrayageQuote(rate) {
+    const btn = document.getElementById('dr-estimate-copy');
+    try {
+      await navigator.clipboard.writeText(buildDrayageQuoteText(rate));
+      if (btn) { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1500); }
+    } catch {
+      if (btn) { const t = btn.textContent; btn.textContent = 'Copy blocked'; setTimeout(() => { btn.textContent = t; }, 1500); }
+    }
+  }
+
   function installStyles() {
     if (document.getElementById('dr-estimate-styles')) return;
     const style = document.createElement('style');
@@ -19,6 +61,7 @@
     style.textContent = `
       .dr-estimate-panel{margin:14px 0;padding:14px;border:1px solid rgba(245,158,11,.45);border-radius:12px;background:rgba(245,158,11,.07)}
       .dr-estimate-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+      .dr-estimate-head-actions{display:inline-flex;align-items:center;gap:8px}
       .dr-estimate-badge{display:inline-flex;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
       .dr-estimate-badge.high{background:rgba(34,197,94,.16);color:#22c55e}.dr-estimate-badge.medium{background:rgba(245,158,11,.18);color:#f59e0b}.dr-estimate-badge.low{background:rgba(239,68,68,.16);color:#ef4444}
       .dr-estimate-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
@@ -93,7 +136,7 @@
     const confidence = ['high','medium','low'].includes(rate.confidence) ? rate.confidence : 'low';
     const range = Number.isFinite(Number(rate.estimateLow)) && Number.isFinite(Number(rate.estimateHigh)) ? `${money(rate.estimateLow, rate.currency)} – ${money(rate.estimateHigh, rate.currency)}` : '—';
     panel.innerHTML = `
-      <div class="dr-estimate-head"><strong>Historical drayage estimate</strong><span class="dr-estimate-badge ${esc(confidence)}">${esc(confidence)} confidence</span></div>
+      <div class="dr-estimate-head"><strong>Historical drayage estimate</strong><span class="dr-estimate-head-actions"><span class="dr-estimate-badge ${esc(confidence)}">${esc(confidence)} confidence</span><button type="button" class="btn-sm" id="dr-estimate-copy">📋 Copy quote</button></span></div>
       <div class="dr-estimate-grid">
         <div class="dr-estimate-metric"><span>Estimated all-in</span><strong>${money(rate.totalCost, rate.currency)}</strong></div>
         <div class="dr-estimate-metric"><span>Historical range</span><strong>${range}</strong></div>
@@ -106,6 +149,7 @@
       </div>
       <div class="dr-estimate-warning"><strong>Directional estimate only.</strong> Verify chassis, fuel, tolls, overweight, pre-pull, storage, waiting time, permits and availability with a drayage provider before quoting it as firm.</div>
       ${rate.notes ? `<div class="dr-estimate-notes">${esc(rate.notes)}</div>` : ''}`;
+    panel.querySelector('#dr-estimate-copy')?.addEventListener('click', () => copyDrayageQuote(rate));
   }
 
   function clearEstimate() { document.getElementById('dr-estimate-panel')?.remove(); }
