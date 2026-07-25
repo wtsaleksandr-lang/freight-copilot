@@ -1963,16 +1963,14 @@ export function registerApiRoutes(app: Express): void {
         // AI sees the full context.
         const briefingFiles: BriefingFile[] = [];
         if (body.useExistingFiles) {
-          const { readFile } = await import('node:fs/promises');
+          const { readAttachmentBytes } = await import('./keptFileStore.js');
           const arts = existing.artifactsJson ?? [];
           const fromDisk = await Promise.all(
             arts.map(async (a) => {
-              // a.url is "/shipments-files/<refId>/<n>-<filename>" — map
-              // back to the on-disk path under shipments-files/.
-              const rel = a.url.replace(/^\/shipments-files\//, '');
-              const disk = resolve(`./shipments-files/${rel}`);
-              const buf = await readFile(disk);
-              const filename = a.filename || rel.split('/').pop() || 'file';
+              // Reads from R2 (durable) or the legacy on-disk path, per the URL.
+              const buf = await readAttachmentBytes(a.url);
+              if (!buf) throw new Error(`Saved attachment could not be read: ${a.filename || a.url}`);
+              const filename = a.filename || 'file';
               if (isMsgFile(filename)) {
                 const ab = new ArrayBuffer(buf.byteLength);
                 new Uint8Array(ab).set(buf);
@@ -2275,9 +2273,9 @@ export function registerApiRoutes(app: Express): void {
         // we're re-running against already-saved files (nothing new
         // to write to disk in that case).
         if (!body.ephemeral && !body.useExistingFiles) {
-          const { mkdir, writeFile } = await import('node:fs/promises');
-          const outDir = resolve(`./shipments-files/${refId}`);
-          await mkdir(outDir, { recursive: true });
+          // Durable store: R2 when configured (survives redeploys), disk
+          // otherwise — same URL shape either way, so serve-back is unchanged.
+          const { storeShipmentAttachment } = await import('./keptFileStore.js');
           const newArtifacts: Array<{
             filename: string;
             url: string;
@@ -2292,11 +2290,15 @@ export function registerApiRoutes(app: Express): void {
               /[^a-z0-9._-]/gi,
               '_'
             );
-            const fp = resolve(outDir, `${startIdx + i}-${safe}`);
-            await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+            const stored = await storeShipmentAttachment({
+              refId,
+              objectName: `${startIdx + i}-${safe}`,
+              bytes: Buffer.from(f.contentBase64, 'base64'),
+              contentType: briefingFiles[i]!.mediaType,
+            });
             newArtifacts.push({
               filename: f.filename ?? safe,
-              url: `/shipments-files/${refId}/${startIdx + i}-${safe}`,
+              url: stored.servedUrl,
               mediaType: briefingFiles[i]!.mediaType,
               addedAt: stamp,
             });
@@ -2538,15 +2540,15 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
       const a = arts[idx]!;
-      const rel = (a.url ?? '').replace(/^\/shipments-files\//, '');
-      if (!rel) {
-        res.status(400).json({ error: 'artifact has no on-disk path' });
-        return;
-      }
       try {
-        const { readFile } = await import('node:fs/promises');
-        const buf = await readFile(resolve(`./shipments-files/${rel}`));
-        const filename = a.filename || rel.split('/').pop() || 'file';
+        // Reads from R2 (durable) or the legacy on-disk path, per the URL.
+        const { readAttachmentBytes } = await import('./keptFileStore.js');
+        const buf = await readAttachmentBytes(a.url ?? '');
+        if (!buf) {
+          res.status(404).json({ error: 'attachment file not found' });
+          return;
+        }
+        const filename = a.filename || 'file';
         if (isMsgFile(filename)) {
           const ab = new ArrayBuffer(buf.byteLength);
           new Uint8Array(ab).set(buf);
@@ -2612,17 +2614,10 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
       const [removed] = arts.splice(idx, 1);
-      // Best-effort disk cleanup. Don't fail the request if the file
-      // is already gone (it might have been manually deleted).
-      try {
-        const { unlink } = await import('node:fs/promises');
-        const rel = (removed?.url ?? '').replace(/^\/shipments-files\//, '');
-        if (rel) {
-          await unlink(resolve(`./shipments-files/${rel}`)).catch(() => {});
-        }
-      } catch {
-        /* ignore */
-      }
+      // Best-effort cleanup of the underlying file (R2 or disk). Don't fail the
+      // request if it's already gone.
+      const { deleteAttachment } = await import('./keptFileStore.js');
+      await deleteAttachment(removed?.url ?? '');
       const db = createDbClient();
       const { shipments: shipmentsTbl } = await import('../db/schema.js');
       await db
@@ -2836,9 +2831,8 @@ export function registerApiRoutes(app: Express): void {
         addedAt: string;
       }> = [];
       if (!ephemeral) {
-        const { mkdir, writeFile } = await import('node:fs/promises');
-        const outDir = resolve(`./shipments-files/${row.refId}`);
-        await mkdir(outDir, { recursive: true });
+        // Durable store: R2 when configured (survives redeploys), disk otherwise.
+        const { storeShipmentAttachment } = await import('./keptFileStore.js');
         const stamp = new Date().toISOString();
         for (let i = 0; i < files.length; i++) {
           const f = files[i]!;
@@ -2846,11 +2840,15 @@ export function registerApiRoutes(app: Express): void {
             /[^a-z0-9._-]/gi,
             '_'
           );
-          const fp = resolve(outDir, `${i + 1}-${safe}`);
-          await writeFile(fp, Buffer.from(f.contentBase64, 'base64'));
+          const stored = await storeShipmentAttachment({
+            refId: row.refId,
+            objectName: `${i + 1}-${safe}`,
+            bytes: Buffer.from(f.contentBase64, 'base64'),
+            contentType: briefingFiles[i]!.mediaType,
+          });
           artifacts.push({
             filename: f.filename ?? safe,
-            url: `/shipments-files/${row.refId}/${i + 1}-${safe}`,
+            url: stored.servedUrl,
             mediaType: briefingFiles[i]!.mediaType,
             addedAt: stamp,
           });

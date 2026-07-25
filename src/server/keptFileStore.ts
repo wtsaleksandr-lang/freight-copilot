@@ -23,8 +23,11 @@ const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME;
 const R2_REGION = 'auto';
 const R2_SERVICE = 's3';
 
-/** All LoadMode objects live under this key prefix inside the shared bucket. */
+/** LoadMode objects live under these key prefixes inside the shared bucket. */
 const KEY_PREFIX = 'loadmode/rate-sheets';
+const SHIPMENT_PREFIX = 'loadmode/shipments';
+/** Any object the serve-back route is allowed to read must live under this. */
+const ALLOWED_ROOT = 'loadmode/';
 /** Public serve-back route mounted in routes.ts. */
 export const KEPT_FILE_ROUTE = '/api/kept-file';
 
@@ -160,12 +163,62 @@ export async function storeKeptFile(input: {
   };
 }
 
-/** Read a kept file back for the serve-back route. */
+/**
+ * Persist a shipment ATTACHMENT (the original booking document / image dropped
+ * onto a shipment row). Prefers R2 so it survives redeploys; falls back to the
+ * historical `shipments-files/` disk layout when R2 isn't configured.
+ * `objectName` is the already-numbered "<n>-<filename>" the caller builds, so
+ * the on-disk / R2 key matches the URL stored in the row's artifactsJson.
+ */
+export async function storeShipmentAttachment(input: {
+  refId: string;
+  objectName: string;
+  bytes: Buffer;
+  contentType: string;
+}): Promise<StoredKeptFile> {
+  if (isDurableStorageConfigured()) {
+    const key = `${SHIPMENT_PREFIX}/${input.refId}/${input.objectName}`;
+    const res = await r2Fetch('PUT', key, input.bytes, input.contentType);
+    if (!res.ok) {
+      throw new Error(`R2 PUT failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+    return { backend: 'r2', key, servedUrl: `${KEPT_FILE_ROUTE}?key=${encodeURIComponent(key)}` };
+  }
+  const relPath = `${input.refId}/${input.objectName}`;
+  const absPath = resolve(process.cwd(), 'shipments-files', relPath);
+  await mkdir(dirname(absPath), { recursive: true });
+  await writeFile(absPath, input.bytes);
+  return { backend: 'disk', key: relPath, servedUrl: `/shipments-files/${relPath}` };
+}
+
+/**
+ * Read an attachment's bytes back from wherever it lives, given the URL stored
+ * in artifactsJson. Handles both R2 (via the kept-file route + key) and the
+ * legacy on-disk `shipments-files/` path. Returns null if it can't be found.
+ */
+export async function readAttachmentBytes(url: string): Promise<Buffer | null> {
+  if (!url) return null;
+  if (url.startsWith(KEPT_FILE_ROUTE)) {
+    const m = url.match(/[?&]key=([^&]+)/);
+    if (!m || !m[1]) return null;
+    const got = await readKeptFile(decodeURIComponent(m[1]));
+    return got ? got.bytes : null;
+  }
+  const rel = url.replace(/^\/shipments-files\//, '');
+  if (rel === url) return null; // unrecognised URL shape
+  try {
+    return await readFile(resolve(process.cwd(), 'shipments-files', rel));
+  } catch {
+    return null;
+  }
+}
+
+/** Read a kept/attachment file back for the serve-back route. */
 export async function readKeptFile(
   key: string
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
-  // Guard: only ever serve objects under our own prefix.
-  if (!key.startsWith(`${KEY_PREFIX}/`)) return null;
+  // Guard: only ever serve objects under our own LoadMode root.
+  if (!key.startsWith(ALLOWED_ROOT)) return null;
   if (!isDurableStorageConfigured()) return null;
   const res = await r2Fetch('GET', key);
   if (!res.ok) return null;
@@ -174,6 +227,22 @@ export async function readKeptFile(
     bytes: buf,
     contentType: res.headers.get('content-type') ?? 'application/octet-stream',
   };
+}
+
+/** Best-effort delete of a shipment attachment (R2 or disk) by its stored URL. */
+export async function deleteAttachment(url: string): Promise<void> {
+  if (!url) return;
+  try {
+    if (url.startsWith(KEPT_FILE_ROUTE)) {
+      const m = url.match(/[?&]key=([^&]+)/);
+      if (m && m[1] && isDurableStorageConfigured()) await r2Fetch('DELETE', decodeURIComponent(m[1]));
+      return;
+    }
+    const rel = url.replace(/^\/shipments-files\//, '');
+    if (rel !== url) await unlink(resolve(process.cwd(), 'shipments-files', rel));
+  } catch {
+    // best-effort — a missing object is fine.
+  }
 }
 
 /** Best-effort delete of a kept file (used when a user un-keeps one). */
