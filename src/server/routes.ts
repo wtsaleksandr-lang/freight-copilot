@@ -2958,108 +2958,18 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // ---- AI provider API keys (encrypted vault) ----
-  // GET returns masked summaries (last 4 chars). Plaintext keys never
-  // leave the server.
+  // ---- AI provider API keys (ENVIRONMENT ONLY) ----
+  // Keys live in environment Secrets (ANTHROPIC_API_KEY, etc.). There is no
+  // vault to write to and no master key — a provider is either configured in
+  // the environment or not. GET reports which; the /test route below verifies
+  // a configured key actually works.
   app.get('/api/ai-keys', async (_req: Request, res: Response) => {
     try {
       const { getProviderStatuses } = await import('./apiKeysService.js');
-      const { describeMasterKey } = await import('./secretsCrypto.js');
-      // Never returns key values — statuses carry only a last-4 mask + state.
-      res.json({ providers: await getProviderStatuses(), masterKey: describeMasterKey() });
+      res.json({ providers: getProviderStatuses() });
     } catch (err) {
       console.error('[api/ai-keys] list error:', err instanceof Error ? err.message : err);
       res.status(500).json({ error: 'Could not read provider key status.' });
-    }
-  });
-
-  app.put('/api/ai-keys/:provider', async (req: Request, res: Response) => {
-    const rawId = req.params.provider;
-    const provider = Array.isArray(rawId) ? rawId[0] : rawId;
-    if (!provider) {
-      res.status(400).json({ error: 'provider is required' });
-      return;
-    }
-    const body = (req.body ?? {}) as { key?: string; label?: string };
-    if (!body.key || typeof body.key !== 'string' || body.key.trim() === '') {
-      res.status(400).json({ error: 'key is required' });
-      return;
-    }
-    try {
-      const { upsertApiKey, normalizeProvider, getProviderStatuses } = await import(
-        './apiKeysService.js'
-      );
-      const canonical = normalizeProvider(provider);
-      const existedBefore = (await getProviderStatuses()).find(
-        (s) => s.provider === canonical,
-      )?.storedRow;
-      const status = await upsertApiKey({ provider, key: body.key, label: body.label });
-      const { recordAuditEvent } = await import('./auditService.js');
-      await recordAuditEvent({
-        eventType: existedBefore ? 'api_key.replaced' : 'api_key.added',
-        provider: status.provider,
-        source: 'dashboard',
-        success: true,
-        sanitizedMessage: `${status.provider} key ${existedBefore ? 'replaced' : 'added'} in the encrypted vault`,
-      });
-      res.json(status);
-    } catch (err) {
-      console.error('[api/ai-keys] upsert error:', err instanceof Error ? err.message : err);
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not save key.' });
-    }
-  });
-
-  app.delete('/api/ai-keys/:provider', async (req: Request, res: Response) => {
-    const rawId = req.params.provider;
-    const provider = Array.isArray(rawId) ? rawId[0] : rawId;
-    if (!provider) {
-      res.status(400).json({ error: 'provider is required' });
-      return;
-    }
-    try {
-      const { deleteApiKey, normalizeProvider } = await import('./apiKeysService.js');
-      const ok = await deleteApiKey(provider);
-      const { recordAuditEvent } = await import('./auditService.js');
-      await recordAuditEvent({
-        eventType: 'api_key.removed',
-        provider: normalizeProvider(provider),
-        source: 'dashboard',
-        success: ok,
-        sanitizedMessage: ok
-          ? `${normalizeProvider(provider)} key removed from the encrypted vault`
-          : `no stored ${normalizeProvider(provider)} key to remove`,
-      });
-      res.json({ ok });
-    } catch (err) {
-      console.error('[api/ai-keys] delete error:', err instanceof Error ? err.message : err);
-      res.status(500).json({ error: 'Could not remove key.' });
-    }
-  });
-
-  // Objective 2 — one-click, idempotent import of env-provided keys into the
-  // encrypted vault. Never deletes env values, never overwrites a decryptable
-  // stored key. Returns provider names + actions only (never key values).
-  app.post('/api/ai-keys/migrate', async (req: Request, res: Response) => {
-    try {
-      const body = (req.body ?? {}) as { overwriteLocked?: boolean };
-      const { migrateEnvKeysToVault } = await import('./apiKeysService.js');
-      const results = await migrateEnvKeysToVault({ overwriteLocked: body.overwriteLocked === true });
-      const imported = results.filter((r) => r.action === 'imported').map((r) => r.provider);
-      const { recordAuditEvent } = await import('./auditService.js');
-      await recordAuditEvent({
-        eventType: 'env_migration.completed',
-        provider: null,
-        source: 'dashboard',
-        success: true,
-        sanitizedMessage:
-          imported.length > 0
-            ? `imported ${imported.length} provider key(s) from environment: ${imported.join(', ')}`
-            : 'no new provider keys imported from environment',
-      });
-      res.json({ results });
-    } catch (err) {
-      console.error('[api/ai-keys] migrate error:', err instanceof Error ? err.message : err);
-      res.status(500).json({ error: 'Could not import environment keys.' });
     }
   });
 
