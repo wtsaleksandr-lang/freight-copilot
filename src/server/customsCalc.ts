@@ -285,3 +285,100 @@ export function calculateCanadaCustoms(input: CaCalcInput) {
 }
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// US import (USITC HTS) — Column-1-General (MFN) + FTA preference (USMCA etc.)
+// Data: src/data/usTariff.json — 13,675 rate-bearing HTS lines. Rate strings use
+// the same formats as CBSA, so parseRateToPercent / calculateDuty are reused.
+// MPF / HMF are NOT added here — the customs workspace computes those for US
+// import; this only resolves the genuine HS-driven duty rate.
+// ═══════════════════════════════════════════════════════════════════════════
+export type UsTariffRow = { d: string; u: string | null; g: string; s: string | null; o: string | null };
+let US_TARIFF: Record<string, UsTariffRow> | null = null;
+function usTariff(): Record<string, UsTariffRow> {
+  if (!US_TARIFF) {
+    try { US_TARIFF = JSON.parse(readFileSync(new URL('../data/usTariff.json', import.meta.url), 'utf-8')) as Record<string, UsTariffRow>; }
+    catch { US_TARIFF = {}; }
+  }
+  return US_TARIFF;
+}
+
+// Origin country → HTS Special Program Indicator (major FTAs).
+const US_SPI: Record<string, string> = {
+  Canada: 'S', Mexico: 'S', Australia: 'AU', 'South Korea': 'KR', Chile: 'CL', Colombia: 'CO',
+  Peru: 'PE', Panama: 'PA', Singapore: 'SG', Bahrain: 'BH', Jordan: 'JO', Morocco: 'MA', Oman: 'OM', Israel: 'IL',
+};
+const US_SPI_NAME: Record<string, string> = {
+  S: 'USMCA', AU: 'US–Australia FTA', KR: 'US–Korea FTA', CL: 'US–Chile FTA', CO: 'US–Colombia TPA',
+  PE: 'US–Peru TPA', PA: 'US–Panama TPA', SG: 'US–Singapore FTA', BH: 'US–Bahrain FTA', JO: 'US–Jordan FTA',
+  MA: 'US–Morocco FTA', OM: 'US–Oman FTA', IL: 'US–Israel FTA',
+};
+
+function usPreferentialFree(special: string | null, spi: string): boolean {
+  if (!special || !spi) return false;
+  // "Free (A+,AU,…,S,SG)" — check SPI membership of a Free program group.
+  const m = special.match(/Free\s*\(([^)]*)\)/i);
+  if (!m || !m[1]) return false;
+  return m[1].split(/[,\s]+/).map((s) => s.trim()).includes(spi);
+}
+
+export function getUsHsCode(code: string): (UsTariffRow & { code: string }) | null {
+  const t = usTariff();
+  if (t[code]) return { code, ...t[code] as UsTariffRow };
+  // Fall back to the 8-digit subheading (statistical suffix inherits the rate).
+  const digits = code.replace(/\D/g, '');
+  if (digits.length >= 8) {
+    const sub8 = digits.slice(0, 8);
+    let best: string | null = null;
+    for (const k of Object.keys(t)) {
+      if (k.replace(/\D/g, '').startsWith(sub8)) { best = k; break; }
+    }
+    if (best) return { code: best, ...t[best] as UsTariffRow };
+  }
+  return null;
+}
+
+export function searchUsHs(query: string, limit = 15): Array<{ code: string; description: string; unitOfMeasure: string | null }> {
+  const q = (query || '').trim();
+  if (q.length < 2) return [];
+  const t = usTariff();
+  const out: Array<{ code: string; description: string; unitOfMeasure: string | null }> = [];
+  const isCode = /^[\d.]+$/.test(q);
+  const lower = q.toLowerCase();
+  for (const code of Object.keys(t)) {
+    const row = t[code];
+    if (!row) continue;
+    const match = isCode ? code.startsWith(q) : row.d.toLowerCase().includes(lower);
+    if (match) { out.push({ code, description: row.d, unitOfMeasure: row.u }); if (out.length >= limit) break; }
+  }
+  return out;
+}
+
+export type UsCalcInput = { hsCode: string; countryOfOrigin: string; valueUSD: number; quantity?: number; confirmedOrigin?: boolean };
+export function calculateUsCustoms(input: UsCalcInput) {
+  const hs = getUsHsCode(input.hsCode);
+  if (!hs) return { ok: false as const, error: 'HS code not found' };
+  const spi = US_SPI[input.countryOfOrigin];
+  const warnings: string[] = [];
+  let rate = hs.g;
+  let program = 'MFN (Column 1 General)';
+  if (spi && usPreferentialFree(hs.s, spi)) {
+    if (input.confirmedOrigin) { rate = 'Free'; program = `${US_SPI_NAME[spi] || spi} (preferential)`; }
+    else warnings.push(`A ${US_SPI_NAME[spi] || spi} preferential rate (Free) may apply if the goods qualify under rules of origin — confirm eligibility to apply it.`);
+  }
+  const parsed = parseRateToPercent(rate);
+  const dutyCalc = calculateDuty(rate, input.valueUSD, input.quantity ?? 0);
+  warnings.push(...dutyCalc.warnings);
+  return {
+    ok: true as const,
+    hsCode: hs.code,
+    description: hs.d,
+    appliedTreatmentName: program,
+    dutyRate: rate,
+    dutyRatePercent: parsed.percent > 0 && !parsed.perUnit && !parsed.compound ? parsed.percent : parsed.description === 'Free' ? 0 : null,
+    isSimplePercent: (parsed.percent > 0 || parsed.description === 'Free') && !parsed.perUnit && !parsed.compound,
+    dutyAmount: round2(dutyCalc.duty),
+    requiresManualReview: dutyCalc.requiresManualReview,
+    warnings,
+  };
+}

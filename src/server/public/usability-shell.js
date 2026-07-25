@@ -230,21 +230,23 @@
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      // The genuine CBSA HS-code lookup is Canada-import only (the tariff engine
-      // is CBSA). USA import keeps the manual rate + MPF/HMF until the US HTS
-      // build lands; export declares only.
+      // Genuine HS-code duty lookup runs for both imports: Canada via the CBSA
+      // engine (+ province sales tax), USA via the USITC HTS engine (Column-1
+      // General / USMCA; MPF + HMF are added by the workspace). Export declares
+      // only, so no duty lookup.
       const isCa = next === 'import_canada';
-      $('#clearance-gst-wrap').hidden = !isCa;
+      const isImport = next === 'import_usa' || next === 'import_canada';
+      $('#clearance-gst-wrap').hidden = !isCa;            // sales tax is Canada-only
       $('#clearance-province-wrap').hidden = !isCa;
-      $('#clearance-country-wrap').hidden = !isCa;
-      $('#clearance-confirm-wrap').hidden = !isCa;
-      if (!isCa) { const st = $('#clearance-hs-status'); if (st) st.hidden = true; }
+      $('#clearance-country-wrap').hidden = !isImport;    // origin drives both engines
+      $('#clearance-confirm-wrap').hidden = !isImport;    // rules-of-origin gate for both
+      if (!isImport) { const st = $('#clearance-hs-status'); if (st) st.hidden = true; }
       // Duty / value are irrelevant to an export declaration.
       $('#clearance-duty').closest('label').hidden = next === 'export_clearance';
       $('#clearance-value').closest('label').hidden = next === 'export_clearance';
       seedServiceRows();
       recompute();
-      if (isCa) lookupDuty();
+      if (isImport) lookupDuty();
     }
 
     function assemblePayload() {
@@ -334,8 +336,9 @@
     async function hsSuggest() {
       const q = currentValue('clearance-hs');
       if (q.length < 2) return;
+      const ep = template === 'import_usa' ? 'us-hs-search' : 'hs-search';
       try {
-        const r = await fetch(`/api/customs/hs-search?q=${encodeURIComponent(q)}&limit=12`);
+        const r = await fetch(`/api/customs/${ep}?q=${encodeURIComponent(q)}&limit=12`);
         if (!r.ok) return;
         const { results } = await r.json();
         const dl = $('#clearance-hs-list');
@@ -350,6 +353,7 @@
       el.hidden = !html;
     }
     async function lookupDuty() {
+      if (template === 'import_usa') return lookupDutyUsa();
       if (template !== 'import_canada') return;
       const hs = currentValue('clearance-hs');
       const country = currentValue('clearance-country');
@@ -377,6 +381,29 @@
           setHsStatus(`Applied <strong>${d.appliedTreatmentName}</strong> — duty <strong>${d.dutyRate}</strong> · ${d.gstLabel}/tax ≈ ${taxPct}%${warn}`, 'ok');
         } else {
           setHsStatus(`CBSA rate for <strong>${d.appliedTreatmentName}</strong> is <strong>${d.dutyRate}</strong> (specific / compound) — enter the duty amount manually.${warn}`, 'warn');
+        }
+      } catch { setHsStatus('', ''); }
+    }
+    async function lookupDutyUsa() {
+      const hs = currentValue('clearance-hs');
+      const country = currentValue('clearance-country');
+      const value = CLR_NUM(currentValue('clearance-value'));
+      if (!hs || !country || value <= 0) return;
+      try {
+        const r = await fetch('/api/customs/us-calculate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hsCode: hs, countryOfOrigin: country, valueUSD: value, confirmedOrigin: $('#clearance-origin-confirmed')?.checked === true }),
+        });
+        if (r.status === 404) { setHsStatus('HS code not found in the US HTS — check the number, or enter the duty rate manually.', 'warn'); return; }
+        if (!r.ok) { setHsStatus('', ''); return; }
+        const d = await r.json();
+        const warn = (d.warnings || []).length ? ` · <span class="clearance-warn">${d.warnings[0]}</span>` : '';
+        if (d.isSimplePercent && d.dutyRatePercent != null) {
+          $('#clearance-duty').value = String(d.dutyRatePercent);
+          recompute();
+          setHsStatus(`Applied <strong>${d.appliedTreatmentName}</strong> — duty <strong>${d.dutyRate}</strong> · MPF + HMF added below${warn}`, 'ok');
+        } else {
+          setHsStatus(`US HTS rate for <strong>${d.appliedTreatmentName}</strong> is <strong>${d.dutyRate}</strong> (specific / compound) — enter the duty amount manually.${warn}`, 'warn');
         }
       } catch { setHsStatus('', ''); }
     }

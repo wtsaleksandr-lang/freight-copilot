@@ -58,6 +58,8 @@ import {
   searchHs as searchHsCode,
   listCountries as listCustomsCountries,
   calculateCanadaCustoms as calculateCanadaCustomsQuote,
+  searchUsHs as searchUsHsCode,
+  calculateUsCustoms as calculateUsCustomsQuote,
 } from './customsCalc.js';
 import {
   getCachedProbeResults,
@@ -268,6 +270,41 @@ export function registerApiRoutes(app: Express): void {
         valueCAD,
         quantity: Number(body.quantity) || 0,
         province: body.province ? String(body.province) : 'ON',
+        confirmedOrigin: body.confirmedOrigin === true,
+      });
+      if (!result.ok) return res.status(404).json({ error: result.error });
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // US import (USITC HTS): HS-code → Column-1-General (MFN) rate, with USMCA /
+  // FTA preference when origin qualifies. MPF/HMF are added by the workspace.
+  app.get('/api/customs/us-hs-search', (req: Request, res: Response) => {
+    try {
+      const q = String(req.query.q ?? '');
+      const limit = Math.min(Number(req.query.limit) || 15, 30);
+      res.json({ results: searchUsHsCode(q, limit) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/customs/us-calculate', (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const hsCode = String(body.hsCode ?? '').trim();
+      const countryOfOrigin = String(body.countryOfOrigin ?? '').trim();
+      const valueUSD = Number(body.valueUSD);
+      if (!hsCode) return res.status(400).json({ error: 'HS code is required' });
+      if (!countryOfOrigin) return res.status(400).json({ error: 'Country of origin is required' });
+      if (!Number.isFinite(valueUSD) || valueUSD <= 0) return res.status(400).json({ error: 'Value must be a positive number' });
+      const result = calculateUsCustomsQuote({
+        hsCode,
+        countryOfOrigin,
+        valueUSD,
+        quantity: Number(body.quantity) || 0,
         confirmedOrigin: body.confirmedOrigin === true,
       });
       if (!result.ok) return res.status(404).json({ error: result.error });
