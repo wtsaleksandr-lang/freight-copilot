@@ -151,3 +151,15 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
 .clearance-hs-status.is-ok{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
 .clearance-hs-status.is-warn{background:#fffbeb;border-color:#fde68a;color:#92400e}
 .clearance-warn{color:#b45309}
+
+/* Customs: AD/CVD exposure warning (flag, never a rate) */
+.clearance-adcvd{border:1px solid #fca5a5;background:#fef2f2;border-radius:9px;padding:11px 13px;display:flex;flex-direction:column;gap:6px}
+.clearance-adcvd-head{font-weight:700;font-size:13px;color:#b91c1c}
+.clearance-adcvd-body{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:#7f1d1d}
+.clearance-adcvd-link{align-self:flex-start;font-size:12.5px;font-weight:600;color:#b91c1c;text-decoration:underline}
+.clearance-adcvd-link:hover{color:#991b1b}
+
+/* Customs: persistent estimate/liability disclaimer */
+.clearance-disclaimer{font-size:12px;line-height:1.55;color:var(--ink-soft,#475569);background:#f8fafc;border:1px dashed var(--border)}
+.clearance-disclaimer strong{color:var(--ink)}
+.clearance-disclaimer a{color:var(--accent,#1e40af);font-weight:600;text-decoration:underline;margin-left:4px}
