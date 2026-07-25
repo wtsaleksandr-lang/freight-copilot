@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { createDbClient } from '../db/client.js';
-import { drayageQuotes, drayageRates } from '../db/schema.js';
+import { drayageQuotes, drayageRates, drayageRateLibrary } from '../db/schema.js';
 import { parseDrayageRateFiles, type ParsedDrayageRate } from '../llm/parseDrayageRateFiles.js';
 import type { UniversalFileInput } from '../llm/universalFileText.js';
 import { reviewDrayageRates, type ReviewedDrayageRate } from './drayageIngestionReview.js';
@@ -20,6 +20,26 @@ function validateFiles(req:Request,res:Response):UniversalFileInput[]|null {
   return files;
 }
 
+// Map a parsed dropzone rate onto the drayage_rate_library row shape read by
+// the "Search saved rate library" flow (mirrors routes.ts /save mapping).
+function toLibraryRow(rate:ParsedDrayageRate) {
+  const label=(port?:string|null,terminal?:string|null,city?:string|null,code?:string|null)=>
+    [port??city,terminal].filter(Boolean).join(' — ')||code||null;
+  const pickupLabel=label(rate.origin_port_name,rate.origin_terminal,rate.origin_city,rate.origin_port_code);
+  const deliveryLabel=label(rate.destination_port_name,rate.destination_terminal,rate.destination_city,rate.destination_port_code);
+  const searchKey=[pickupLabel,rate.origin_city,rate.origin_state,rate.origin_zip,deliveryLabel,rate.destination_city,rate.destination_state,rate.destination_zip,rate.container_type,rate.provider_name]
+    .filter(Boolean).join(' ').toLowerCase();
+  return {
+    rateDate:rate.valid_until??null, providerName:rate.provider_name,
+    pickupAddress:rate.origin_address??null, pickupCity:rate.origin_city??null, pickupState:rate.origin_state??null, pickupZip:rate.origin_zip??null, pickupCountry:rate.origin_country??'US', pickupLabel,
+    deliveryAddress:rate.destination_address??null, deliveryCity:rate.destination_city??null, deliveryState:rate.destination_state??null, deliveryZip:rate.destination_zip??null, deliveryCountry:rate.destination_country??'US', deliveryLabel,
+    totalMiles:null, containerType:rate.container_type??null, maxWeightKg:rate.weight_kg??null,
+    baseRate:rate.base_rate??null, totalRate:rate.total_cost??null,
+    surchargesJson:rate.charges.map((c)=>({name:c.name,amount:c.amount,currency:c.currency})),
+    sourceCurrency:rate.currency??'USD', notes:rate.notes??null, sourceUrl:null, sourceFilename:rate.source_filename, searchKey,
+  };
+}
+
 async function saveApprovedRates(rates:ParsedDrayageRate[]) {
   const db=createDbClient(); const saved:Array<{refId:string;quoteId:number;sourceFilename:string}>=[];
   for (let i=0;i<rates.length;i++) {
@@ -36,6 +56,10 @@ async function saveApprovedRates(rates:ParsedDrayageRate[]) {
       charges:rate.charges.map((charge)=>({name:charge.name,basis:'imported',quantity:1,unit_price:charge.amount,total:charge.amount,currency:charge.currency})),
       baseRateCents:Math.round(rate.base_rate*100), totalCostCents:Math.round(rate.total_cost*100), currency:rate.currency, transitDays:rate.transit_days??null, validUntil:rate.valid_until??null, freeTimeDays:rate.free_time_days??null, rawSourcePath:rate.source_filename, notes:rate.notes??null, rank:1,
     });
+    // Bridge: also land the imported rate in the searchable rate library so
+    // dropzone imports appear under "Search saved rate library" (the retired
+    // historical estimate was the only reader of drayage_rates).
+    await db.insert(drayageRateLibrary).values(toLibraryRow(rate));
     saved.push({refId:ref,quoteId:quote.id,sourceFilename:rate.source_filename});
   }
   return saved;
