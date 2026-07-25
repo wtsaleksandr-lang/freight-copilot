@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseRateToPercent, calculateDuty, getBestTreatment, calculateCanadaCustoms, searchHs, calculateUsCustoms, searchUsHs, getUsHsCode } from './customsCalc.js';
+import { parseRateToPercent, calculateDuty, getBestTreatment, calculateCanadaCustoms, searchHs, calculateUsCustoms, searchUsHs, getUsHsCode, adcvdFlag } from './customsCalc.js';
 
 test('rate parser recognises the CBSA formats', () => {
   assert.equal(parseRateToPercent('Free').description, 'Free');
@@ -98,4 +98,17 @@ test('US: a 10-digit statistical code falls back to its 8-digit rate', () => {
 test('US: unknown HS code is reported, not crashed', () => {
   const r = calculateUsCustoms({ hsCode: '9999.99.99', countryOfOrigin: 'China', valueUSD: 1000 });
   assert.equal(r.ok, false);
+});
+
+test('AD/CVD flag: fires on a covered HS area, prioritises origin match, never a rate', () => {
+  const flag = adcvdFlag('7208.10.00.00', 'China'); // hot-rolled steel from China
+  assert.ok(flag, 'steel/China should flag');
+  if (flag) {
+    assert.ok(flag.matches.length > 0);
+    assert.equal(flag.matches[0]!.originMatch, true); // China is a listed origin → sorted first
+    assert.ok(flag.verifyUrl.includes('trade.gov'));
+    assert.equal('rate' in (flag.matches[0] as object), false); // it's a flag, not a rate
+  }
+  // A clearly non-covered HS (live horses) should not flag.
+  assert.equal(adcvdFlag('0101.30.00.00', 'France'), null);
 });

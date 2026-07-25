@@ -379,6 +379,48 @@ export function calculateUsCustoms(input: UsCalcInput) {
     isSimplePercent: (parsed.percent > 0 || parsed.description === 'Free') && !parsed.perUnit && !parsed.compound,
     dutyAmount: round2(dutyCalc.duty),
     requiresManualReview: dutyCalc.requiresManualReview,
+    adcvd: adcvdFlag(hs.code, input.countryOfOrigin),
     warnings,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AD/CVD flag — antidumping / countervailing duty EXPOSURE WARNING (never a
+// rate). AD/CVD rates are per-exporter and case-specific; this only flags that
+// an HS code + origin falls in a product area with active orders, so the
+// operator verifies the exact case + rate at Commerce ACCESS before quoting.
+// Data: src/data/adcvdCoverage.json — a dated, non-exhaustive snapshot.
+// ═══════════════════════════════════════════════════════════════════════════
+type AdcvdOrder = { product: string; htsPrefixes: string[]; origins: string[]; note?: string };
+type AdcvdData = { asOf: string; verifyUrl: string; orders: AdcvdOrder[] };
+let ADCVD: AdcvdData | null = null;
+function adcvdData(): AdcvdData {
+  if (!ADCVD) {
+    try { ADCVD = JSON.parse(readFileSync(new URL('../data/adcvdCoverage.json', import.meta.url), 'utf-8')) as AdcvdData; }
+    catch { ADCVD = { asOf: '', verifyUrl: 'https://access.trade.gov/', orders: [] }; }
+  }
+  return ADCVD;
+}
+
+export type AdcvdFlag = {
+  asOf: string;
+  verifyUrl: string;
+  matches: Array<{ product: string; origins: string[]; note?: string; originMatch: boolean }>;
+};
+export function adcvdFlag(hsCode: string, origin?: string): AdcvdFlag | null {
+  const d = adcvdData();
+  const digits = String(hsCode || '').replace(/\D/g, '');
+  if (digits.length < 4) return null;
+  const originLc = (origin || '').trim().toLowerCase();
+  const matches: AdcvdFlag['matches'] = [];
+  for (const order of d.orders) {
+    const hit = order.htsPrefixes.some((p) => digits.startsWith(String(p).replace(/\D/g, '')));
+    if (!hit) continue;
+    const originMatch = !!originLc && order.origins.some((o) => o.toLowerCase() === originLc);
+    matches.push({ product: order.product, origins: order.origins, note: order.note, originMatch });
+  }
+  if (!matches.length) return null;
+  // Origin-matching orders first (the ones most likely to actually apply).
+  matches.sort((a, b) => Number(b.originMatch) - Number(a.originMatch));
+  return { asOf: d.asOf, verifyUrl: d.verifyUrl, matches };
 }

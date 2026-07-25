@@ -110,6 +110,7 @@
           </select></label>
           <label id="clearance-confirm-wrap" class="clearance-confirm full" hidden><input type="checkbox" id="clearance-origin-confirmed"> <span>Goods qualify for the trade-agreement (preferential) rate — apply it</span></label>
           <div class="full clearance-hs-status" id="clearance-hs-status" hidden></div>
+          <div class="full clearance-adcvd" id="clearance-adcvd" hidden></div>
           <label>Importer / exporter<input id="clearance-party" placeholder="Company name"></label>
           <label>POL / origin<input id="clearance-pol" placeholder="Optional"></label>
           <label>POD / destination<input id="clearance-pod" placeholder="Optional"></label>
@@ -154,6 +155,15 @@
           <button type="button" class="primary" id="clearance-pdf">Create PDF</button>
           <span id="clearance-status" class="status-inline" role="status" aria-live="polite"></span>
         </div>
+      </div>
+      <div class="card clearance-disclaimer">
+        <strong>Estimate only — not a formal customs quotation.</strong>
+        Duties and taxes are calculated from published tariff schedules and may <strong>not</strong> include every applicable charge —
+        e.g. Section 301 / Section 232 tariffs, antidumping / countervailing duties, excise, or other government-agency (PGA) fees.
+        The final duty, tax and import-clearance cost is determined only at <strong>formal cargo entry and customs evaluation</strong>.
+        We are <strong>not a licensed customs broker</strong> and do not guarantee this estimate. A formal, reviewed quotation can be
+        provided for an additional fee after a thorough evaluation of your shipping and commercial documentation.
+        <a href="https://www.cbp.gov/trade/programs-administration/entry-summary/adcvd" target="_blank" rel="noopener">Read more about import duties &amp; AD/CVD ↗</a>
       </div>`;
     main.appendChild(pane);
     wireClearanceWorkspace(pane);
@@ -241,6 +251,7 @@
       $('#clearance-country-wrap').hidden = !isImport;    // origin drives both engines
       $('#clearance-confirm-wrap').hidden = !isImport;    // rules-of-origin gate for both
       if (!isImport) { const st = $('#clearance-hs-status'); if (st) st.hidden = true; }
+      if (next !== 'import_usa') renderAdcvd(null); // AD/CVD flag is US-only for now
       // Duty / value are irrelevant to an export declaration.
       $('#clearance-duty').closest('label').hidden = next === 'export_clearance';
       $('#clearance-value').closest('label').hidden = next === 'export_clearance';
@@ -352,6 +363,28 @@
       el.innerHTML = html;
       el.hidden = !html;
     }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    function renderAdcvd(adcvd) {
+      const el = $('#clearance-adcvd');
+      if (!el) return;
+      if (!adcvd || !adcvd.matches || !adcvd.matches.length) { el.hidden = true; el.innerHTML = ''; return; }
+      // Order-of-origin match first — that's the case most likely to actually apply.
+      const products = adcvd.matches.map((m) => esc(m.product)).join('; ');
+      const originHit = adcvd.matches.find((m) => m.originMatch);
+      const originLine = originHit
+        ? `<div>Active orders exist on this product from <strong>${esc(currentValue('clearance-country'))}</strong>.</div>`
+        : `<div>Orders exist on this product area (check whether your origin country is covered).</div>`;
+      el.innerHTML = `
+        <div class="clearance-adcvd-head">⚠ Possible antidumping / countervailing (AD/CVD) exposure</div>
+        <div class="clearance-adcvd-body">
+          <div>HS falls in an AD/CVD-active area: <strong>${products}</strong>.</div>
+          ${originLine}
+          <div class="muted small">AD/CVD rates are <strong>per-exporter and case-specific</strong> — this is not a computed rate. Verify the exact case &amp; rate before quoting.</div>
+          <a class="clearance-adcvd-link" href="${esc(adcvd.verifyUrl || 'https://access.trade.gov/')}" target="_blank" rel="noopener">Verify at Commerce ACCESS ↗</a>
+          ${adcvd.asOf ? `<div class="muted small">Coverage snapshot: ${esc(adcvd.asOf)} — orders change; always confirm current status.</div>` : ''}
+        </div>`;
+      el.hidden = false;
+    }
     async function lookupDuty() {
       if (template === 'import_usa') return lookupDutyUsa();
       if (template !== 'import_canada') return;
@@ -394,9 +427,10 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hsCode: hs, countryOfOrigin: country, valueUSD: value, confirmedOrigin: $('#clearance-origin-confirmed')?.checked === true }),
         });
-        if (r.status === 404) { setHsStatus('HS code not found in the US HTS — check the number, or enter the duty rate manually.', 'warn'); return; }
+        if (r.status === 404) { setHsStatus('HS code not found in the US HTS — check the number, or enter the duty rate manually.', 'warn'); renderAdcvd(null); return; }
         if (!r.ok) { setHsStatus('', ''); return; }
         const d = await r.json();
+        renderAdcvd(d.adcvd);
         const warn = (d.warnings || []).length ? ` · <span class="clearance-warn">${d.warnings[0]}</span>` : '';
         if (d.isSimplePercent && d.dutyRatePercent != null) {
           $('#clearance-duty').value = String(d.dutyRatePercent);

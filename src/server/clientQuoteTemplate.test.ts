@@ -89,3 +89,12 @@ test('export clearance uses export wording instead of an import template', () =>
   assert.match(html, /HS 8703\.80/);
   assert.doesNotMatch(html, /Import Duties and Taxes/);
 });
+
+test('customs quotes carry the estimate/not-a-broker disclaimer; ocean does not', () => {
+  const customs = buildClientQuoteHtml({ template: 'import_usa', services: [{ label: 'Entry', amount: 100, category: 'firm' }] });
+  assert.match(customs, /not a formal customs quotation/i);
+  assert.match(customs, /not a licensed customs broker/i);
+  assert.match(customs, /antidumping/i);
+  const ocean = buildClientQuoteHtml({ template: 'ocean_comparison', options: [{ carrier: 'MSC', containerType: '20DRY', amount: 1000 }] });
+  assert.doesNotMatch(ocean, /not a licensed customs broker/i);
+});
