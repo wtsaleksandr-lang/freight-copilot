@@ -3374,8 +3374,10 @@ function renderSheetResults(data) {
           validityFrom,
           validityTo,
           filename: res.filename,
-          source: res.artifacts?.source,
-          parsed: res.artifacts?.parsed,
+          // The parse route returns the durable kept original under `kept`
+          // (R2 or disk). Link the Source column to its served URL so the
+          // original rate sheet is reachable (image → compare modal, PDF → tab).
+          source: res.kept?.servedUrl,
           // POL = Port of Loading (origin), POD = Port of Discharge (destination)
           pol: lane.origin || '',
           polCode: lane.origin_code || null,

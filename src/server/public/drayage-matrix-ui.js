@@ -22,7 +22,13 @@
       <div class="dr-matrix-controls">
         <label>Margin %<input id="dr-mx-margin" type="number" value="0" step="0.5"></label>
         <label>Fuel $/mi<input id="dr-mx-fuel" type="number" value="0" step="0.05"></label>
+        <label>Detention hrs<input id="dr-mx-detention" type="number" value="0" step="0.5" min="0"></label>
+        <label>Terminal detention hrs<input id="dr-mx-term-detention" type="number" value="0" step="0.5" min="0"></label>
+        <label>Storage days<input id="dr-mx-storage-days" type="number" value="0" step="1" min="0"></label>
+        <label>Layover days<input id="dr-mx-layover-days" type="number" value="0" step="1" min="0"></label>
+        <label class="dr-mx-check"><input id="dr-mx-residential" type="checkbox"> Residential</label>
       </div>
+      <p class="muted small">Per-hour / per-day accessorials (detention, layover, storage, chassis rental…) bill against the hours/days above — leave 0 to skip.</p>
       <details class="dr-matrix-acc"><summary>Optional accessorials</summary><div id="dr-mx-acc-list" class="dr-mx-acc-grid"></div></details>
       <div class="row" style="margin-top:12px"><button id="dr-mx-run" class="primary" type="button">💵 Generate matrix rate</button><span id="dr-mx-status" class="status-inline"></span></div>
       <div id="dr-mx-result"></div>`;
@@ -69,6 +75,11 @@
       flags: {
         hazmat: cargo === 'hazmat',
         tempControlled: cargo === 'reefer',
+        residential: el('dr-mx-residential')?.checked === true,
+        detentionHours: Number(val('dr-mx-detention')) || 0,
+        terminalDetentionHours: Number(val('dr-mx-term-detention')) || 0,
+        storageDays: Number(val('dr-mx-storage-days')) || 0,
+        layoverDays: Number(val('dr-mx-layover-days')) || 0,
         ...(weightKg > 0 ? { weightLbs: Math.round(weightKg * 2.20462) } : {}),
       },
       selectedAccessorialCodes: selected,
@@ -123,6 +134,8 @@
     #dr-matrix-card .dr-matrix-controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
     #dr-matrix-card .dr-matrix-controls label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted,#64748b)}
     #dr-matrix-card .dr-matrix-controls input{width:100px;padding:6px 8px;border:1px solid var(--border,#e5e7eb);border-radius:7px}
+    #dr-matrix-card .dr-mx-check{flex-direction:row;align-items:center;gap:6px;align-self:flex-end}
+    #dr-matrix-card .dr-mx-check input{width:auto}
     #dr-matrix-card .dr-matrix-acc{margin-top:12px}
     #dr-matrix-card .dr-mx-acc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px;margin-top:8px}
     #dr-matrix-card .dr-mx-acc-item{display:flex;align-items:center;gap:6px;font-size:13px}

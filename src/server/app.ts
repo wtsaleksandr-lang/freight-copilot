@@ -27,7 +27,10 @@ const CLIENT_SCRIPTS = [
   'shipment-operations-ui.js',
   'shipment-actions-ui.js',
   'trucking-estimate-ui.js',
-  'drayage-estimate-ui.js',
+  // 'drayage-estimate-ui.js' retired: its historical-estimate panel was
+  // unreachable (nothing called /api/drayage/quote from the UI) and it
+  // monkey-patched window.fetch. The structured matrix rate is the primary
+  // drayage rate now (drayage-matrix-ui.js).
   'drayage-matrix-ui.js',
   'trucking-ingestion-ui.js',
   'drayage-ingestion-ui.js',

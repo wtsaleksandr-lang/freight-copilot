@@ -859,58 +859,10 @@ export function registerApiRoutes(app: Express): void {
     res.json({ bundles: rows });
   });
 
-  app.get('/api/bundles/:refId', async (req: Request, res: Response) => {
-    const db = createDbClient();
-    const rawRefId = req.params.refId;
-    const refId = Array.isArray(rawRefId) ? rawRefId[0] : rawRefId;
-    if (!refId) {
-      res.status(400).json({ error: 'Invalid refId' });
-      return;
-    }
-    const [bundle] = await db
-      .select()
-      .from(quoteBundles)
-      .where(eq(quoteBundles.refId, refId));
-    if (!bundle) {
-      res.status(404).json({ error: 'Bundle not found' });
-      return;
-    }
-    // Fetch all rate snapshots across all child quotes of this bundle
-    const childQuotes = await db
-      .select()
-      .from(quotes)
-      .where(eq(quotes.bundleId, bundle.id));
-    const snaps =
-      childQuotes.length > 0
-        ? await db
-            .select({
-              quoteId: rateSnapshots.quoteId,
-              rank: rateSnapshots.rank,
-              serviceName: rateSnapshots.serviceName,
-              sailingDate: rateSnapshots.sailingDate,
-              vesselVoyage: rateSnapshots.vesselVoyage,
-              transitDays: rateSnapshots.transitDays,
-              detentionFreetimeDays: rateSnapshots.detentionFreetimeDays,
-              demurrageFreetimeDays: rateSnapshots.demurrageFreetimeDays,
-              rollable: rateSnapshots.rollable,
-              currency: rateSnapshots.currency,
-              totalCostCents: rateSnapshots.totalCostCents,
-              charges: rateSnapshots.charges,
-              destinationCharges: rateSnapshots.destinationCharges,
-              destinationTotal: rateSnapshots.destinationTotal,
-              destinationCurrency: rateSnapshots.destinationCurrency,
-              carrierCode: carriersTable.code,
-              carrierName: carriersTable.name,
-            })
-            .from(rateSnapshots)
-            .leftJoin(
-              carriersTable,
-              eq(carriersTable.id, rateSnapshots.carrierId)
-            )
-            .where(eq(rateSnapshots.quoteId, childQuotes[0]!.id)) // simplified for V1
-        : [];
-    res.json({ bundle, rateSnapshots: snaps });
-  });
+  // NOTE: GET /api/bundles/:refId is served by registerBundleDetailRoute
+  // (app.ts:65, mounted before this router). A dead, shadowed copy that only
+  // returned the FIRST child quote's snapshots ("simplified for V1") was
+  // removed here so a future refactor can't accidentally re-expose it.
 
   // ---- Drayage (port ↔ address container moves) ----
 
@@ -3020,6 +2972,13 @@ export function registerApiRoutes(app: Express): void {
     const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
     if (!key) {
       res.status(400).json({ error: 'key is required' });
+      return;
+    }
+    // Same allow-list as PUT — never let the UI delete internal settings
+    // (routing profile, DB-drift fingerprint, etc.).
+    const ALLOWED = new Set(['AI_MODE', 'AI_PROVIDER', 'AI_MODEL', 'AI_MODEL_FALLBACK', 'DELAYPREDICT_URL', 'INTELLCLUSTER_URL']);
+    if (!ALLOWED.has(key)) {
+      res.status(400).json({ error: `setting "${key}" is not user-editable` });
       return;
     }
     try {

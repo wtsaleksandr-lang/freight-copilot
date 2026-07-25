@@ -212,8 +212,9 @@ export async function deleteShipment(refId: string): Promise<boolean> {
   const result = await db
     .delete(shipments)
     .where(eq(shipments.refId, refId));
-  // libsql returns { rowsAffected }
-  const ra =
-    (result as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
+  // node-postgres returns { rowCount }; keep rowsAffected as a fallback so the
+  // boolean is truthful on a successful delete (it was always false before).
+  const r = result as unknown as { rowCount?: number | null; rowsAffected?: number };
+  const ra = r.rowCount ?? r.rowsAffected ?? 0;
   return ra > 0;
 }

@@ -102,7 +102,7 @@ export async function testProviderConnection(
       endpoint: probe.label,
       model: null,
       latencyMs: 0,
-      error: `No ${provider} key configured (add one to the vault or set ${provider.toUpperCase()}_API_KEY).`,
+      error: `No ${provider} key configured — set ${provider.toUpperCase()}_API_KEY in the environment Secrets.`,
     };
   }
 
