@@ -95,10 +95,21 @@
           <label>Quote title<input id="clearance-title" placeholder="USA import customs clearance"></label>
           <label>Port / border crossing<input id="clearance-port" placeholder="Newark, Detroit, Toronto Pearson…"></label>
           <label>Commodity<input id="clearance-commodity" placeholder="Machinery, household goods…"></label>
-          <label>HS code<input id="clearance-hs" placeholder="6–10 digit code" inputmode="numeric"></label>
-          <label>Commercial value (USD)<input id="clearance-value" placeholder="25000" inputmode="decimal"></label>
+          <label>HS code<input id="clearance-hs" placeholder="Search code or description…" autocomplete="off" list="clearance-hs-list"><datalist id="clearance-hs-list"></datalist></label>
+          <label id="clearance-country-wrap">Country of origin<input id="clearance-country" placeholder="e.g. China, United States…" autocomplete="off" list="clearance-country-list"><datalist id="clearance-country-list"></datalist></label>
+          <label>Commercial value<input id="clearance-value" placeholder="25000" inputmode="decimal"></label>
           <label>Duty rate %<input id="clearance-duty" placeholder="0" inputmode="decimal"></label>
-          <label id="clearance-gst-wrap" hidden>GST/HST %<input id="clearance-gst" placeholder="5" inputmode="decimal"></label>
+          <label id="clearance-gst-wrap" hidden>Sales tax %<input id="clearance-gst" placeholder="5" inputmode="decimal"></label>
+          <label id="clearance-province-wrap" hidden>Province (delivery)<select id="clearance-province">
+            <option value="ON">Ontario — HST 13%</option><option value="QC">Quebec — GST+QST</option>
+            <option value="BC">British Columbia — GST+PST</option><option value="AB">Alberta — GST 5%</option>
+            <option value="MB">Manitoba — GST+PST</option><option value="SK">Saskatchewan — GST+PST</option>
+            <option value="NB">New Brunswick — HST 15%</option><option value="NS">Nova Scotia — HST 15%</option>
+            <option value="NL">Newfoundland &amp; Labrador — HST 15%</option><option value="PE">Prince Edward Island — HST 15%</option>
+            <option value="NT">Northwest Territories — GST 5%</option><option value="NU">Nunavut — GST 5%</option><option value="YT">Yukon — GST 5%</option>
+          </select></label>
+          <label id="clearance-confirm-wrap" class="clearance-confirm full" hidden><input type="checkbox" id="clearance-origin-confirmed"> <span>Goods qualify for the trade-agreement (preferential) rate — apply it</span></label>
+          <div class="full clearance-hs-status" id="clearance-hs-status" hidden></div>
           <label>Importer / exporter<input id="clearance-party" placeholder="Company name"></label>
           <label>POL / origin<input id="clearance-pol" placeholder="Optional"></label>
           <label>POD / destination<input id="clearance-pod" placeholder="Optional"></label>
@@ -219,12 +230,21 @@
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      $('#clearance-gst-wrap').hidden = next !== 'import_canada';
+      // The genuine CBSA HS-code lookup is Canada-import only (the tariff engine
+      // is CBSA). USA import keeps the manual rate + MPF/HMF until the US HTS
+      // build lands; export declares only.
+      const isCa = next === 'import_canada';
+      $('#clearance-gst-wrap').hidden = !isCa;
+      $('#clearance-province-wrap').hidden = !isCa;
+      $('#clearance-country-wrap').hidden = !isCa;
+      $('#clearance-confirm-wrap').hidden = !isCa;
+      if (!isCa) { const st = $('#clearance-hs-status'); if (st) st.hidden = true; }
       // Duty / value are irrelevant to an export declaration.
       $('#clearance-duty').closest('label').hidden = next === 'export_clearance';
       $('#clearance-value').closest('label').hidden = next === 'export_clearance';
       seedServiceRows();
       recompute();
+      if (isCa) lookupDuty();
     }
 
     function assemblePayload() {
@@ -299,12 +319,79 @@
       } catch (e) { status.textContent = 'PDF failed: ' + (e && e.message ? e.message : e); }
     }
 
+    // ── Genuine CBSA HS-code duty lookup (Canada import) ────────────────────
+    let hsTimer = null;
+    let lookupTimer = null;
+    async function loadCountryList() {
+      try {
+        const r = await fetch('/api/customs/countries');
+        if (!r.ok) return;
+        const { countries } = await r.json();
+        const dl = $('#clearance-country-list');
+        if (dl && Array.isArray(countries)) dl.innerHTML = countries.map((c) => `<option value="${String(c).replace(/"/g, '&quot;')}"></option>`).join('');
+      } catch { /* offline — datalist just stays empty */ }
+    }
+    async function hsSuggest() {
+      const q = currentValue('clearance-hs');
+      if (q.length < 2) return;
+      try {
+        const r = await fetch(`/api/customs/hs-search?q=${encodeURIComponent(q)}&limit=12`);
+        if (!r.ok) return;
+        const { results } = await r.json();
+        const dl = $('#clearance-hs-list');
+        if (dl && Array.isArray(results)) dl.innerHTML = results.map((it) => `<option value="${it.code}">${String(it.description || '').slice(0, 80).replace(/"/g, '&quot;')}</option>`).join('');
+      } catch { /* ignore */ }
+    }
+    function setHsStatus(html, kind) {
+      const el = $('#clearance-hs-status');
+      if (!el) return;
+      el.className = 'full clearance-hs-status' + (kind ? ' is-' + kind : '');
+      el.innerHTML = html;
+      el.hidden = !html;
+    }
+    async function lookupDuty() {
+      if (template !== 'import_canada') return;
+      const hs = currentValue('clearance-hs');
+      const country = currentValue('clearance-country');
+      const value = CLR_NUM(currentValue('clearance-value'));
+      if (!hs || !country || value <= 0) return;
+      try {
+        const r = await fetch('/api/customs/calculate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hsCode: hs, countryOfOrigin: country, valueCAD: value,
+            province: currentValue('clearance-province') || 'ON',
+            confirmedOrigin: $('#clearance-origin-confirmed')?.checked === true,
+          }),
+        });
+        if (r.status === 404) { setHsStatus('HS code not found in the CBSA tariff — check the number, or enter the duty rate manually.', 'warn'); return; }
+        if (!r.ok) { setHsStatus('', ''); return; }
+        const d = await r.json();
+        const base = value + (d.dutyAmount || 0);
+        const taxPct = base > 0 ? Math.round(((d.gstAmount + d.provincialTaxAmount) / base) * 1000) / 10 : 5;
+        const warn = (d.warnings || []).length ? ` · <span class="clearance-warn">${d.warnings[0]}</span>` : '';
+        if (d.isSimplePercent && d.dutyRatePercent != null) {
+          $('#clearance-duty').value = String(d.dutyRatePercent);
+          $('#clearance-gst').value = String(taxPct);
+          recompute();
+          setHsStatus(`Applied <strong>${d.appliedTreatmentName}</strong> — duty <strong>${d.dutyRate}</strong> · ${d.gstLabel}/tax ≈ ${taxPct}%${warn}`, 'ok');
+        } else {
+          setHsStatus(`CBSA rate for <strong>${d.appliedTreatmentName}</strong> is <strong>${d.dutyRate}</strong> (specific / compound) — enter the duty amount manually.${warn}`, 'warn');
+        }
+      } catch { setHsStatus('', ''); }
+    }
+    function scheduleLookup() { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookupDuty, 350); }
+
     pane.querySelectorAll('.clearance-move-btn').forEach((b) => b.addEventListener('click', () => setTemplate(b.dataset.template)));
     ['clearance-value', 'clearance-duty', 'clearance-gst', 'clearance-markup-flat', 'clearance-markup-pct'].forEach((id) => $('#' + id).addEventListener('input', recompute));
+    $('#clearance-hs').addEventListener('input', () => { clearTimeout(hsTimer); hsTimer = setTimeout(hsSuggest, 200); scheduleLookup(); });
+    ['clearance-country', 'clearance-value', 'clearance-province'].forEach((id) => $('#' + id).addEventListener('input', scheduleLookup));
+    $('#clearance-origin-confirmed').addEventListener('change', lookupDuty);
     $('#clearance-add-line').addEventListener('click', () => { addServiceRow(); recompute(); });
     $('#clearance-preview').addEventListener('click', preview);
     $('#clearance-pdf').addEventListener('click', createPdf);
 
+    loadCountryList();
     setTemplate('import_usa');
   }
 
