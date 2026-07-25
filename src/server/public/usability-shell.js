@@ -48,6 +48,17 @@
         { label: 'Permit / inspection / examination', amount: '', basis: 'if applicable', category: 'conditional' },
       ];
     }
+    if (template === 'import_usa') {
+      // Typical US-import broker/filing fees (editable). Duty + MPF + HMF are
+      // computed separately in the government-charges table.
+      return [
+        { label: 'Customs brokerage / entry fee', amount: '115', basis: 'per entry', category: 'firm' },
+        { label: 'ISF filing (10+2)', amount: '50', basis: 'per shipment (ocean)', category: 'firm' },
+        { label: 'ISF bond (single-entry)', amount: '60', basis: 'if no continuous bond', category: 'conditional' },
+        { label: 'Single-entry customs bond', amount: '75', basis: 'if no continuous bond', category: 'conditional' },
+        { label: 'Exam / PGA / other', amount: '', basis: 'if applicable', category: 'conditional' },
+      ];
+    }
     return [
       { label: 'Customs clearance / entry', amount: '', basis: 'per entry', category: 'firm' },
       { label: 'Brokerage & document handling', amount: '', basis: 'per shipment', category: 'firm' },
@@ -87,6 +98,11 @@
           <button type="button" class="clearance-move-btn active" data-template="import_usa" role="tab" aria-selected="true">USA import</button>
           <button type="button" class="clearance-move-btn" data-template="import_canada" role="tab" aria-selected="false">Canada import</button>
           <button type="button" class="clearance-move-btn" data-template="export_clearance" role="tab" aria-selected="false">Export</button>
+        </div>
+        <div class="clearance-import-row">
+          <button type="button" class="btn-sm" id="clearance-import-btn">📄 Import from screenshot / email</button>
+          <input type="file" id="clearance-import-file" accept="image/*,application/pdf,.eml,.txt,.html" hidden>
+          <span id="clearance-import-status" class="muted small" role="status" aria-live="polite"></span>
         </div>
       </div>
       <div class="card">
@@ -443,6 +459,44 @@
     }
     function scheduleLookup() { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookupDuty, 350); }
 
+    // ── Import from a screenshot / email (AI extraction) ────────────────────
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+    function applyExtract(x) {
+      if (!x) return;
+      if (x.movement_type && x.movement_type !== template) setTemplate(x.movement_type);
+      const set = (id, v) => { if (v != null && v !== '') { const el = $('#' + id); if (el) el.value = String(v); } };
+      set('clearance-hs', x.hs_code);
+      set('clearance-commodity', x.commodity);
+      set('clearance-value', x.commercial_value);
+      set('clearance-country', x.country_of_origin);
+      set('clearance-port', x.port_or_crossing);
+      if (x.notes) { const n = $('#clearance-notes'); if (n) n.value = (n.value ? n.value + '\n' : '') + x.notes; }
+      recompute();
+      lookupDuty();
+    }
+    async function importFromDocument(file) {
+      const status = $('#clearance-import-status');
+      if (status) status.textContent = 'Reading the document…';
+      try {
+        const fileBase64 = await fileToBase64(file);
+        const r = await fetch('/api/customs/extract', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileBase64, mediaType: file.type || 'image/png', filename: file.name }),
+        });
+        const data = await r.json();
+        if (!r.ok) { if (status) status.textContent = data.error || 'Could not read the document.'; return; }
+        applyExtract(data.extract || {});
+        if (status) status.textContent = 'Filled from the document — review & adjust before quoting.';
+      } catch (e) { if (status) status.textContent = 'Import failed: ' + (e && e.message ? e.message : e); }
+    }
+
     pane.querySelectorAll('.clearance-move-btn').forEach((b) => b.addEventListener('click', () => setTemplate(b.dataset.template)));
     ['clearance-value', 'clearance-duty', 'clearance-gst', 'clearance-markup-flat', 'clearance-markup-pct'].forEach((id) => $('#' + id).addEventListener('input', recompute));
     $('#clearance-hs').addEventListener('input', () => { clearTimeout(hsTimer); hsTimer = setTimeout(hsSuggest, 200); scheduleLookup(); });
@@ -451,6 +505,12 @@
     $('#clearance-add-line').addEventListener('click', () => { addServiceRow(); recompute(); });
     $('#clearance-preview').addEventListener('click', preview);
     $('#clearance-pdf').addEventListener('click', createPdf);
+    $('#clearance-import-btn')?.addEventListener('click', () => $('#clearance-import-file')?.click());
+    $('#clearance-import-file')?.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) importFromDocument(f);
+      e.target.value = '';
+    });
 
     loadCountryList();
     setTemplate('import_usa');

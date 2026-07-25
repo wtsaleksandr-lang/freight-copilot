@@ -314,6 +314,33 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // Customs: extract entry fields from a dropped quote-request screenshot /
+  // email / text, so the workspace auto-fills (HS, value, origin, movement).
+  app.post('/api/customs/extract', async (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as {
+        fileBase64?: string;
+        mediaType?: string;
+        filename?: string;
+        text?: string;
+      };
+      if (!body.fileBase64 && !body.text) {
+        return res.status(400).json({ error: 'Provide a file (fileBase64 + mediaType) or text.' });
+      }
+      const { parseCustomsRequest } = await import('../llm/parseCustomsRequest.js');
+      const extract = await parseCustomsRequest({
+        fileBase64: body.fileBase64,
+        mediaType: body.mediaType as never,
+        filename: body.filename,
+        text: body.text,
+      });
+      return res.json({ extract });
+    } catch (err) {
+      console.error('[api/customs/extract] error:', err instanceof Error ? err.message : err);
+      return res.status(502).json({ error: err instanceof Error ? err.message : 'Extraction failed.' });
+    }
+  });
+
   app.get('/api/carriers', async (_req: Request, res: Response) => {
     // Source of truth is the registry (code/name/isActive live with the adapters).
     const rows = listCarriers().map((c) => ({
