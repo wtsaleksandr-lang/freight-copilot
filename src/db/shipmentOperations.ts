@@ -59,6 +59,22 @@ export function ensureShipmentOperationTables(): Promise<void> {
     await sql`CREATE INDEX IF NOT EXISTS shipment_containers_ref_idx ON shipment_containers(shipment_ref_id)`;
     await sql`CREATE INDEX IF NOT EXISTS shipment_follow_ups_ref_idx ON shipment_follow_ups(shipment_ref_id)`;
     await sql`CREATE INDEX IF NOT EXISTS shipment_follow_ups_open_idx ON shipment_follow_ups(completed, due_date)`;
+    // Self-heal older deployments: these FKs were originally created with
+    // ON DELETE CASCADE only, which permanently blocks renaming a shipment's
+    // ref_id once it has containers/follow-ups (every manual DRAFT-xxxx row
+    // needs exactly that rename). Bring them up to ON UPDATE CASCADE too.
+    // Idempotent — skips when already cascade; runs once per process.
+    const pool = getPostgresPool();
+    for (const table of ['shipment_containers', 'shipment_follow_ups'] as const) {
+      const fks = await sql`SELECT conname, confupdtype FROM pg_constraint WHERE conrelid = ${table}::regclass AND contype = 'f' AND confrelid = 'shipments'::regclass`;
+      if (!fks.some((row) => row.confupdtype !== 'c')) continue;
+      const target = `${table}_shipment_ref_id_fkey`;
+      for (const row of fks) {
+        await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS "${String(row.conname)}"`);
+      }
+      await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS "${target}"`);
+      await pool.query(`ALTER TABLE ${table} ADD CONSTRAINT "${target}" FOREIGN KEY (shipment_ref_id) REFERENCES shipments(ref_id) ON DELETE CASCADE ON UPDATE CASCADE`);
+    }
   })().catch((error) => { tablesReady = null; throw error; });
   return tablesReady;
 }
