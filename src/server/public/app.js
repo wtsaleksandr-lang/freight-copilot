@@ -4304,6 +4304,26 @@ function formatMoney(n, cur) {
     return data;
   }
 
+  // Commit the user's create-vs-merge decision (from the dedup clarify modal).
+  // No second LLM call — the already-parsed briefing is replayed server-side.
+  async function callParseCommit({ action, refId, payload, briefing, ephemeral }) {
+    const r = await fetch('/api/shipments/parse-commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        refId,
+        files: payload,
+        briefing,
+        ephemeral,
+        fxRates: getFxRates(),
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'commit failed');
+    return data;
+  }
+
   parseBtn.addEventListener('click', async () => {
     if (pendingFiles.length === 0) return;
     parseBtn.disabled = true;
@@ -4315,9 +4335,15 @@ function formatMoney(n, cur) {
       // First-pass extraction
       let data = await callParse(payload, ephemeral);
 
-      // If Claude wants clarification, pop the modal and wait for answers.
+      // If Claude wants clarification (ambiguous FIELD extraction), pop the
+      // modal and re-run extraction with the user's answers. This is distinct
+      // from the create-vs-merge dedup choice handled below (dedupChoice).
       let mergedPayload = payload;
-      if (data.pendingClarification && Array.isArray(data.questions)) {
+      if (
+        data.pendingClarification &&
+        !data.dedupChoice &&
+        Array.isArray(data.questions)
+      ) {
         setStatus(
           'ship-status',
           `${data.questions.length} clarification${data.questions.length === 1 ? '' : 's'} needed…`,
@@ -4338,12 +4364,49 @@ function formatMoney(n, cur) {
         data = await callParse(mergedPayload, ephemeral, answers);
       }
 
+      // Dedup create-vs-merge: the server is unsure whether this file belongs
+      // to an existing shipment. Ask the user via the SAME modal (options are
+      // clickable buttons), then commit their choice — WITHOUT re-parsing.
+      if (data.pendingClarification && data.dedupChoice) {
+        setStatus('ship-status', 'Possible duplicate — please choose…', 'info');
+        const result = await openClarificationModal(data.questions);
+        if (!result) {
+          setStatus('ship-status', 'Cancelled. Files still queued.', 'info');
+          parseBtn.disabled = pendingFiles.length === 0;
+          return;
+        }
+        const answer = result.answers?.[0]?.answer || '';
+        const commitOptions = Array.isArray(data.commitOptions)
+          ? data.commitOptions
+          : [];
+        const picked = commitOptions.find((o) => o.label === answer) || {
+          action: 'create',
+        };
+        setStatus(
+          'ship-status',
+          picked.action === 'merge'
+            ? `Merging into ${picked.refId}…`
+            : 'Creating new shipment…',
+          'info',
+          true
+        );
+        data = await callParseCommit({
+          action: picked.action,
+          refId: picked.refId,
+          payload: mergedPayload,
+          briefing: data.briefing,
+          ephemeral,
+        });
+      }
+
       if (!data.shipment) {
         throw new Error('No shipment returned by server.');
       }
       setStatus(
         'ship-status',
-        `Created ${data.shipment.refId} — review & edit cells as needed.`,
+        data.merged
+          ? `Merged into ${data.shipment.refId} — filled the missing cells only.`
+          : `Created ${data.shipment.refId} — review & edit cells as needed.`,
         'success'
       );
       pendingFiles = [];
