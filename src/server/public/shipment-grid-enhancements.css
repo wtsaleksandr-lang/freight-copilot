@@ -63,3 +63,32 @@
    so pinning and column-resize keep working. 'comfortable' = the default look. */
 #ship-table.is-compact tbody td,#ship-table.is-compact tbody th{padding-top:3px;padding-bottom:3px;line-height:1.25}
 #ship-table.is-compact thead th{padding-top:4px;padding-bottom:4px}
+
+/* ── Frozen-cell opacity guard ────────────────────────────────────────────────
+   The hover / selected / active-cell tint rules above are written with the
+   #ship-table ID (specificity 1,1,x), so they OUT-SPECIFY the frozen column's
+   class-only opaque backgrounds (.ship-table … td.is-frozen-col, 0,2-3,x). A
+   pinned cell then turns translucent; because it sits at z-index:5 over the
+   horizontally-scrolled body cells, the scrolled text bleeds THROUGH it —
+   garbled overlapping text, worst while a cell is being edited and you pan the
+   sheet left (the pointer keeps a row :hover the whole time). Re-assert an
+   OPAQUE base under the same tint (opaque background-color + the tint as a
+   background-image overlay) so the frozen column always paints solid while
+   still showing the hover/selection feedback. Matches the ID specificity so it
+   wins. */
+#ship-table tbody tr:hover td.is-frozen-col{
+  background-color:#fff;
+  background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055));
+}
+#ship-table tbody tr.is-selected td.is-frozen-col{
+  background-color:#fff;
+  background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1));
+}
+#ship-table td.is-active-cell.is-frozen-col,
+#ship-table td[data-field]:focus.is-frozen-col{
+  background-color:#fff;
+  background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1));
+}
+/* An edited cell is already forced opaque (#ship-table td.is-editing above); make
+   that hold when the edited cell is itself in the frozen column too. */
+#ship-table td.is-editing.is-frozen-col{background-color:#fff;background-image:none}
