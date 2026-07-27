@@ -5287,6 +5287,13 @@ function formatMoney(n, cur) {
         await patchField(refId, field, value || null);
         td.textContent = value || '';
         td.classList.toggle('cell-empty', !value);
+        // Refresh deadline urgency coloring live, without a full re-render.
+        const du = globalThis.LoadModeDeadlineUrgency;
+        td.classList.remove('is-date-overdue', 'is-date-urgent', 'is-date-soon');
+        if (value && DATE_FIELDS.has(field) && du) {
+          const uc = du.deadlineUrgencyClass(value);
+          if (uc) td.classList.add(uc);
+        }
         td.classList.add('is-saved');
         setTimeout(() => td.classList.remove('is-saved'), 1000);
         const ref = (allRows || []).find((r) => r.refId === refId);
@@ -6397,6 +6404,17 @@ function formatMoney(n, cur) {
     const cls = ['cell', col.editable ? 'cell-editable' : ''];
     if (col.cls) cls.push(col.cls);
     if (display === '') cls.push('cell-empty');
+    // Deadline proximity coloring — freight deadline date cells get an
+    // at-a-glance urgency wash. Proximity is computed HERE in code from
+    // today's real date (LoadModeDeadlineUrgency), never by the AI. Only the
+    // operational deadline fields (DATE_FIELDS: cut-off/SI/draft/loading/ETD/
+    // ETA); createdAt is informational and is not in DATE_FIELDS. Recomputed
+    // on every render, so it stays correct as days pass.
+    if (DATE_FIELDS.has(col.key) && raw) {
+      const du = globalThis.LoadModeDeadlineUrgency;
+      const urgencyClass = du ? du.deadlineUrgencyClass(raw) : '';
+      if (urgencyClass) cls.push(urgencyClass);
+    }
     const editAttrs = col.editable
       ? ` data-field="${col.key}" data-type="${col.type || 'text'}"`
       : '';
