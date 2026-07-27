@@ -221,7 +221,40 @@
               <span class="muted small">— warm, prose-forward</span>
             </label>
           </div>
-          <textarea id="sheet-email-template" rows="10" placeholder="Selected template loads here. Edit to customize — your edits are saved locally per template."></textarea>
+          <textarea id="sheet-email-template" rows="10" placeholder="Selected template loads here. Edit to customize, then Save so it's reused on every future quote."></textarea>
+
+          <details class="token-legend">
+            <summary>Available placeholders <span class="muted small">— filled automatically from the parsed rates</span></summary>
+            <ul class="token-legend-list">
+              <li><code>&lt;CLIENT&gt;</code> client name</li>
+              <li><code>&lt;POL&gt;</code> port of loading (with code)</li>
+              <li><code>&lt;POD&gt;</code> port of discharge (with code)</li>
+              <li><code>&lt;CARRIER&gt;</code> carrier(s)</li>
+              <li><code>&lt;TRANSIT&gt;</code> transit days</li>
+              <li><code>&lt;VALIDITY&gt;</code> rate validity window</li>
+              <li><code>&lt;PRICE&gt;</code> your price for the current container</li>
+              <li><code>&lt;CONTAINER&gt;</code> container type</li>
+              <li><code>&lt;20GP_PRICE&gt;</code> / <code>&lt;40GP_PRICE&gt;</code> / <code>&lt;40HQ_PRICE&gt;</code> price by container</li>
+              <li><code>&lt;DEST_CHARGES&gt;</code> destination charges / cntr</li>
+              <li><code>&lt;SURCHARGES&gt;</code> checked surcharge lines</li>
+              <li><code>&lt;EACH_LANE&gt;…&lt;/EACH_LANE&gt;</code> repeats per lane (POL→POD)</li>
+              <li><code>&lt;EACH_RATE&gt;…&lt;/EACH_RATE&gt;</code> repeats per container in the lane</li>
+            </ul>
+            <p class="muted small">Note: departure/arrival/vessel are intentionally unavailable — they can't be confirmed at quote stage.</p>
+          </details>
+
+          <label class="disclaimer-field">Fine-print disclaimer <span class="muted small">— auto-appended to the bottom of every quote email</span>
+            <textarea id="sheet-email-disclaimer" rows="4" placeholder="Disclaimer text shown as fine print at the bottom of the email."></textarea>
+          </label>
+          <div class="disclaimer-preview-wrap">
+            <span class="muted small">Preview:</span>
+            <div id="sheet-disclaimer-preview" class="disclaimer-preview"></div>
+          </div>
+
+          <div class="row template-save-row">
+            <button id="sheet-template-save-btn" class="primary btn-sm" type="button">Save template</button>
+            <span id="sheet-template-save-status" class="status-inline"></span>
+          </div>
         </details>
 
         <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>

@@ -3736,56 +3736,69 @@ function renderSheetResults(data) {
 // Three named templates the user can pick from. Each is editable and
 // persisted independently (localStorage key per template id), so the user
 // can tweak the "Concise" one without disturbing the others.
+// Canonical-token defaults. MUST stay byte-identical to DEFAULT_EMAIL_TEMPLATES
+// in src/db/emailTemplates.ts so a fresh (un-saved) install and a healed DB
+// agree. Tokens are filled DETERMINISTICALLY server-side (see emailSubstitute.ts):
+//   <CLIENT> <POL> <POD> <CARRIER> <TRANSIT> <VALIDITY> <DEST_CHARGES>
+//   <PRICE> <CONTAINER> <20GP_PRICE> <40GP_PRICE> <40HQ_PRICE> <SURCHARGES>
+// Repeating blocks: <EACH_LANE>…</EACH_LANE>, <EACH_RATE>…</EACH_RATE>.
+// NO <ETD>/<ETA>/<VESSEL> — can't be honestly confirmed at quote stage.
 const EMAIL_TEMPLATES = {
   concise: {
     label: 'Concise',
-    default: `Dear ___,
+    default: `Dear <CLIENT>,
 
-Pls find below our quote-
-POL <POL CITY/PORT>
-POD <POD CITY/COUNTRY>
-$<20GP price>/20'GP ; $<40HQ price>/40'HQ , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
-$<20GP price>/20'GP ; $<40HQ price>/40'HQ , <CARRIER>, <transit>d t/t ; Destination charges $<dest>/cntr
-<applicable surcharges as separate lines, one each>
-All origin charges (ocean carrier/terminal) included.`,
+Please find our quote below:
+<EACH_LANE>
+POL: <POL>  ->  POD: <POD>
+<EACH_RATE>  $<PRICE> / <CONTAINER></EACH_RATE>
+Carrier: <CARRIER>, transit <TRANSIT> days
+Destination charges: $<DEST_CHARGES> / cntr (on collect, paid by consignee)
+Validity: <VALIDITY>
+</EACH_LANE>
+<SURCHARGES>
+All origin charges (ocean carrier and terminal) are included.`,
   },
   structured: {
     label: 'Structured',
-    default: `Hi ___,
+    default: `Hi <CLIENT>,
 
 Thanks for your enquiry. Below is our quote:
-
+<EACH_LANE>
 Routing: <POL> -> <POD>
-Container(s): <list>
-Validity: <dates if known>
+Carrier: <CARRIER>   |   Transit: <TRANSIT> days   |   Validity: <VALIDITY>
 
-<per-carrier block>
-- 20'GP: $<price>
-- 40'HQ: $<price>
-- Carrier: <name>, transit <X>d
-- Destination charges (on collect, paid by consignee): $<dest>/cntr
-
-<applicable surcharges as a list>
-
+Rates:
+<EACH_RATE>  - <CONTAINER>: $<PRICE></EACH_RATE>
+Destination charges (on collect, paid by consignee): $<DEST_CHARGES> / cntr
+</EACH_LANE>
+<SURCHARGES>
 All origin charges (ocean carrier and terminal) are included.
 Please confirm and we will proceed with booking.`,
   },
   conversational: {
     label: 'Conversational',
-    default: `Hello ___,
+    default: `Hello <CLIENT>,
 
-Pleased to share our spot rates as follows.
-
-We can move <POL> to <POD> with the following options:
-<for each carrier, one short paragraph: price per container, transit, what's included>
-
-Destination charges are paid on collect at <POD>: <amount>/cntr.
-<if surcharges apply: one short note per surcharge>
-
-All origin handling (ocean carrier and terminal) is on us.
+Pleased to share our rates as follows.
+<EACH_LANE>
+We can move <POL> to <POD> with <CARRIER>, transit around <TRANSIT> days:
+<EACH_RATE>  - <CONTAINER> at $<PRICE> per container</EACH_RATE>
+Destination charges are paid on collect at <POD>: $<DEST_CHARGES>/cntr.
+These rates are valid <VALIDITY>.
+</EACH_LANE>
+<SURCHARGES>
+All origin handling (ocean carrier and terminal) is included.
 Let me know how you'd like to proceed.`,
   },
 };
+
+// Owner-editable fine-print disclaimer, auto-appended to every generated ocean
+// quote email server-side. This client copy is the offline default + preview
+// source; the DB (via /api/email-templates) is the source of truth.
+const DEFAULT_OCEAN_DISCLAIMER =
+  'Please note: This quotation is provided for rate-reference purposes and is subject to carrier confirmation. It does not guarantee vessel space or a specific departure date. Space and sailing are secured only upon order nomination and receipt of the carrier’s formal booking confirmation. While a limited number of carriers offer live space availability, with most carriers space is confirmed only at the time of booking. To secure your preferred sailing, we recommend confirming the booking as early as possible.';
+const SHEET_DISCLAIMER_KEY = 'freight.sheet.email.disclaimer';
 const SHEET_TEMPLATE_KEY = (id) => `freight.sheet.email.template.${id}`;
 const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 
@@ -3800,29 +3813,80 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   const copyBtn = document.getElementById('sheet-email-copy-btn');
   const templateTa = document.getElementById('sheet-email-template');
   const templateRadios = document.querySelectorAll('input[name="email-template"]');
+  const disclaimerTa = document.getElementById('sheet-email-disclaimer');
+  const disclaimerPreview = document.getElementById('sheet-disclaimer-preview');
+  const saveBtn = document.getElementById('sheet-template-save-btn');
   if (!btn) return;
 
+  // In-memory bodies — start from the in-code defaults, then get overridden by
+  // the DB payload (source of truth) on load, and by any local edits. This is
+  // what feeds the editor; localStorage stays as an offline cache only.
+  const templateBodies = {
+    concise: EMAIL_TEMPLATES.concise.default,
+    structured: EMAIL_TEMPLATES.structured.default,
+    conversational: EMAIL_TEMPLATES.conversational.default,
+  };
+  let disclaimerText = DEFAULT_OCEAN_DISCLAIMER;
+
   // Template picker — load whichever was last selected, prefill its
-  // textarea with the saved (or default) body. Switching radios swaps
-  // the textarea content; edits autosave to that template's slot.
+  // textarea with the current (DB/local/default) body. Switching radios swaps
+  // the textarea content; edits autosave to that template's local cache slot.
   let currentTemplateId =
     localStorage.getItem(SHEET_TEMPLATE_SELECTED_KEY) || 'concise';
 
+  function renderDisclaimerPreview() {
+    if (disclaimerPreview) disclaimerPreview.textContent = disclaimerText;
+  }
   function loadTemplateBody(id) {
-    if (!templateTa || !EMAIL_TEMPLATES[id]) return;
-    const stored = localStorage.getItem(SHEET_TEMPLATE_KEY(id));
-    templateTa.value =
-      stored != null ? stored : EMAIL_TEMPLATES[id].default;
+    if (!templateTa || !templateBodies[id]) return;
+    templateTa.value = templateBodies[id];
   }
   function selectTemplate(id) {
-    if (!EMAIL_TEMPLATES[id]) return;
+    if (!templateBodies[id]) return;
     currentTemplateId = id;
     localStorage.setItem(SHEET_TEMPLATE_SELECTED_KEY, id);
     const radio = document.getElementById(`tpl-${id}`);
     if (radio) radio.checked = true;
     loadTemplateBody(id);
   }
+
+  // Seed editor from localStorage cache first (instant, offline-friendly)…
+  for (const id of Object.keys(templateBodies)) {
+    const cached = localStorage.getItem(SHEET_TEMPLATE_KEY(id));
+    if (cached != null) templateBodies[id] = cached;
+  }
+  const cachedDisclaimer = localStorage.getItem(SHEET_DISCLAIMER_KEY);
+  if (cachedDisclaimer != null) disclaimerText = cachedDisclaimer;
+  if (disclaimerTa) disclaimerTa.value = disclaimerText;
+  renderDisclaimerPreview();
   selectTemplate(currentTemplateId);
+
+  // …then fetch the DB copy (source of truth) and override.
+  (async () => {
+    try {
+      const r = await fetch('/api/email-templates');
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data && data.templates) {
+        for (const id of Object.keys(templateBodies)) {
+          if (typeof data.templates[id] === 'string') {
+            templateBodies[id] = data.templates[id];
+            localStorage.setItem(SHEET_TEMPLATE_KEY(id), data.templates[id]);
+          }
+        }
+      }
+      if (data && typeof data.disclaimer === 'string') {
+        disclaimerText = data.disclaimer;
+        localStorage.setItem(SHEET_DISCLAIMER_KEY, disclaimerText);
+        if (disclaimerTa) disclaimerTa.value = disclaimerText;
+        renderDisclaimerPreview();
+      }
+      loadTemplateBody(currentTemplateId);
+    } catch {
+      /* offline — keep cached/default bodies */
+    }
+  })();
+
   templateRadios.forEach((r) => {
     r.addEventListener('change', () => {
       if (r.checked) selectTemplate(r.value);
@@ -3830,12 +3894,44 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   });
   if (templateTa) {
     templateTa.addEventListener('input', () => {
+      templateBodies[currentTemplateId] = templateTa.value;
       localStorage.setItem(
         SHEET_TEMPLATE_KEY(currentTemplateId),
         templateTa.value
       );
     });
   }
+  if (disclaimerTa) {
+    disclaimerTa.addEventListener('input', () => {
+      disclaimerText = disclaimerTa.value;
+      localStorage.setItem(SHEET_DISCLAIMER_KEY, disclaimerText);
+      renderDisclaimerPreview();
+    });
+  }
+
+  // Save — PUT the current template body + disclaimer to the DB so they persist
+  // and are reused on every future quote, across devices.
+  saveBtn?.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    setStatus('sheet-template-save-status', 'Saving…', 'info');
+    try {
+      const r = await fetch('/api/email-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templates: { [currentTemplateId]: templateBodies[currentTemplateId] },
+          disclaimer: disclaimerText,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'save failed');
+      setStatus('sheet-template-save-status', '✓ Saved', 'success');
+    } catch (err) {
+      setStatus('sheet-template-save-status', err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 
   function bindPair(slider, num) {
     slider.addEventListener('input', () => (num.value = slider.value));

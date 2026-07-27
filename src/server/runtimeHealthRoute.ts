@@ -7,6 +7,7 @@ import { describeMasterKey } from './secretsCrypto.js';
 import { getDatabaseDiagnostics, type DatabaseDiagnostics } from './dbDiagnostics.js';
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
 import { ensureShipmentColumns } from '../db/shipmentBoard.js';
+import { ensureEmailTemplateTable } from '../db/emailTemplates.js';
 
 const REQUIRED_TABLES = ['shipments', 'quote_bundles', 'drayage_quotes', 'trucking_quotes', 'shipment_containers', 'shipment_follow_ups', 'drayage_rate_library'] as const;
 type FeatureState = 'ready' | 'review_required' | 'setup_required' | 'experimental' | 'unavailable';
@@ -169,6 +170,9 @@ export function registerRuntimeHealthRoute(app: Express): void {
       // Same self-heal for the additive FPOD columns — a fresh deploy runs no
       // migration, so create them proactively here too. Never fails the check.
       await ensureShipmentColumns().catch(() => {});
+      // Same self-heal for the persistent email-templates table. Never fails
+      // the check — a missing table just falls back to in-code defaults.
+      await ensureEmailTemplateTable().catch(() => {});
       const [diagnostics, profile, providerStatuses, providers] = await Promise.all([
         getDatabaseDiagnostics(),
         getAiRoutingProfile(),
