@@ -1038,16 +1038,20 @@ const drIntake = createDropzoneWithNotes({
 
 function applyDrayageIntake(d) {
   const setVal = (id, v) => {
-    if (v != null) document.getElementById(id).value = v;
+    if (v == null) return;
+    const el = document.getElementById(id);
+    if (el) el.value = v;
   };
-  if (d.cargoType) document.getElementById('dr-cargo-type').value = d.cargoType;
+  const setChecked = (name, value) => {
+    if (value == null) return;
+    const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+    if (el) el.checked = true;
+  };
+  setVal('dr-cargo-type', d.cargoType);
   setVal('dr-container', d.containerType);
-  setVal('dr-container-count', d.containerCount ?? 1);
   setVal('dr-weight', d.weightKg ?? '');
 
-  if (d.originType) {
-    document.querySelector(`input[name="dr-origin-type"][value="${d.originType}"]`).checked = true;
-  }
+  setChecked('dr-origin-type', d.originType);
   setVal('dr-origin-port-code', d.originPortCode);
   setVal('dr-origin-port-name', d.originPortName);
   setVal('dr-origin-terminal', d.originTerminal);
@@ -1057,9 +1061,7 @@ function applyDrayageIntake(d) {
   setVal('dr-origin-zip', d.originZip);
   setVal('dr-origin-country', d.originCountry);
 
-  if (d.destinationType) {
-    document.querySelector(`input[name="dr-destination-type"][value="${d.destinationType}"]`).checked = true;
-  }
+  setChecked('dr-destination-type', d.destinationType);
   setVal('dr-destination-port-code', d.destinationPortCode);
   setVal('dr-destination-port-name', d.destinationPortName);
   setVal('dr-destination-terminal', d.destinationTerminal);
