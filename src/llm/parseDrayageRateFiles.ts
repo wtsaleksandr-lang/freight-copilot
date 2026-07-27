@@ -1,8 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { z } from 'zod';
-import { loadEnv } from '../config.js';
-import { getModel } from './model.js';
+import { callAiTool, type AiContentBlock } from './callAiTool.js';
 import { normalizeUniversalFile, type UniversalFileInput } from './universalFileText.js';
 
 const ChargeSchema = z.object({ name: z.string(), amount: z.number(), currency: z.string() });
@@ -27,17 +24,19 @@ const TOOL = { type:'object', properties:{ rates:{ type:'array', items:{ type:'o
 
 export async function parseDrayageRateFiles(files: UniversalFileInput[]) {
   const normalized = files.map(normalizeUniversalFile);
-  const content: MessageParam['content'] = [{ type:'text', text:'Extract every distinct container drayage rate. One row per provider/lane/container/rate. CY means port or rail terminal; DOOR means street address. Preserve source filename. Never invent ports, addresses, charges, validity, free time, or amounts. Base rate excludes separately listed mandatory charges; total cost includes them.' }];
+  const content: AiContentBlock[] = [{ type:'text', text:'Extract every distinct container drayage rate. One row per provider/lane/container/rate. CY means port or rail terminal; DOOR means street address. Preserve source filename. Never invent ports, addresses, charges, validity, free time, or amounts. Base rate excludes separately listed mandatory charges; total cost includes them.' }];
   for (const file of normalized) {
     content.push({ type:'text', text:`SOURCE FILE: ${file.filename}` });
     if (file.kind === 'text') content.push({ type:'text', text:file.text!.slice(0,180000) });
     else if (file.kind === 'pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:file.fileBase64! } });
     else content.push({ type:'image', source:{ type:'base64', media_type:file.mediaType as 'image/png'|'image/jpeg'|'image/webp'|'image/gif', data:file.fileBase64! } });
   }
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? loadEnv().ANTHROPIC_API_KEY });
-  const response = await client.messages.create({ model:await getModel(), max_tokens:8192, system:'You extract freight-forwarding drayage rates accurately. Distinguish CY and DOOR endpoints. Do not guess missing commercial facts.', tools:[{name:'extract_drayage_rates',description:'Return structured drayage rates.',input_schema:TOOL as never}], tool_choice:{type:'tool',name:'extract_drayage_rates'}, messages:[{role:'user',content}] });
-  const tool = response.content.find((block) => block.type === 'tool_use');
-  if (!tool || tool.type !== 'tool_use') throw new Error('Drayage-rate extractor did not return structured output');
-  const parsed = ResultSchema.parse(tool.input);
+  const toolInput = await callAiTool({
+    system:'You extract freight-forwarding drayage rates accurately. Distinguish CY and DOOR endpoints. Do not guess missing commercial facts.',
+    content,
+    tool:{ name:'extract_drayage_rates', description:'Return structured drayage rates.', input_schema:TOOL },
+    maxTokens:8192,
+  });
+  const parsed = ResultSchema.parse(toolInput);
   return { ...parsed, normalizedFiles: normalized.map((file) => ({ filename:file.filename, kind:file.kind, warnings:file.warnings })) };
 }

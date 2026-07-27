@@ -1,10 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { loadEnv } from '../config.js';
 import type { RankedRateOption } from '../types.js';
 
-import { getModel } from './model.js';
-// MODEL resolved per-call below (async)
-const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
+import { callAiText } from './callAiTool.js';
 
 const REPLY_SYSTEM_PROMPT = `You compose short, professional ocean freight quote replies on behalf of a freight forwarder.
 
@@ -73,13 +69,6 @@ Rules:
 export async function generateClientReply(
   input: GenerateReplyInput
 ): Promise<string> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
-  }
-
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
   const rateSummary = input.ranked
     .slice(0, 5)
     .map((r) => {
@@ -110,42 +99,18 @@ Options (ranked by price):
 
 ${rateSummary}`;
 
-  console.log('[generateReply] Asking Claude to compose client reply...');
+  console.log('[generateReply] Asking AI provider to compose client reply...');
 
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1024,
-    system: [
-      {
-        type: 'text',
-        text: REPLY_SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [
-      {
-        role: 'user',
-        content: userText,
-      },
-    ],
+  return callAiText({
+    system: REPLY_SYSTEM_PROMPT,
+    userText,
+    maxTokens: 1024,
   });
-
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Claude returned no text block');
-  }
-  return textBlock.text;
 }
 
 export async function generateBundleReply(
   input: GenerateBundleReplyInput
 ): Promise<string> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
-  }
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
   // Build the user prompt with all carrier data + markup + template
   const carrierBlocks = input.carriers
     .filter((c) => c.status === 'ok' && c.ranked.length > 0)
@@ -201,26 +166,13 @@ export async function generateBundleReply(
       ? `EMAIL TEMPLATE TO FOLLOW EXACTLY (substitute in the lane and rates above):\n\n---BEGIN TEMPLATE---\n${input.emailTemplate}\n---END TEMPLATE---\n\nWrite the reply.`
       : 'Write a clean, professional default reply.');
 
-  console.log('[generateBundleReply] Asking Claude to compose bundle reply...');
+  console.log('[generateBundleReply] Asking AI provider to compose bundle reply...');
 
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1500,
-    system: [
-      {
-        type: 'text',
-        text: BUNDLE_REPLY_SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [{ role: 'user', content: userText }],
+  return callAiText({
+    system: BUNDLE_REPLY_SYSTEM_PROMPT,
+    userText,
+    maxTokens: 1500,
   });
-
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Claude returned no text block');
-  }
-  return textBlock.text;
 }
 
 // ---- Reply generator for parsed rate sheets (offline path) ----
@@ -276,12 +228,6 @@ export interface GenerateSheetReplyInput {
 export async function generateSheetReply(
   input: GenerateSheetReplyInput
 ): Promise<string> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
-  }
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
   // Group rows by lane (POL → POD) so multi-container lanes render together.
   const laneKeys = new Map<string, SheetReplyRow[]>();
   for (const r of input.rows) {
@@ -357,22 +303,9 @@ export async function generateSheetReply(
     `[generateSheetReply] composing reply for ${input.rows.length} rate row(s)...`
   );
 
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1500,
-    system: [
-      {
-        type: 'text',
-        text: BUNDLE_REPLY_SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [{ role: 'user', content: userText }],
+  return callAiText({
+    system: BUNDLE_REPLY_SYSTEM_PROMPT,
+    userText,
+    maxTokens: 1500,
   });
-
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    throw new Error('Claude returned no text block');
-  }
-  return textBlock.text;
 }

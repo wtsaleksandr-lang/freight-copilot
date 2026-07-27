@@ -1,11 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { z } from 'zod';
-import { loadEnv } from '../config.js';
 
-import { getModel } from './model.js';
-// MODEL resolved per-call below (async)
-const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
+import { callAiTool, type AiContentBlock } from './callAiTool.js';
 
 const SYSTEM_PROMPT = `You are an intake assistant for an ocean freight forwarder, parsing drayage requests
 (port ↔ address container truck moves) from emails or chat messages.
@@ -154,63 +149,37 @@ export type DrayageIntakeInput =
 export async function parseDrayageIntake(
   input: DrayageIntakeInput
 ): Promise<DrayageIntake> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
-  }
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
-  const userMessage: MessageParam =
+  const content: AiContentBlock[] =
     'text' in input
-      ? {
-          role: 'user',
-          content: [
-            { type: 'text', text: `Drayage request:\n\n${input.text}` },
-          ],
-        }
-      : {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Extract drayage details from this client message screenshot.',
+      ? [{ type: 'text', text: `Drayage request:\n\n${input.text}` }]
+      : [
+          {
+            type: 'text',
+            text: 'Extract drayage details from this client message screenshot.',
+          },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: input.imageMediaType,
+              data: input.imageBase64,
             },
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: input.imageMediaType,
-                data: input.imageBase64,
-              },
-            },
-          ],
-        };
+          },
+        ];
 
-  console.log('[parseDrayageIntake] Calling Claude...');
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1500,
-    system: [
-      { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-    ],
-    tools: [
-      {
-        name: 'parse_drayage_intake',
-        description: 'Extract structured drayage form fields from the email/screenshot.',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        input_schema: PARSE_TOOL_SCHEMA as any,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tool_choice: { type: 'tool', name: 'parse_drayage_intake' },
-    messages: [userMessage],
+  console.log('[parseDrayageIntake] Calling AI provider...');
+  const toolInput = await callAiTool({
+    system: SYSTEM_PROMPT,
+    content,
+    tool: {
+      name: 'parse_drayage_intake',
+      description: 'Extract structured drayage form fields from the email/screenshot.',
+      input_schema: PARSE_TOOL_SCHEMA,
+    },
+    maxTokens: 1500,
   });
 
-  const toolUse = response.content.find((b) => b.type === 'tool_use');
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('Claude did not return a tool_use block');
-  }
-  const parsed = Schema.safeParse(toolUse.input);
+  const parsed = Schema.safeParse(toolInput);
   if (!parsed.success) {
     console.error('[parseDrayageIntake] Zod issues:', parsed.error.issues);
     throw new Error('Drayage intake validation failed');

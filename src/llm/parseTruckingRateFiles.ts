@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { loadEnv } from '../config.js';
-import { getModel } from './model.js';
+import { callAiTool, type AiContentBlock } from './callAiTool.js';
 import { normalizeUniversalFile, type UniversalFileInput } from './universalFileText.js';
 
 const RateSchema = z.object({
@@ -55,24 +53,19 @@ const TOOL = {
 
 export async function parseTruckingRateFiles(files: UniversalFileInput[]) {
   const normalized = files.map(normalizeUniversalFile);
-  const content: Array<Record<string, unknown>> = [{ type: 'text', text: 'Extract every distinct ground-trucking rate from the attached files. These may be emails, spreadsheets, Word documents, PDFs, screenshots, CSV exports, or presentations. One row per lane/equipment/rate. Never invent missing values. Preserve each source filename. Base rate excludes listed accessorials; total cost includes mandatory listed charges. Use ISO YYYY-MM-DD dates. If a file has no usable trucking rate, add a warning.' }];
+  const content: AiContentBlock[] = [{ type: 'text', text: 'Extract every distinct ground-trucking rate from the attached files. These may be emails, spreadsheets, Word documents, PDFs, screenshots, CSV exports, or presentations. One row per lane/equipment/rate. Never invent missing values. Preserve each source filename. Base rate excludes listed accessorials; total cost includes mandatory listed charges. Use ISO YYYY-MM-DD dates. If a file has no usable trucking rate, add a warning.' }];
   for (const file of normalized) {
     content.push({ type: 'text', text: `SOURCE FILE: ${file.filename}` });
     if (file.kind === 'text') content.push({ type: 'text', text: file.text!.slice(0, 180000) });
     else if (file.kind === 'pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.fileBase64! } });
     else content.push({ type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.fileBase64! } });
   }
-  const env = loadEnv();
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-  const response = await client.messages.create({
-    model: await getModel(), max_tokens: 8192,
+  const toolInput = await callAiTool({
     system: 'You are a freight-forwarding trucking-rate data extractor. Accuracy is more important than quantity. Do not convert currencies or guess lanes, equipment, mileage, dates, or charges.',
-    tools: [{ name: 'extract_trucking_rates', description: 'Return structured trucking rates from all supplied files.', input_schema: TOOL as never }],
-    tool_choice: { type: 'tool', name: 'extract_trucking_rates' },
-    messages: [{ role: 'user', content: content as never }]
+    content,
+    tool: { name: 'extract_trucking_rates', description: 'Return structured trucking rates from all supplied files.', input_schema: TOOL },
+    maxTokens: 8192,
   });
-  const tool = response.content.find((b) => b.type === 'tool_use');
-  if (!tool || tool.type !== 'tool_use') throw new Error('Trucking-rate extractor did not return structured output');
-  const parsed = ResultSchema.parse(tool.input);
+  const parsed = ResultSchema.parse(toolInput);
   return { ...parsed, normalizedFiles: normalized.map((f) => ({ filename: f.filename, kind: f.kind, warnings: f.warnings })) };
 }
