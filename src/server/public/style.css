@@ -2101,9 +2101,10 @@ body.is-panel-dragging * {
    on click so it's obvious which target captures Ctrl+V. */
 .attachments-paste-zone {
   padding: 12px;
-  border: 1.5px solid #3a3a3a;
+  border: 1.5px solid var(--border);
   border-radius: 6px;
-  background: #161616;
+  /* Subtle inset surface — matches the light app instead of a solid black bar. */
+  background: var(--bg);
   text-align: center;
   cursor: text;
   transition: border-color 0.1s, background 0.1s, box-shadow 0.1s;
@@ -2113,21 +2114,79 @@ body.is-panel-dragging * {
   user-select: none;
 }
 .attachments-paste-zone:hover {
-  border-color: #58a6ff;
-  background: #1a2535;
+  border-color: #93c5fd;
+  background: #f0f6ff;
 }
 .attachments-paste-zone:focus,
 .attachments-paste-zone:focus-visible {
   border-color: #2563eb;
-  background: #1c2c4a;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.30);
+  background: #eef4ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 .attachments-paste-prompt {
   display: block;
   font-size: 12px;
-  color: #c5d6ee;
+  color: var(--muted);
   font-weight: 500;
   pointer-events: none;
+}
+
+/* ── Ocean email template: token legend + fine-print disclaimer + save ── */
+.token-legend {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  padding: 6px 10px;
+}
+.token-legend > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.token-legend-list {
+  margin: 8px 0 4px;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.token-legend-list code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: #0f172a;
+}
+.disclaimer-field {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.disclaimer-field textarea {
+  margin-top: 6px;
+  font-weight: 400;
+}
+.disclaimer-preview-wrap {
+  margin-top: 8px;
+}
+/* Fine print: smaller, italic, muted grey, with a light divider above it —
+   mirrors how the disclaimer is set apart at the bottom of the email. */
+.disclaimer-preview {
+  margin-top: 4px;
+  font-size: 11px;
+  font-style: italic;
+  color: #6b7280;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+  white-space: pre-wrap;
+}
+.template-save-row {
+  margin-top: 12px;
+  align-items: center;
+  gap: 10px;
 }
 
 .compact-panel.is-uploading {

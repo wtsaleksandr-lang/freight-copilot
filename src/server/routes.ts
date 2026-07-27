@@ -89,6 +89,11 @@ import {
   ratesFromParsedResults,
 } from '../db/sheetHistory.js';
 import {
+  getEmailTemplates,
+  getOceanDisclaimer,
+  saveEmailTemplates,
+} from '../db/emailTemplates.js';
+import {
   listShipments,
   createShipment,
   updateShipment,
@@ -1707,6 +1712,9 @@ export function registerApiRoutes(app: Express): void {
               },
             ]
           : [];
+      // Disclaimer is the DB's — the source of truth — never trusted from the
+      // client. Falls back to the in-code default if the DB is unavailable.
+      const disclaimer = await getOceanDisclaimer();
       const text = await generateSheetReply({
         rows: body.rows,
         markupPct,
@@ -1714,6 +1722,7 @@ export function registerApiRoutes(app: Express): void {
         surcharges,
         clientName: body.clientName,
         emailTemplate: body.emailTemplate,
+        disclaimer,
       });
       // Persist the latest email + markup back to the saved row.
       if (body.refId) {
@@ -1734,6 +1743,52 @@ export function registerApiRoutes(app: Express): void {
       res.json({ text });
     } catch (err) {
       console.error('[api/sheets/reply] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ---- Persistent ocean email templates + disclaimer ----
+  // GET returns the 3 template bodies + the disclaimer (DB source of truth,
+  // falls back to in-code defaults on any DB error — never 500s a page load).
+  app.get('/api/email-templates', async (_req: Request, res: Response) => {
+    try {
+      const payload = await getEmailTemplates();
+      res.json(payload);
+    } catch (err) {
+      console.error('[api/email-templates GET] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // PUT saves an edited template body (by key) and/or the disclaimer. Persists
+  // to the DB so the edit is reused on every future quote, cross-device.
+  app.put('/api/email-templates', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      templates?: Record<string, string>;
+      disclaimer?: string;
+    };
+    if (
+      (body.templates == null || typeof body.templates !== 'object') &&
+      typeof body.disclaimer !== 'string'
+    ) {
+      res
+        .status(400)
+        .json({ error: 'Provide `templates` (map) and/or `disclaimer` (string).' });
+      return;
+    }
+    try {
+      await saveEmailTemplates({
+        templates: body.templates,
+        disclaimer: body.disclaimer,
+      });
+      const payload = await getEmailTemplates();
+      res.json({ ok: true, ...payload });
+    } catch (err) {
+      console.error('[api/email-templates PUT] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });

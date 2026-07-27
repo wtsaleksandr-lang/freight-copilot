@@ -1,6 +1,21 @@
 import type { RankedRateOption } from '../types.js';
 
 import { callAiText } from './callAiTool.js';
+import { substituteTokens } from './emailSubstitute.js';
+import { DEFAULT_OCEAN_DISCLAIMER, DEFAULT_EMAIL_TEMPLATES } from '../db/emailTemplates.js';
+
+/**
+ * Plain-text fine-print separator + disclaimer appended to the bottom of every
+ * generated ocean quote email. HTML/inline-CSS styling is applied in the
+ * template-editor preview (front-end); the generated email is plain text (it
+ * lands in a <textarea>), so we set the disclaimer apart with a divider line.
+ */
+export function appendDisclaimer(body: string, disclaimer: string): string {
+  const text = (disclaimer ?? '').trim();
+  if (!text) return body;
+  const divider = '—'.repeat(48);
+  return `${body}\n\n${divider}\n${text}`;
+}
 
 const REPLY_SYSTEM_PROMPT = `You compose short, professional ocean freight quote replies on behalf of a freight forwarder.
 
@@ -223,9 +238,39 @@ export interface GenerateSheetReplyInput {
   }>;
   clientName?: string;
   emailTemplate?: string;
+  /**
+   * Fine-print disclaimer auto-appended to the bottom of the email. Comes from
+   * the DB (owner-editable); defaults to DEFAULT_OCEAN_DISCLAIMER when omitted.
+   * Pass an empty string to suppress it.
+   */
+  disclaimer?: string;
 }
 
 export async function generateSheetReply(
+  input: GenerateSheetReplyInput
+): Promise<string> {
+  // ── ACCURATE PATH ────────────────────────────────────────────────────────
+  // When a template is provided, fill it DETERMINISTICALLY from the parsed rows
+  // (prices, POL/POD, carrier, transit come straight from the data — never the
+  // LLM), then auto-append the disclaimer. This is the accuracy guarantee the
+  // owner asked for; the LLM is not in this path.
+  const disclaimer = input.disclaimer ?? DEFAULT_OCEAN_DISCLAIMER;
+  const template = input.emailTemplate?.trim() || DEFAULT_EMAIL_TEMPLATES.concise!;
+  const substituted = substituteTokens(template, input.rows, {
+    markupPct: input.markupPct,
+    markupFlat: input.markupFlat,
+    clientName: input.clientName,
+    surcharges: input.surcharges,
+  });
+  return appendDisclaimer(substituted, disclaimer);
+}
+
+/**
+ * LEGACY LLM-composed sheet reply. Retained for reference / potential
+ * prose-polish use, but no longer on the default generate path (deterministic
+ * substitution above is the accurate path). Not currently wired to a route.
+ */
+export async function generateSheetReplyViaLlm(
   input: GenerateSheetReplyInput
 ): Promise<string> {
   // Group rows by lane (POL → POD) so multi-container lanes render together.
