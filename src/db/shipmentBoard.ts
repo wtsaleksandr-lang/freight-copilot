@@ -1,9 +1,41 @@
 import { desc, eq, like, or, sql } from 'drizzle-orm';
-import { createDbClient } from './client.js';
+import { createDbClient, getPostgresPool } from './client.js';
 import { shipments } from './schema.js';
 
 export type ShipmentRow = typeof shipments.$inferSelect;
 export type NewShipment = typeof shipments.$inferInsert;
+
+/**
+ * Self-heal the additive FPOD columns (fpod / fpod_code) before the board
+ * reads or writes them. The Replit deploy runs NO migration step (just
+ * `pnpm install` + `tsx src/index.ts serve`), so a fresh Publish would ship
+ * code that SELECTs/INSERTs `fpod` against a table that lacks the column —
+ * 500-ing the whole shipment board. This creates the columns lazily on first
+ * use, mirroring `ensureShipmentOperationTables()` in shipmentOperations.ts.
+ *
+ * Idempotent (ADD COLUMN IF NOT EXISTS), run-once-per-process (cached promise),
+ * and deliberately NON-fatal: a fail-fast boot migration is exactly what takes
+ * apps down on deploy, so a failure here logs loudly and lets the caller
+ * proceed. On failure the cache is cleared so the next request retries the heal.
+ */
+let columnsReady: Promise<void> | null = null;
+export function ensureShipmentColumns(): Promise<void> {
+  if (columnsReady) return columnsReady;
+  columnsReady = (async () => {
+    const pool = getPostgresPool();
+    await pool.query('ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fpod text');
+    await pool.query('ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fpod_code text');
+  })().catch((error) => {
+    // Never rethrow — must not crash boot or a request. Reset so a later
+    // call can retry the heal (e.g. after a transient DB blip).
+    columnsReady = null;
+    console.error(
+      '[db] ensureShipmentColumns failed — shipment board may be missing fpod/fpod_code columns until this heals:',
+      error
+    );
+  });
+  return columnsReady;
+}
 
 /**
  * Draft placeholder ref for a manually-added blank row. LoadMode NEVER mints
@@ -19,6 +51,7 @@ function draftRef(): string {
 export async function listShipments(
   query?: string
 ): Promise<ShipmentRow[]> {
+  await ensureShipmentColumns();
   const db = createDbClient();
   if (!query) {
     return db.select().from(shipments).orderBy(desc(shipments.createdAt));
@@ -48,6 +81,7 @@ export async function listShipments(
 export async function createShipment(
   patch: Partial<NewShipment>
 ): Promise<ShipmentRow> {
+  await ensureShipmentColumns();
   const db = createDbClient();
   // Never mint a company ref: use the caller-provided ref (import File# / typed),
   // else a clearly-temporary DRAFT placeholder the user edits inline.
@@ -147,6 +181,7 @@ export async function updateShipment(
   refId: string,
   patch: Partial<ShipmentRow>
 ): Promise<ShipmentRow | null> {
+  await ensureShipmentColumns();
   const db = createDbClient();
   const safe: Partial<NewShipment> = {};
   for (const [k, v] of Object.entries(patch)) {
@@ -204,6 +239,7 @@ export async function renameRefId(
 export async function getShipment(
   refId: string
 ): Promise<ShipmentRow | null> {
+  await ensureShipmentColumns();
   const db = createDbClient();
   const [row] = await db
     .select()
