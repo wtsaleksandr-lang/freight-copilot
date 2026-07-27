@@ -99,9 +99,10 @@
           <button type="button" class="clearance-move-btn" data-template="import_canada" role="tab" aria-selected="false">Canada import</button>
           <button type="button" class="clearance-move-btn" data-template="export_clearance" role="tab" aria-selected="false">Export</button>
         </div>
-        <div class="clearance-import-row">
-          <button type="button" class="btn-sm" id="clearance-import-btn">📄 Import from screenshot / email</button>
-          <input type="file" id="clearance-import-file" accept="image/*,application/pdf,.eml,.txt,.html" hidden>
+        <div class="clearance-import-block">
+          <span class="intake-eyebrow is-quote">Client request</span>
+          <div class="clearance-import-label">Import from a screenshot / email <span class="muted small">— drop the client's request (PDF · image · .eml/.msg · HTML · TXT) or paste a screenshot, and we prefill everything below</span></div>
+          <div id="clearance-import-dropzone"></div>
           <span id="clearance-import-status" class="muted small" role="status" aria-live="polite"></span>
         </div>
       </div>
@@ -549,12 +550,64 @@
     $('#clearance-preview').addEventListener('click', preview);
     $('#clearance-pdf').addEventListener('click', createPdf);
     $('#clearance-copy')?.addEventListener('click', copyQuote);
-    $('#clearance-import-btn')?.addEventListener('click', () => $('#clearance-import-file')?.click());
-    $('#clearance-import-file')?.addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      if (f) importFromDocument(f);
-      e.target.value = '';
-    });
+    // Import dropzone — reuse the shared createDropzoneWithNotes factory from
+    // app.js (a top-level global) so Customs gets the SAME drag-drop + click +
+    // Ctrl+V-paste + notes experience as the Shipments / Drayage / Ocean tabs.
+    // Sends the dropped file (and/or typed notes) to the SAME /api/customs/extract
+    // endpoint the old single-file button used, then fills the form via applyExtract.
+    const importMount = $('#clearance-import-dropzone');
+    const importStatus = $('#clearance-import-status');
+    if (importMount && typeof createDropzoneWithNotes === 'function') {
+      const clearanceImport = createDropzoneWithNotes({
+        mount: importMount,
+        acceptHint: 'PDF · Image · EML · MSG · HTML · TXT',
+        notesPlaceholder: "Or paste the client's request text here…",
+        submitLabel: 'Extract & prefill',
+        async onSubmit({ files, notes }) {
+          if ((!files || files.length === 0) && !notes) {
+            clearanceImport.status('Drop a file or type the request first.', 'error');
+            return;
+          }
+          clearanceImport.status('Reading the document…', 'info', true);
+          if (importStatus) importStatus.textContent = 'Reading the document…';
+          try {
+            const first = files && files[0];
+            const body = first
+              ? { fileBase64: first.fileBase64, mediaType: first.mediaType || 'image/png', filename: first.filename, text: notes || undefined }
+              : { text: notes };
+            const r = await fetch('/api/customs/extract', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await r.json();
+            if (!r.ok) {
+              const msg = data.error || 'Could not read the document.';
+              clearanceImport.status(msg, 'error');
+              if (importStatus) importStatus.textContent = msg;
+              return;
+            }
+            applyExtract(data.extract || {});
+            const ok = 'Filled from the document — review & adjust before quoting.';
+            clearanceImport.status(ok, 'info');
+            if (importStatus) importStatus.textContent = ok;
+          } catch (e) {
+            const msg = 'Import failed: ' + (e && e.message ? e.message : e);
+            clearanceImport.status(msg, 'error');
+            if (importStatus) importStatus.textContent = msg;
+          }
+        },
+      });
+    } else if (importMount) {
+      // Defensive fallback (factory unavailable): a plain file picker wired to
+      // the same importFromDocument path so the feature never fully breaks.
+      importMount.innerHTML = '<button type="button" class="btn-sm" id="clearance-import-btn">📄 Import from screenshot / email</button><input type="file" id="clearance-import-file" accept="image/*,application/pdf,.eml,.txt,.html" hidden>';
+      importMount.querySelector('#clearance-import-btn')?.addEventListener('click', () => importMount.querySelector('#clearance-import-file')?.click());
+      importMount.querySelector('#clearance-import-file')?.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) importFromDocument(f);
+        e.target.value = '';
+      });
+    }
 
     loadCountryList();
     setTemplate('import_usa');

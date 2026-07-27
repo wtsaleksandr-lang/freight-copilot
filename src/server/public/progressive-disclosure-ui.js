@@ -1,8 +1,13 @@
 (function installProgressiveDisclosure() {
   'use strict';
 
+  // NOTE: the rate-library card (#dr-lib-dropzone) is intentionally NOT hidden
+  // here. It is the "Save rates to your library" surface — owners could not
+  // find it while it was display:none behind the import workflow. It now stays
+  // first-class/visible on the Drayage tab. #dr-ingest-card (a secondary
+  // reviewer-importer) still follows the import workflow toggle.
   const importSelectors = {
-    drayage: ['#dr-ingest-card', '#dr-lib-dropzone'],
+    drayage: ['#dr-ingest-card'],
     trucking: ['#tr-ingest-card'],
   };
 

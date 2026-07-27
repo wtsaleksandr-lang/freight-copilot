@@ -180,6 +180,28 @@ body:has(#tab-shipments.active) main {
 .muted { color: var(--muted); font-size: 13px; }
 .muted.small { font-size: 12px; }
 
+/* Intake-surface eyebrow badges — make it obvious which card SAVES rates to
+   the library vs. which card QUOTES an incoming client request. Used on the
+   Drayage, Ocean and Customs intake surfaces so they read consistently. */
+.intake-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+.intake-eyebrow.is-library { color: var(--info); background: var(--info-bg); }
+.intake-eyebrow.is-quote { color: var(--success); background: var(--success-bg); }
+/* Inside a collapsible summary the eyebrow sits in the flex row — drop the
+   block margin so it stays vertically centred next to the heading. */
+details.dr-fold > summary.dr-fold-summary .intake-eyebrow { margin-bottom: 0; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
