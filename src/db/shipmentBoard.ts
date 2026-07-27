@@ -236,6 +236,52 @@ export async function renameRefId(
   }
 }
 
+/**
+ * Pure fill-only patch: keep only keys whose incoming value is present AND
+ * whose value on `existing` is empty (null / ''). Optionally gate keys through
+ * an `isEditable` predicate. Guarantees a populated cell is NEVER overwritten —
+ * this is the core "enrich only the missing cells, don't overwrite" rule, kept
+ * pure so it can be unit-tested without a DB.
+ */
+export function fillOnlyPatch<T extends Record<string, unknown>>(
+  existing: T,
+  incoming: Partial<T>,
+  isEditable?: (key: string) => boolean
+): Partial<T> {
+  const isEmpty = (v: unknown) => v == null || v === '';
+  const patch: Partial<T> = {};
+  for (const [k, v] of Object.entries(incoming)) {
+    if (isEditable && !isEditable(k)) continue;
+    if (v == null || v === '') continue; // nothing to contribute
+    if (!isEmpty((existing as Record<string, unknown>)[k])) continue; // don't overwrite
+    (patch as Record<string, unknown>)[k] = v;
+  }
+  return patch;
+}
+
+/**
+ * Fill-only merge: enrich an existing shipment with parsed data WITHOUT
+ * clobbering any cell the user (or a prior document) already populated. Only
+ * columns that are currently null / empty-string are written; every populated
+ * cell is left exactly as-is. Returns the refreshed row (or null if the ref
+ * doesn't exist). This is the "add into the existing one, enrich only the
+ * missing cells" primitive behind the drop-path dedup/merge flow.
+ */
+export async function mergeShipmentFillOnly(
+  refId: string,
+  fields: Partial<ShipmentRow>
+): Promise<ShipmentRow | null> {
+  const existing = await getShipment(refId);
+  if (!existing) return null;
+  const patch = fillOnlyPatch(
+    existing as unknown as Record<string, unknown>,
+    fields as Record<string, unknown>,
+    (k) => EDITABLE_FIELDS.has(k as keyof ShipmentRow)
+  );
+  if (Object.keys(patch).length === 0) return existing;
+  return updateShipment(refId, patch as Partial<ShipmentRow>);
+}
+
 export async function getShipment(
   refId: string
 ): Promise<ShipmentRow | null> {

@@ -102,9 +102,16 @@ import {
   isMsgFile,
   type BriefingFile,
   type BriefingMediaType,
+  type ShipmentBriefing,
 } from '../llm/parseShipmentBriefing.js';
 import { toUsd, conversionAnnotation } from './fxRates.js';
 import { convertMsgToEmailText } from '../llm/msgToText.js';
+import { decideShipmentIntake } from './shipmentDedupDecision.js';
+import {
+  createFromBriefing,
+  mergeFromBriefing,
+  type RawIntakeFile,
+} from './shipmentIntakeApply.js';
 import {
   getDelayPredictBadgeMap,
   refreshDelayPredictTracking,
@@ -2756,151 +2763,138 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
 
-      // If the email mentions an existing freight-copilot ref (S0xxxx),
-      // honour it: update the existing row in place if it exists, or
-      // create a new row with that ref. Otherwise auto-allocate as
-      // before. Anything not matching the S0xxxx pattern is ignored
-      // here — carrier booking numbers / customer POs go in `notes`.
+      // Dedup / merge-or-create decision. The document's own S-ref number is
+      // weighted highest; then booking ref, then parties + route. Instead of
+      // ALWAYS creating a new row, we ask the matcher whether this file belongs
+      // to a shipment that already exists in LoadMode.
+      //   matched (confident) -> fill-only MERGE into that shipment
+      //   none                -> CREATE new (previous behaviour)
+      //   ambiguous           -> return a create-vs-merge question for the modal
       const extractedRef = (briefing.our_reference_number ?? '').trim();
       const refMatchesPattern = /^S\d{3,}$/i.test(extractedRef);
-      let row;
-      // Initial cost breakdown from any line items the AI found.
-      // Allow negative amounts (discounts / loyalty credits) — only
-      // exclude zeros and NaN.
-      const initialCostItems = (briefing.cost_items ?? []).filter(
-        (c) => Number.isFinite(c.amount) && c.amount !== 0
+      const forcedRef = refMatchesPattern ? extractedRef.toUpperCase() : undefined;
+
+      const allRows = await listShipments();
+      const decision = decideShipmentIntake(
+        {
+          internalRef: briefing.our_reference_number,
+          bookingRef: briefing.booking_ref,
+          customerName: briefing.customer_name,
+          shipperName: briefing.shipper_name,
+          receiverName: briefing.receiver_name,
+          carrierPreference: briefing.carrier_preference,
+          pol: briefing.pol,
+          pod: briefing.pod,
+          containerType: briefing.container_type,
+        },
+        allRows
       );
-      const stampedCosts = initialCostItems.map((c) => {
-        const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
-        const note = conversionAnnotation(conv);
-        return {
-          name: note ? `${c.name} ${note}` : c.name,
-          amount: conv.amount,
-          currency: 'USD',
-          sourceFile: files.map((f) => f.filename).filter(Boolean).join(', ') || null,
-          addedAt: new Date().toISOString(),
-        };
-      });
-      const initialOurCost = stampedCosts.reduce(
-        (s, c) => s + (c.amount || 0),
-        0
-      );
-      // Same pattern for the sell side.
-      const initialSoldItems = (briefing.sold_items ?? []).filter(
-        (c) => Number.isFinite(c.amount) && c.amount !== 0
-      );
-      const stampedSold = initialSoldItems.map((c) => {
-        const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
-        const note = conversionAnnotation(conv);
-        return {
-          name: note ? `${c.name} ${note}` : c.name,
-          amount: conv.amount,
-          currency: 'USD',
-          sourceFile:
-            files.map((f) => f.filename).filter(Boolean).join(', ') || null,
-          addedAt: new Date().toISOString(),
-        };
-      });
-      const initialSoldFromItems = stampedSold.reduce(
-        (s, c) => s + (c.amount || 0),
-        0
-      );
-      // If both AI sold_rate and sold_items are present, prefer the
-      // sum of items (it's the breakdown the user can edit).
-      const initialSoldRate =
-        stampedSold.length > 0
-          ? initialSoldFromItems
-          : (briefing.sold_rate ?? null);
-      const fieldsFromBriefing = {
-        shipperName: briefing.shipper_name ?? null,
-        receiverName: briefing.receiver_name ?? null,
-        customerName: briefing.customer_name ?? null,
-        loadingAddress: briefing.loading_address ?? null,
-        fpol: briefing.fpol ?? null,
-        fpolCode: briefing.fpol_code ?? null,
-        pol: briefing.pol ?? null,
-        polCode: briefing.pol_code ?? null,
-        pod: briefing.pod ?? null,
-        podCode: briefing.pod_code ?? null,
-        fpod: briefing.fpod ?? null,
-        fpodCode: briefing.fpod_code ?? null,
-        containerType: briefing.container_type ?? null,
-        containerQuantity: briefing.container_quantity ?? null,
-        cargoType: briefing.cargo_type ?? null,
-        cargoName: briefing.cargo_name ?? null,
-        soldRate: initialSoldRate,
-        soldCurrency: 'USD',
-        soldBreakdownJson: stampedSold.length > 0 ? stampedSold : null,
-        ourCost: stampedCosts.length > 0 ? initialOurCost : null,
-        ourCostCurrency: 'USD',
-        costBreakdownJson: stampedCosts.length > 0 ? stampedCosts : null,
-        carrierPreference: briefing.carrier_preference ?? null,
-        bookingRef: briefing.booking_ref ?? null,
-        shipmentType: briefing.shipment_type ?? null,
-        notes: briefing.notes ?? null,
-      };
-      if (refMatchesPattern) {
-        const normalized = extractedRef.toUpperCase();
-        const existing = await getShipment(normalized);
-        if (existing) {
-          // Merge: only overwrite fields the AI extracted with a value;
-          // keep whatever the user has already typed in for the rest.
-          const patch: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(fieldsFromBriefing)) {
-            if (v != null && v !== '') patch[k] = v;
-          }
-          await updateShipment(normalized, patch);
-          row = (await getShipment(normalized))!;
-        } else {
-          row = await createShipment({ refId: normalized, ...fieldsFromBriefing });
-        }
-      } else {
-        row = await createShipment(fieldsFromBriefing);
+
+      if (decision.action === 'clarify') {
+        // Not confident — surface a create-vs-merge question. The dashboard
+        // renders the options as clickable buttons; the user's pick is sent to
+        // /api/shipments/parse-commit (NOT re-POSTed here) to avoid a loop.
+        res.json({
+          pendingClarification: true,
+          dedupChoice: true,
+          questions: decision.questions,
+          commitOptions: decision.commitOptions,
+          briefing,
+          ephemeral,
+        });
+        return;
       }
 
-      // Save source files unless the user opted into ephemeral mode.
-      let artifacts: Array<{
-        filename: string;
-        url: string;
-        mediaType: string;
-        addedAt: string;
-      }> = [];
-      if (!ephemeral) {
-        // Durable store: R2 when configured (survives redeploys), disk otherwise.
-        const { storeShipmentAttachment } = await import('./keptFileStore.js');
-        const stamp = new Date().toISOString();
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i]!;
-          const safe = (f.filename ?? `file-${i + 1}`).replace(
-            /[^a-z0-9._-]/gi,
-            '_'
-          );
-          const stored = await storeShipmentAttachment({
-            refId: row.refId,
-            objectName: `${i + 1}-${safe}`,
-            bytes: Buffer.from(f.contentBase64, 'base64'),
-            contentType: briefingFiles[i]!.mediaType,
+      const rawFiles = files as RawIntakeFile[];
+      if (decision.action === 'merge') {
+        const merged = await mergeFromBriefing({
+          refId: decision.refId,
+          briefing,
+          files: rawFiles,
+          fxRates,
+          ephemeral,
+        });
+        if (merged) {
+          res.json({
+            shipment: merged,
+            briefing,
+            ephemeral,
+            merged: true,
+            mergedInto: decision.refId,
           });
-          artifacts.push({
-            filename: f.filename ?? safe,
-            url: stored.servedUrl,
-            mediaType: briefingFiles[i]!.mediaType,
-            addedAt: stamp,
-          });
+          return;
         }
-        // Direct DB write — artifactsJson isn't on the EDITABLE_FIELDS allow-list.
-        const db = createDbClient();
-        const { shipments: shipmentsTbl } = await import('../db/schema.js');
-        await db
-          .update(shipmentsTbl)
-          .set({ artifactsJson: artifacts, updatedAt: new Date() })
-          .where(eq(shipmentsTbl.refId, row.refId));
+        // Row disappeared between decision and merge — fall through to create.
       }
-      const final = await getShipment(row.refId);
 
-      res.json({ shipment: final ?? row, briefing, ephemeral });
+      const created = await createFromBriefing({
+        briefing,
+        files: rawFiles,
+        fxRates,
+        ephemeral,
+        refId: forcedRef,
+      });
+      res.json({ shipment: created, briefing, ephemeral });
     } catch (err) {
       console.error('[api/shipments/parse] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * Commit a create-vs-merge decision the user made in the clarification modal
+   * (after /api/shipments/parse returned `dedupChoice`). The briefing is already
+   * parsed client-side — no second LLM call — so this just applies it:
+   *   action:'create' -> new shipment (honours an explicit S-ref in the doc)
+   *   action:'merge'  -> fill-only enrich the chosen existing shipment
+   */
+  app.post('/api/shipments/parse-commit', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      action?: 'create' | 'merge';
+      refId?: string;
+      files?: RawIntakeFile[];
+      briefing?: ShipmentBriefing;
+      fxRates?: Record<string, number>;
+      ephemeral?: boolean;
+    };
+    const action = body.action === 'merge' ? 'merge' : 'create';
+    const files = Array.isArray(body.files) ? body.files : [];
+    const briefing = body.briefing;
+    const fxRates = body.fxRates || {};
+    const ephemeral = !!body.ephemeral;
+    if (!briefing || typeof briefing !== 'object') {
+      res.status(400).json({ error: 'Missing parsed briefing to commit.' });
+      return;
+    }
+    try {
+      if (action === 'merge') {
+        const refId = String(body.refId ?? '').trim();
+        if (!refId) {
+          res.status(400).json({ error: 'refId is required to merge.' });
+          return;
+        }
+        const row = await mergeFromBriefing({ refId, briefing, files, fxRates, ephemeral });
+        if (!row) {
+          res.status(404).json({ error: `Shipment ${refId} not found.` });
+          return;
+        }
+        res.json({ shipment: row, briefing, ephemeral, merged: true, mergedInto: refId });
+        return;
+      }
+      const extractedRef = (briefing.our_reference_number ?? '').trim();
+      const refMatchesPattern = /^S\d{3,}$/i.test(extractedRef);
+      const row = await createFromBriefing({
+        briefing,
+        files,
+        fxRates,
+        ephemeral,
+        refId: refMatchesPattern ? extractedRef.toUpperCase() : undefined,
+      });
+      res.json({ shipment: row, briefing, ephemeral });
+    } catch (err) {
+      console.error('[api/shipments/parse-commit] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });
