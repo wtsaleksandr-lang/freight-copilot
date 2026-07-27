@@ -12,8 +12,10 @@ import { getCarrier, listCarriers } from '../carriers/registry.js';
 import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
-import { parseIntake, type IntakeInput } from '../llm/parseIntake.js';
-import { friendlyAiError } from '../llm/callAiTool.js';
+import { parseIntake } from '../llm/parseIntake.js';
+import { friendlyAiError, type AiContentBlock } from '../llm/callAiTool.js';
+import { normalizeUniversalFile } from '../llm/universalFileText.js';
+import { normalizePostal } from '../utils/postal.js';
 import {
   generateClientReply,
   generateBundleReply,
@@ -140,6 +142,93 @@ function csvEscape(v: string): string {
   return s;
 }
 
+/**
+ * Shared body shape for the intake endpoints. Accepts the NEW universal
+ * file-drop payload (`files[]` + `notes`) and stays backward-compatible with
+ * the LEGACY single-`text` / single-`imageBase64` bodies.
+ */
+export interface IntakeRequestBody {
+  text?: string;
+  notes?: string;
+  imageBase64?: string;
+  imageMediaType?: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+  files?: Array<{
+    filename?: string;
+    mediaType?: string;
+    fileBase64?: string;
+    // The Shipments dropzone historically names the field `contentBase64`;
+    // accept both so the same client payload builder can feed either route.
+    contentBase64?: string;
+  }>;
+}
+
+/**
+ * Turn an intake request body into AI content blocks. Each universal file is
+ * run through `normalizeUniversalFile` — text-bearing formats (txt/csv/html/
+ * eml/msg/docx/xlsx/…) are extracted to text and concatenated with `notes`,
+ * while images and PDFs are forwarded as visual blocks. Throws a descriptive
+ * error if a file can't be decoded. Returns `{ empty: true }` when there is
+ * nothing to send.
+ */
+function buildIntakeContent(body: IntakeRequestBody): {
+  content: AiContentBlock[];
+  empty: boolean;
+} {
+  const textParts: string[] = [];
+  const mediaBlocks: AiContentBlock[] = [];
+
+  const files = Array.isArray(body.files) ? body.files : [];
+  for (const f of files) {
+    const b64 = f?.fileBase64 ?? f?.contentBase64;
+    if (!b64 || typeof b64 !== 'string') continue;
+    const norm = normalizeUniversalFile({
+      filename: f.filename || 'upload',
+      mediaType: f.mediaType,
+      fileBase64: b64,
+    });
+    if (norm.kind === 'text') {
+      const t = (norm.text || '').trim();
+      if (t) textParts.push(`--- ${norm.filename} ---\n${t}`);
+    } else if (norm.kind === 'image' && norm.fileBase64) {
+      mediaBlocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: norm.mediaType, data: norm.fileBase64 },
+      });
+    } else if (norm.kind === 'pdf' && norm.fileBase64) {
+      mediaBlocks.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: norm.fileBase64 },
+      });
+    }
+  }
+
+  // Legacy single-image body.
+  if (body.imageBase64 && body.imageMediaType) {
+    mediaBlocks.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: body.imageMediaType,
+        data: body.imageBase64,
+      },
+    });
+  }
+
+  // Notes + legacy free text.
+  const typed = [body.text, body.notes]
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n');
+  if (typed) textParts.push(typed);
+
+  const content: AiContentBlock[] = [];
+  const combined = textParts.join('\n\n').trim();
+  if (combined) content.push({ type: 'text', text: combined });
+  content.push(...mediaBlocks);
+
+  return { content, empty: content.length === 0 };
+}
+
 export function registerApiRoutes(app: Express): void {
   /**
    * Lookup data for the dashboard form selectors.
@@ -195,7 +284,9 @@ export function registerApiRoutes(app: Express): void {
    */
   app.get('/api/data/geocode', async (req: Request, res: Response) => {
     const rawQ = req.query.q;
-    const q = typeof rawQ === 'string' ? rawQ.trim() : '';
+    // Canonicalize a Canadian-postal-shaped query ("J1Z2C2" -> "J1Z 2C2") so
+    // the geocoder matches regardless of whether the user typed the space.
+    const q = typeof rawQ === 'string' ? normalizePostal(rawQ.trim()) : '';
     if (q.length < 3) {
       res.json({ results: [] });
       return;
@@ -679,31 +770,29 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // Intake: paste client request (text or image) -> structured quote fields.
+  // Intake: universal file drop (files[] + notes) OR legacy text/image ->
+  // structured quote fields.
   app.post('/api/intake', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      text?: string;
-      imageBase64?: string;
-      imageMediaType?: IntakeInput extends { imageMediaType: infer T } ? T : never;
-    };
+    const body = (req.body ?? {}) as IntakeRequestBody;
+    let content: AiContentBlock[];
     try {
-      let input: IntakeInput;
-      if (body.text && body.text.trim().length > 0) {
-        input = { text: body.text };
-      } else if (body.imageBase64 && body.imageMediaType) {
-        input = {
-          imageBase64: body.imageBase64,
-          imageMediaType: body.imageMediaType,
-        };
-      } else {
+      const built = buildIntakeContent(body);
+      if (built.empty) {
         res.status(400).json({
-          error:
-            'Provide either `text` (non-empty string) or `imageBase64` + `imageMediaType`.',
+          error: 'Provide files, notes/text, or an image to extract.',
         });
         return;
       }
-
-      const result = await parseIntake(input);
+      content = built.content;
+    } catch (err) {
+      // File decode/normalize errors are safe, descriptive messages.
+      res.status(422).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    try {
+      const result = await parseIntake({ content });
       res.json(result);
     } catch (err) {
       console.error('[api/intake] error:', err);
@@ -868,26 +957,26 @@ export function registerApiRoutes(app: Express): void {
   });
 
   app.post('/api/drayage/intake', async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as {
-      text?: string;
-      imageBase64?: string;
-      imageMediaType?: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
-    };
+    // Universal file drop (files[] + notes) OR legacy text/image body.
+    const body = (req.body ?? {}) as IntakeRequestBody;
+    let content: AiContentBlock[];
     try {
-      let result;
-      if (body.text && body.text.trim().length > 0) {
-        result = await parseDrayageIntake({ text: body.text });
-      } else if (body.imageBase64 && body.imageMediaType) {
-        result = await parseDrayageIntake({
-          imageBase64: body.imageBase64,
-          imageMediaType: body.imageMediaType,
-        });
-      } else {
+      const built = buildIntakeContent(body);
+      if (built.empty) {
         res.status(400).json({
-          error: 'Provide either `text` or `imageBase64` + `imageMediaType`.',
+          error: 'Provide files, notes/text, or an image to extract.',
         });
         return;
       }
+      content = built.content;
+    } catch (err) {
+      res.status(422).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    try {
+      const result = await parseDrayageIntake({ content });
       res.json(result);
     } catch (err) {
       console.error('[api/drayage/intake] error:', err);

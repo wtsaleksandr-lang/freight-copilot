@@ -230,19 +230,9 @@
         <summary><strong>Advanced — live portal automation</strong> <span class="muted small">(fragile, work in progress)</span></summary>
 
       <div class="card">
-        <h2>Intake <span class="muted-inline">— paste a client's quote request</span></h2>
-        <p class="muted">Paste text, paste a screenshot (Ctrl+V on desktop), or tap "Upload image" on mobile. Our AI extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
-        <textarea id="intake-text" rows="5" placeholder="Paste text here, or paste a screenshot image…"></textarea>
-        <div id="intake-image-preview" hidden>
-          <img id="intake-image" alt="pasted screenshot" />
-          <button id="intake-clear-image" class="link-btn">Remove image</button>
-        </div>
-        <div class="row">
-          <button id="intake-btn" class="primary">Extract</button>
-          <input type="file" id="intake-file" accept="image/*" hidden />
-          <button id="intake-file-btn" class="btn-sm">📷 Upload image</button>
-          <div id="intake-status" class="status-inline"></div>
-        </div>
+        <h2>Intake <span class="muted-inline">— a client's quote request</span></h2>
+        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI reads it all and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <div id="intake-dropzone"></div>
       </div>
 
       <div class="card">
@@ -507,19 +497,9 @@
 
       <!-- Intake card -->
       <div class="card">
-        <h2>Drayage intake <span class="muted-inline">— paste a client request</span></h2>
-        <p class="muted">Paste an email or screenshot. Our AI extracts the cargo type, container, addresses, ports, dates and fills the form below. Always review before clicking Run.</p>
-        <textarea id="dr-intake-text" rows="5" placeholder="e.g. 'Pls quote drayage from APM Newark to our warehouse 1234 Main St, Chicago IL 60601. 40HC, 18 tons, ready Mon. General cargo, tri-axle chassis needed.'"></textarea>
-        <div id="dr-intake-image-preview" hidden>
-          <img id="dr-intake-image" alt="pasted screenshot" />
-          <button id="dr-intake-clear-image" class="link-btn">Remove image</button>
-        </div>
-        <div class="row">
-          <button id="dr-intake-btn" class="primary">Extract</button>
-          <input type="file" id="dr-intake-file" accept="image/*" hidden />
-          <button id="dr-intake-file-btn" class="btn-sm">📷 Upload image</button>
-          <div id="dr-intake-status" class="status-inline"></div>
-        </div>
+        <h2>Drayage intake <span class="muted-inline">— a client request</span></h2>
+        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI extracts the cargo type, container, addresses, ports and dates and fills the form below. Always review before clicking Run.</p>
+        <div id="dr-intake-dropzone"></div>
       </div>
 
       <!-- Form -->
