@@ -495,11 +495,14 @@ async function callExtract(
   modelName: string,
   provider: 'anthropic' | 'gemini'
 ): Promise<ShipmentBriefing> {
+  // Prepend today's real date so year-less dates in emails/briefings resolve
+  // correctly — the model has no innate knowledge of the current date.
+  const systemPrompt = `Today is ${new Date().toISOString().slice(0, 10)}. Use it as the current date whenever a date lacks a year.\n\n${SYSTEM_PROMPT}`;
   let toolInput: unknown;
   if (provider === 'gemini') {
     toolInput = await callGeminiTool({
       modelName,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       content: content as any,
       tool: {
@@ -518,7 +521,7 @@ async function callExtract(
       system: [
         {
           type: 'text',
-          text: SYSTEM_PROMPT,
+          text: systemPrompt,
           cache_control: { type: 'ephemeral' },
         },
       ],

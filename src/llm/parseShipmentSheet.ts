@@ -123,7 +123,9 @@ export async function parseShipmentSheet(
   const isText = input.mediaType === 'text/csv' || input.mediaType === 'text/plain';
   const result = await executeStructuredAiTask({
     kind: 'shipment-sheet-import',
-    systemPrompt: SHEET_SYSTEM_PROMPT,
+    // Give the model today's real date so year-less cells (e.g. "Jul 10")
+    // resolve correctly — LLMs don't otherwise know the current date.
+    systemPrompt: `Today is ${new Date().toISOString().slice(0, 10)}. Use it as the current date whenever a date lacks a year.\n\n${SHEET_SYSTEM_PROMPT}`,
     userPrompt: isText
       ? `Import every data row from this spreadsheet (CSV below). Output one shipment per row.\n\n${Buffer.from(input.fileBase64, 'base64').toString('utf8').slice(0, 60000)}`
       : 'Import every data row from this shipment-tracking spreadsheet. Output one shipment object per row.',

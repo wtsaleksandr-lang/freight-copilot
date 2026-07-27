@@ -114,3 +114,28 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
 #ship-table tbody tr.is-custom-height td:not(.is-editing){white-space:normal;overflow:hidden;text-overflow:clip;vertical-align:top}
 /* Minimized row: keep the tight single-line clamp at the reduced height. */
 #ship-table tbody tr.is-min-height td:not(.is-editing){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+
+/* ── Deadline proximity coloring ─────────────────────────────────────────────
+   Date cells for hard freight deadlines (cut-off, SI, draft, loading, ETD, ETA)
+   get an at-a-glance urgency wash. Proximity is computed in JS from today's real
+   date (deadline-urgency.js) — never by the AI. Light-theme only (the board is
+   light). Each tier = an OPAQUE fill plus a 3px left accent bar painted as a
+   background-image stripe (not border/box-shadow): opaque so a frozen deadline
+   cell can never bleed through the pinned column, and gradient-based so it
+   coexists with the focus ring's inset box-shadow. The `tbody tr td.<class>`
+   selector matches the hover rule's specificity and is declared later here, so
+   the urgency color stays visible even while a row is hovered. Overdue is the
+   strongest (deeper fill + colored, semibold text). */
+#ship-table tbody tr td.is-date-soon{
+  background-color:#fefce8;
+  background-image:linear-gradient(90deg,#ca8a04 0,#ca8a04 3px,transparent 3px);
+}
+#ship-table tbody tr td.is-date-urgent{
+  background-color:#fef1e0;
+  background-image:linear-gradient(90deg,#f59e0b 0,#f59e0b 3px,transparent 3px);
+}
+#ship-table tbody tr td.is-date-overdue{
+  background-color:#fbdcdc;
+  background-image:linear-gradient(90deg,#dc2626 0,#dc2626 3px,transparent 3px);
+  color:#7f1d1d;font-weight:600;
+}

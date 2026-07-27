@@ -34,6 +34,9 @@ const CLIENT_SCRIPTS = [
   'drayage-matrix-ui.js',
   'trucking-ingestion-ui.js',
   'drayage-ingestion-ui.js',
+  // Publishes the LoadModeDeadlineUrgency global; must load before app.js,
+  // which calls it while rendering deadline date cells.
+  'deadline-urgency.js',
   'app.js',
   'progressive-disclosure-ui.js',
   'universal-rate-ingestion-ui.js',
