@@ -488,6 +488,17 @@ async function geocodeFetch(q, country) {
   }));
 }
 
+// Canonicalize a Canadian postal code to "ANA NAN" (uppercase, single mid
+// space): "J1Z2C2" / "j1z 2c2" -> "J1Z 2C2". US ZIPs and any non-CA-postal
+// string pass through unchanged. Mirrors src/utils/postal.ts (this file is
+// plain browser JS and can't import the server ESM module).
+function normalizePostal(s) {
+  if (typeof s !== 'string') return s;
+  const m = /^([A-Za-z]\d[A-Za-z])\s*(\d[A-Za-z]\d)$/.exec(s.trim());
+  if (!m) return s;
+  return `${m[1]} ${m[2]}`.toUpperCase();
+}
+
 function getCardCountry(input) {
   const ep = input.closest('.endpoint-fields');
   const sel = ep?.querySelector('.country-select');
@@ -499,7 +510,9 @@ function applyGeocodePick(input, item) {
   // Only set the input itself to the street if that's the address field;
   // for ZIP fields, set the input to the ZIP and fill the rest as siblings.
   const isZip = input.classList.contains('zip-input');
-  input.value = isZip ? (it.zip || '') : (it.street || item.primary);
+  input.value = isZip
+    ? normalizePostal(it.zip || '')
+    : (it.street || item.primary);
   const ep = input.closest('.endpoint-fields');
   if (!ep) return;
   const setIf = (suffix, val) => {
@@ -521,7 +534,7 @@ function applyGeocodePick(input, item) {
   } else {
     setIf('city', it.city);
     setIf('state', it.state);
-    setIf('zip', it.zip);
+    setIf('zip', normalizePostal(it.zip || ''));
     setIf('country', it.countryCode || it.country);
     // Sync the ZIP field's lastConfirmed so blur doesn't clear it
     const zipEl = ep.querySelector('.zip-input');
@@ -540,7 +553,18 @@ function wireAddressAutosuggest() {
     input._asInstance = inst;
   };
   document.querySelectorAll('.address-input').forEach(wireOne);
-  document.querySelectorAll('.zip-input').forEach(wireOne);
+  document.querySelectorAll('.zip-input').forEach((zip) => {
+    wireOne(zip);
+    // On blur, canonicalize a Canadian postal code so the stored/submitted
+    // value matches the rate library regardless of the typed spacing.
+    zip.addEventListener('blur', () => {
+      const next = normalizePostal(zip.value);
+      if (next !== zip.value) {
+        zip.value = next;
+        if (zip._asInstance) zip._asInstance.lastConfirmed = next;
+      }
+    });
+  });
 }
 
 // Tab switching — accepts both nav .tab buttons AND .footer-tab-link <a>
@@ -751,80 +775,254 @@ function wireCyDoorToggle(radioName, cyDivId, doorDivId) {
 wireCyDoorToggle('dr-origin-type', 'dr-origin-cy', 'dr-origin-door');
 wireCyDoorToggle('dr-destination-type', 'dr-destination-cy', 'dr-destination-door');
 
-// Drayage intake — paste text or image, AI fills the form
-let drIntakeImageDataUrl = null;
-let drIntakeImageMediaType = null;
-const drIntakeTextarea = document.getElementById('dr-intake-text');
-const drIntakePreview = document.getElementById('dr-intake-image-preview');
-const drIntakePreviewImg = document.getElementById('dr-intake-image');
+// ---- Reusable universal file-drop + notes component -------------------
+// Models the Shipments dropzone (drag/drop + click + clipboard-paste +
+// multi-file pending list with type icons & remove) but PAIRS it with a
+// notes <textarea>, so every intake tab can "drop a file AND add context,
+// or paste instead of dropping". Hands { files:[{filename,mediaType,
+// fileBase64}], notes } to onSubmit. Used by Drayage intake + customer Intake.
+const DZN_ACCEPT_MIME =
+  /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i;
+const DZN_ACCEPT_EXT = /\.(pdf|png|jpe?g|webp|gif|eml|msg|html?|txt)$/i;
+const DZN_ACCEPT_ATTR =
+  'application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt';
 
-drIntakeTextarea.addEventListener('paste', (e) => {
-  const items = (e.clipboardData || {}).items || [];
-  for (const item of items) {
-    if (item.type && item.type.startsWith('image/')) {
-      e.preventDefault();
-      const blob = item.getAsFile();
-      if (!blob) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        drIntakeImageDataUrl = String(reader.result);
-        drIntakeImageMediaType = item.type;
-        drIntakePreviewImg.src = drIntakeImageDataUrl;
-        drIntakePreview.hidden = false;
-        setStatus('dr-intake-status', 'Screenshot ready. Hit Extract.', 'info');
-      };
-      reader.readAsDataURL(blob);
-      return;
+function dznFileTypeLabel(f) {
+  const lower = (f.name || '').toLowerCase();
+  if (f.type === 'application/pdf' || lower.endsWith('.pdf'))
+    return { icon: '📄', label: 'PDF' };
+  if (/^image\//.test(f.type) || /\.(png|jpe?g|webp|gif)$/.test(lower))
+    return { icon: '🖼️', label: (f.type.split('/')[1] || 'image').toUpperCase() };
+  if (lower.endsWith('.msg')) return { icon: '📧', label: 'Outlook .msg' };
+  if (f.type === 'message/rfc822' || lower.endsWith('.eml'))
+    return { icon: '📧', label: 'Email (.eml)' };
+  if (f.type === 'text/html' || /\.(html?)$/.test(lower))
+    return { icon: '🌐', label: 'HTML' };
+  if (f.type === 'text/plain' || lower.endsWith('.txt'))
+    return { icon: '📝', label: 'Text' };
+  return { icon: '📎', label: f.type || 'unknown' };
+}
+function dznFileSize(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function createDropzoneWithNotes(opts) {
+  const { mount, onSubmit } = opts;
+  if (!mount) throw new Error('createDropzoneWithNotes: mount is required');
+  const acceptHint = opts.acceptHint || 'Image · PDF · EML · MSG · HTML · TXT';
+  const notesPlaceholder =
+    opts.notesPlaceholder || 'Add a note, or paste the request text here…';
+  const submitLabel = opts.submitLabel || 'Extract';
+
+  let pendingFiles = [];
+
+  mount.classList.add('dzn');
+  mount.innerHTML = `
+    <div class="dzn-drop sheet-dropzone" role="button" tabindex="0">
+      <div class="sheet-drop-prompt">
+        <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
+        <span class="muted small">${esc(acceptHint)}</span>
+      </div>
+      <input class="dzn-input" type="file" multiple accept="${DZN_ACCEPT_ATTR}" hidden />
+    </div>
+    <ul class="dzn-pending ship-pending-files" hidden></ul>
+    <textarea class="dzn-notes" rows="4" placeholder="${esc(notesPlaceholder)}"></textarea>
+    <div class="row" style="gap: 12px; flex-wrap: wrap;">
+      <button type="button" class="primary dzn-submit">${esc(submitLabel)}</button>
+      <div class="dzn-status status-inline"></div>
+    </div>
+  `;
+
+  const dropEl = mount.querySelector('.dzn-drop');
+  const inputEl = mount.querySelector('.dzn-input');
+  const pendingEl = mount.querySelector('.dzn-pending');
+  const notesEl = mount.querySelector('.dzn-notes');
+  const submitEl = mount.querySelector('.dzn-submit');
+  const statusEl = mount.querySelector('.dzn-status');
+
+  function status(msg, kind, spin) {
+    statusEl.className = 'status-inline ' + (kind || '');
+    if (spin) {
+      statusEl.innerHTML =
+        '<span class="spin-loader" aria-hidden="true"></span>' + esc(msg || '');
+    } else {
+      statusEl.textContent = msg || '';
     }
   }
-});
-document.getElementById('dr-intake-clear-image').addEventListener('click', () => {
-  drIntakeImageDataUrl = null;
-  drIntakeImageMediaType = null;
-  drIntakePreview.hidden = true;
-  drIntakePreviewImg.src = '';
-});
 
-// Mobile image upload for drayage intake
-document.getElementById('dr-intake-file-btn').addEventListener('click', () => {
-  document.getElementById('dr-intake-file').click();
-});
-document.getElementById('dr-intake-file').addEventListener('change', (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    drIntakeImageDataUrl = String(reader.result);
-    drIntakeImageMediaType = file.type || 'image/png';
-    drIntakePreviewImg.src = drIntakeImageDataUrl;
-    drIntakePreview.hidden = false;
-    setStatus('dr-intake-status', 'Image loaded. Tap "Extract" to parse.', 'info');
+  function renderPending() {
+    if (pendingFiles.length === 0) {
+      pendingEl.hidden = true;
+      pendingEl.innerHTML = '';
+      return;
+    }
+    pendingEl.hidden = false;
+    pendingEl.innerHTML = pendingFiles
+      .map((f, i) => {
+        const t = dznFileTypeLabel(f);
+        return `<li class="pending-file" data-i="${i}">
+          <span class="pending-file-icon">${t.icon}</span>
+          <span class="pending-file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+          <span class="pending-file-meta">${esc(t.label)}${f.size ? ' · ' + esc(dznFileSize(f.size)) : ''}</span>
+          <button type="button" class="pending-file-remove" data-i="${i}" title="Remove">✕</button>
+        </li>`;
+      })
+      .join('');
+    pendingEl.querySelectorAll('.pending-file-remove').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const i = Number(btn.getAttribute('data-i'));
+        if (!Number.isFinite(i)) return;
+        pendingFiles.splice(i, 1);
+        renderPending();
+      });
+    });
+  }
+
+  function ingest(fl) {
+    const arr = Array.from(fl || []);
+    if (arr.length === 0) return;
+    const accepted = [];
+    const rejected = [];
+    for (const f of arr) {
+      if (DZN_ACCEPT_MIME.test(f.type)) {
+        accepted.push(f);
+        continue;
+      }
+      if (DZN_ACCEPT_EXT.test((f.name || '').toLowerCase())) {
+        accepted.push(f);
+        continue;
+      }
+      rejected.push(
+        `${f.name || '(unnamed)'}: unsupported type "${f.type || 'unknown'}"`
+      );
+    }
+    if (rejected.length > 0) {
+      status(
+        rejected.length === 1
+          ? `${rejected[0]} — drop a PDF, image, .eml, .msg, .html, or .txt instead.`
+          : `${rejected.length} file(s) rejected:\n${rejected.join('\n')}`,
+        'error'
+      );
+    } else {
+      status('', '');
+    }
+    pendingFiles = pendingFiles.concat(accepted);
+    renderPending();
+  }
+
+  dropEl.addEventListener('click', (e) => {
+    if (e.target.closest('input')) return;
+    inputEl.click();
+  });
+  inputEl.addEventListener('change', () => {
+    ingest(inputEl.files);
+    inputEl.value = '';
+  });
+  dropEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropEl.classList.add('is-drag');
+  });
+  dropEl.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget && dropEl.contains(e.relatedTarget)) return;
+    dropEl.classList.remove('is-drag');
+  });
+  dropEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropEl.classList.remove('is-drag');
+    ingest(e.dataTransfer?.files);
+  });
+
+  // Paste a screenshot onto the drop zone OR the notes textarea. Image
+  // items become pending files; plain text keeps flowing into the notes.
+  function handlePaste(e) {
+    const items = (e.clipboardData || {}).items || [];
+    const pasted = [];
+    for (const item of items) {
+      if (!item.type || !item.type.startsWith('image/')) continue;
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      const ext = item.type.split('/')[1] || 'png';
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      pasted.push(new File([blob], `pasted-${ts}.${ext}`, { type: item.type }));
+    }
+    if (pasted.length > 0) {
+      e.preventDefault();
+      ingest(pasted);
+      status(
+        `Pasted ${pasted.length} screenshot${pasted.length > 1 ? 's' : ''} from clipboard.`,
+        'info'
+      );
+    }
+  }
+  dropEl.addEventListener('paste', handlePaste);
+  notesEl.addEventListener('paste', handlePaste);
+
+  async function toPayload() {
+    const out = [];
+    for (const f of pendingFiles) {
+      const buf = await f.arrayBuffer();
+      let bin = '';
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+      out.push({
+        filename: f.name,
+        mediaType:
+          f.type && f.type !== 'application/octet-stream' ? f.type : undefined,
+        fileBase64: btoa(bin),
+      });
+    }
+    return out;
+  }
+
+  submitEl.addEventListener('click', async () => {
+    submitEl.disabled = true;
+    try {
+      const files = await toPayload();
+      const notes = notesEl.value.trim();
+      await onSubmit({ files, notes });
+    } catch (err) {
+      status(err && err.message ? err.message : 'Something went wrong.', 'error');
+    } finally {
+      submitEl.disabled = false;
+    }
+  });
+
+  return {
+    el: mount,
+    notesEl,
+    getFiles: () => pendingFiles.slice(),
+    getNotes: () => notesEl.value.trim(),
+    status,
+    clear() {
+      pendingFiles = [];
+      notesEl.value = '';
+      renderPending();
+      status('', '');
+    },
   };
-  reader.readAsDataURL(file);
-});
+}
 
-document.getElementById('dr-intake-btn').addEventListener('click', async () => {
-  const text = drIntakeTextarea.value.trim();
-  if (!text && !drIntakeImageDataUrl) {
-    setStatus('dr-intake-status', 'Paste text or a screenshot first.', 'error');
-    return;
-  }
-  const body = {};
-  if (drIntakeImageDataUrl) {
-    const base64 = drIntakeImageDataUrl.substring(drIntakeImageDataUrl.indexOf(',') + 1);
-    body.imageBase64 = base64;
-    body.imageMediaType = drIntakeImageMediaType || 'image/png';
-  } else {
-    body.text = text;
-  }
-  const btn = document.getElementById('dr-intake-btn');
-  btn.disabled = true;
-  setStatus('dr-intake-status', 'Extracting…', 'info');
-  try {
+// Drayage intake — universal file drop + notes, AI fills the form
+const drIntake = createDropzoneWithNotes({
+  mount: document.getElementById('dr-intake-dropzone'),
+  acceptHint: 'Image · PDF · EML · MSG · HTML · TXT',
+  notesPlaceholder:
+    "Notes, or paste the request — e.g. 'Pls quote drayage from APM Newark to our warehouse 1234 Main St, Chicago IL 60601. 40HC, 18 tons, ready Mon. Tri-axle chassis needed.'",
+  submitLabel: 'Extract',
+  async onSubmit({ files, notes }) {
+    if (files.length === 0 && !notes) {
+      drIntake.status('Drop a file or type the request first.', 'error');
+      return;
+    }
+    drIntake.status('Extracting…', 'info', true);
     const r = await fetch('/api/drayage/intake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ files, notes }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Intake failed');
@@ -834,12 +1032,8 @@ document.getElementById('dr-intake-btn').addEventListener('click', async () => {
       data.readiness.status === 'ready_to_run'
         ? `Extracted — ready to run. ${data.readiness.reason}`
         : `Extracted — review the form (${data.readiness.reason})`;
-    setStatus('dr-intake-status', msg, cls);
-  } catch (err) {
-    setStatus('dr-intake-status', err.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+    drIntake.status(msg, cls);
+  },
 });
 
 function applyDrayageIntake(d) {
@@ -903,7 +1097,7 @@ function buildDrayageBody() {
       addressLine1: document.getElementById(`${prefix}-address`).value.trim() || undefined,
       city: document.getElementById(`${prefix}-city`).value.trim() || undefined,
       state: document.getElementById(`${prefix}-state`).value.trim() || undefined,
-      zip: document.getElementById(`${prefix}-zip`).value.trim() || undefined,
+      zip: normalizePostal(document.getElementById(`${prefix}-zip`).value.trim()) || undefined,
       country: document.getElementById(`${prefix}-country`).value.trim() || 'US',
     };
   };
@@ -915,7 +1109,7 @@ function buildDrayageBody() {
     weightKg: parseInt(document.getElementById('dr-weight').value, 10) || undefined,
     origin: buildEnd('dr-origin', originType),
     destination: buildEnd('dr-destination', destinationType),
-    intakeText: drIntakeTextarea.value.trim() || undefined,
+    intakeText: drIntake.getNotes() || undefined,
   };
 }
 
@@ -949,12 +1143,12 @@ document.getElementById('dr-clear-btn')?.addEventListener('click', () => {
   ['dr-origin-port-code', 'dr-origin-port-name', 'dr-origin-terminal',
    'dr-origin-address', 'dr-origin-city', 'dr-origin-state', 'dr-origin-zip',
    'dr-destination-port-code', 'dr-destination-port-name', 'dr-destination-terminal',
-   'dr-destination-address', 'dr-destination-city', 'dr-destination-state', 'dr-destination-zip',
-   'dr-intake-text']
+   'dr-destination-address', 'dr-destination-city', 'dr-destination-state', 'dr-destination-zip']
     .forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+  drIntake.clear();
   setStatus('dr-status', 'Form cleared.', 'info');
   // Also wipe the matches table.
   renderDrayageMatches([]);
@@ -1584,90 +1778,27 @@ function applyMarkup(cost, markup) {
   return Math.round(cost * (1 + markup.pct / 100) + markup.flat);
 }
 
-// Intake — paste a client request (text or image), extract, auto-fill the form
-let pastedImageDataUrl = null;
-let pastedImageMediaType = null;
-
-const intakeTextarea = document.getElementById('intake-text');
-const intakePreview = document.getElementById('intake-image-preview');
-const intakePreviewImg = document.getElementById('intake-image');
-
-intakeTextarea.addEventListener('paste', (e) => {
-  const items = (e.clipboardData || {}).items || [];
-  for (const item of items) {
-    if (item.type && item.type.startsWith('image/')) {
-      e.preventDefault();
-      const blob = item.getAsFile();
-      if (!blob) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        pastedImageDataUrl = String(reader.result);
-        pastedImageMediaType = item.type;
-        intakePreviewImg.src = pastedImageDataUrl;
-        intakePreview.hidden = false;
-        setStatus('intake-status', 'Screenshot ready. Hit "Extract" to parse.', 'info');
-      };
-      reader.readAsDataURL(blob);
-      return;
-    }
-  }
-});
-
-document.getElementById('intake-clear-image').addEventListener('click', () => {
-  pastedImageDataUrl = null;
-  pastedImageMediaType = null;
-  intakePreview.hidden = true;
-  intakePreviewImg.src = '';
-  setStatus('intake-status', '', '');
-});
-
-// Mobile-friendly image upload (file picker)
-document.getElementById('intake-file-btn').addEventListener('click', () => {
-  document.getElementById('intake-file').click();
-});
-document.getElementById('intake-file').addEventListener('change', (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    pastedImageDataUrl = String(reader.result);
-    pastedImageMediaType = file.type || 'image/png';
-    intakePreviewImg.src = pastedImageDataUrl;
-    intakePreview.hidden = false;
-    setStatus('intake-status', 'Image loaded. Tap "Extract" to parse.', 'info');
-  };
-  reader.readAsDataURL(file);
-});
-
 // Wire ocean origin/destination CY/DOOR toggles
 wireCyDoorToggle('oc-origin-type', 'oc-origin-cy', 'oc-origin-door');
 wireCyDoorToggle('oc-destination-type', 'oc-destination-cy', 'oc-destination-door');
 
-document.getElementById('intake-btn').addEventListener('click', async () => {
-  const text = intakeTextarea.value.trim();
-  if (!text && !pastedImageDataUrl) {
-    setStatus('intake-status', 'Paste text or a screenshot first.', 'error');
-    return;
-  }
-  const body = {};
-  if (pastedImageDataUrl) {
-    // Strip the "data:image/png;base64," prefix
-    const base64 = pastedImageDataUrl.substring(pastedImageDataUrl.indexOf(',') + 1);
-    body.imageBase64 = base64;
-    body.imageMediaType = pastedImageMediaType || 'image/png';
-  } else {
-    body.text = text;
-  }
-
-  const btn = document.getElementById('intake-btn');
-  btn.disabled = true;
-  setStatus('intake-status', 'Extracting…', 'info');
-
-  try {
+// Intake — universal file drop + notes; extract, auto-fill the form.
+const ocIntake = createDropzoneWithNotes({
+  mount: document.getElementById('intake-dropzone'),
+  acceptHint: 'Image · PDF · EML · MSG · HTML · TXT',
+  notesPlaceholder:
+    'Notes, or paste the client request text here (Ctrl+V a screenshot onto the drop zone above)…',
+  submitLabel: 'Extract',
+  async onSubmit({ files, notes }) {
+    if (files.length === 0 && !notes) {
+      ocIntake.status('Drop a file or type the request first.', 'error');
+      return;
+    }
+    ocIntake.status('Extracting…', 'info', true);
     const r = await fetch('/api/intake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ files, notes }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Intake failed');
@@ -1726,15 +1857,10 @@ document.getElementById('intake-btn').addEventListener('click', async () => {
     const notesHtml = data.notes
       ? ` <span class="muted">· Notes: ${esc(data.notes)}</span>`
       : '';
-    const statusEl = document.getElementById('intake-status');
-    statusEl.className = 'status-inline';
-    statusEl.innerHTML =
+    ocIntake.status(null, '');
+    ocIntake.el.querySelector('.dzn-status').innerHTML =
       `Extracted — <span class="${confClass}">${data.confidence} confidence</span>. Review the form below.${notesHtml}`;
-  } catch (err) {
-    setStatus('intake-status', err.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+  },
 });
 
 document.getElementById('reply-copy-btn').addEventListener('click', async () => {
@@ -1775,7 +1901,7 @@ document.getElementById('run-btn').addEventListener('click', async () => {
       addressLine1: document.getElementById(`${prefix}-address`).value.trim() || undefined,
       city: document.getElementById(`${prefix}-city`).value.trim() || undefined,
       state: document.getElementById(`${prefix}-state`).value.trim() || undefined,
-      zip: document.getElementById(`${prefix}-zip`).value.trim() || undefined,
+      zip: normalizePostal(document.getElementById(`${prefix}-zip`).value.trim()) || undefined,
       country: document.getElementById(`${prefix}-country`).value.trim() || 'US',
     };
   };
@@ -1808,7 +1934,7 @@ document.getElementById('run-btn').addEventListener('click', async () => {
     markupPct: markup.pct,
     markupFlat: markup.flat,
     emailTemplate: tplArea.value.trim() || undefined,
-    intakeText: document.getElementById('intake-text').value.trim() || undefined,
+    intakeText: ocIntake.getNotes() || undefined,
   };
   if (!body.from || !body.to || !body.container || !body.weight) {
     setStatus('run-status', 'Fill at least From, To, Container, Weight.', 'error');

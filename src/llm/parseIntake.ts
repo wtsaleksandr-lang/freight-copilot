@@ -132,11 +132,16 @@ export type IntakeResult = z.infer<typeof IntakeSchema>;
 
 export type IntakeInput =
   | { text: string }
-  | { imageBase64: string; imageMediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' };
+  | { imageBase64: string; imageMediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' }
+  // Pre-built content blocks (universal file drop: extracted text + notes as a
+  // text block, plus image/PDF blocks). Lets one intake carry many files.
+  | { content: AiContentBlock[] };
 
 export async function parseIntake(input: IntakeInput): Promise<IntakeResult> {
   const content: AiContentBlock[] =
-    'text' in input
+    'content' in input
+      ? input.content
+      : 'text' in input
       ? [{ type: 'text', text: `Client request:\n\n${input.text}` }]
       : [
           {
