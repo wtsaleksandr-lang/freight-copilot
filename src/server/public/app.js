@@ -2652,7 +2652,7 @@ document.getElementById('rec-upload-btn').addEventListener('click', async () => 
     try {
       const content = await f.text();
       if (!content.trim()) throw new Error('Empty file');
-      if (stateEl) stateEl.textContent = 'analyzing with Claude…';
+      if (stateEl) stateEl.textContent = 'analyzing…';
       // Tag part-N when there are multiple files so descriptions stay distinct.
       const partDesc =
         files.length > 1
@@ -2781,7 +2781,7 @@ async function pollRecording() {
       // Recording finished — analyze.
       clearInterval(recordingPollHandle);
       const id = activeRecordingId;
-      setStatus('rec-status', 'Browser closed. Sending to Claude for analysis…', 'info');
+      setStatus('rec-status', 'Browser closed. Sending for analysis…', 'info', true);
       try {
         const ar = await fetch(`/api/record/analyze/${id}`, { method: 'POST' });
         const adata = await ar.json();
@@ -3139,10 +3139,14 @@ async function loadCredList() {
     });
   }
 
-  function setItemState(i, msg, cls) {
+  function setItemState(i, msg, cls, spin) {
     const li = progress.querySelector(`li[data-idx="${i}"] .upload-state`);
     if (li) {
-      li.textContent = msg;
+      if (spin) {
+        li.innerHTML = '<span class="spin-loader" aria-hidden="true"></span>' + esc(msg);
+      } else {
+        li.textContent = msg;
+      }
       li.className = 'upload-state ' + (cls || '');
     }
   }
@@ -3244,7 +3248,7 @@ async function loadCredList() {
     const payload = [];
     for (let i = 0; i < selectedFiles.length; i++) {
       const f = selectedFiles[i];
-      setItemState(i, 'reading…', 'info');
+      setItemState(i, 'reading…', 'info', true);
       try {
         const b64 = await fileToBase64(f);
         payload.push({
@@ -3252,13 +3256,13 @@ async function loadCredList() {
           contentBase64: b64,
           mediaType: f.type || 'application/pdf',
         });
-        setItemState(i, 'queued for Claude…', 'info');
+        setItemState(i, 'queued for analysis…', 'info', true);
       } catch (err) {
         setItemState(i, 'read failed: ' + err.message, 'error');
       }
     }
 
-    setStatus('sheet-status', 'Sending to Claude…', 'info');
+    setStatus('sheet-status', 'Sending for analysis…', 'info', true);
     try {
       const keepEl = document.getElementById('sheet-keep-original');
       const keepOriginal = !!(keepEl && keepEl.checked);
@@ -4300,7 +4304,7 @@ function formatMoney(n, cur) {
   parseBtn.addEventListener('click', async () => {
     if (pendingFiles.length === 0) return;
     parseBtn.disabled = true;
-    setStatus('ship-status', 'Reading files & calling Claude…', 'info');
+    setStatus('ship-status', 'Reading & analyzing your files…', 'info', true);
     try {
       const ephemeral = !!document.getElementById('ship-ephemeral')?.checked;
       const payload = await buildPayload();
@@ -4327,7 +4331,7 @@ function formatMoney(n, cur) {
           const extra = await filesToPayload(additionalFiles);
           mergedPayload = payload.concat(extra);
         }
-        setStatus('ship-status', 'Re-running extraction with your answers…', 'info');
+        setStatus('ship-status', 'Re-running extraction with your answers…', 'info', true);
         data = await callParse(mergedPayload, ephemeral, answers);
       }
 
@@ -4394,13 +4398,13 @@ function formatMoney(n, cur) {
     importFileInput.value = '';
     if (!file) return;
     if (importPreview) { importPreview.hidden = true; importPreview.innerHTML = ''; }
-    setStatus('ship-status', `Reading ${file.name}…`, 'info');
+    setStatus('ship-status', `Reading ${file.name}…`, 'info', true);
     try {
       const fileBase64 = await fileToB64(file);
       const mediaType =
         file.type ||
         (file.name.toLowerCase().endsWith('.csv') ? 'text/csv' : 'application/octet-stream');
-      setStatus('ship-status', 'Claude is reading every row…', 'info');
+      setStatus('ship-status', 'Analyzing every row…', 'info', true);
       const r = await fetch('/api/shipments/import-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -7977,10 +7981,15 @@ const CALC_RATE_KEY = 'freight.calc.usdcad.rate';
   [fitCbm, fitKg].forEach((el) => el.addEventListener('input', recalcFit));
 })();
 
-function setStatus(elId, msg, type) {
+function setStatus(elId, msg, type, spin) {
   const el = document.getElementById(elId);
+  if (!el) return;
   el.className = 'status-inline ' + (type || '');
-  el.textContent = msg;
+  if (spin) {
+    el.innerHTML = '<span class="spin-loader" aria-hidden="true"></span>' + esc(msg);
+  } else {
+    el.textContent = msg;
+  }
 }
 
 function esc(s) {

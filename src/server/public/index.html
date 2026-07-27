@@ -111,7 +111,7 @@
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
       <div class="card">
         <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
-        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG) or paste a screenshot with Ctrl+V. Claude reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate.</p>
+        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG) or paste a screenshot with Ctrl+V. Our AI reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate.</p>
 
         <div id="sheet-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -193,7 +193,7 @@
         </fieldset>
 
         <details class="template-details">
-          <summary>Email template <span class="muted small">— Claude follows the selected template</span></summary>
+          <summary>Email template <span class="muted small">— the AI follows the selected template</span></summary>
           <div class="template-picker">
             <label class="template-choice">
               <input type="radio" name="email-template" value="concise" id="tpl-concise" checked />
@@ -231,7 +231,7 @@
 
       <div class="card">
         <h2>Intake <span class="muted-inline">— paste a client's quote request</span></h2>
-        <p class="muted">Paste text, paste a screenshot (Ctrl+V on desktop), or tap "Upload image" on mobile. Claude extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <p class="muted">Paste text, paste a screenshot (Ctrl+V on desktop), or tap "Upload image" on mobile. Our AI extracts the lane details and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
         <textarea id="intake-text" rows="5" placeholder="Paste text here, or paste a screenshot image…"></textarea>
         <div id="intake-image-preview" hidden>
           <img id="intake-image" alt="pasted screenshot" />
@@ -384,8 +384,8 @@
         </label>
 
         <details class="template-details">
-          <summary>Email template (optional — Claude follows your format)</summary>
-          <textarea id="email-template" rows="7" placeholder="Paste your typical client reply structure here. Claude will substitute the lane and rates while keeping your tone, salutation, sign-off, layout. Saved locally — only set once."></textarea>
+          <summary>Email template (optional — the AI follows your format)</summary>
+          <textarea id="email-template" rows="7" placeholder="Paste your typical client reply structure here. Our AI will substitute the lane and rates while keeping your tone, salutation, sign-off, layout. Saved locally — only set once."></textarea>
         </details>
 
         <div class="row">
@@ -396,7 +396,7 @@
           <h3 class="bd-title">Carrier progress</h3>
           <ul id="run-progress-list" class="bundle-progress"></ul>
         </div>
-        <p class="muted small">For each selected carrier, a Chrome window opens, Playwright drives the rate page, Claude parses + ranks, and a folder is saved with screenshots + the generated email. Inactive carriers are skipped automatically.</p>
+        <p class="muted small">For each selected carrier, a Chrome window opens, Playwright drives the rate page, our AI parses + ranks, and a folder is saved with screenshots + the generated email. Inactive carriers are skipped automatically.</p>
       </div>
 
       <div id="results-card" class="card" hidden>
@@ -419,7 +419,7 @@
     <section id="tab-agent" class="tab-pane">
       <div class="card">
         <h2>Web agent <span class="muted-inline">— paste a URL + describe the task</span></h2>
-        <p class="muted">Claude drives a real Chrome window to accomplish a goal on any site. Examples: "complete this quiz", "fill this form with [details]", "find the cheapest option on this listing page". A browser window will open; feel free to watch it work. Avoid anything involving real money, payments, or account deletion — those are blocked by safety guardrails.</p>
+        <p class="muted">Our AI drives a real Chrome window to accomplish a goal on any site. Examples: "complete this quiz", "fill this form with [details]", "find the cheapest option on this listing page". A browser window will open; feel free to watch it work. Avoid anything involving real money, payments, or account deletion — those are blocked by safety guardrails.</p>
         <label class="full">Starting URL<input id="agent-url" placeholder="https://example.com/quiz"></label>
         <label class="full">Goal<textarea id="agent-goal" rows="3" placeholder="Describe what you want done, e.g. 'Answer every question in this trivia quiz, pick the best-supported answer each time, and submit at the end.'"></textarea></label>
         <div class="row">
@@ -469,7 +469,7 @@
            (price-history preserved). User filters / searches below. -->
       <details class="card dr-fold">
         <summary class="dr-fold-summary"><h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2></summary>
-        <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Claude extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
+        <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Our AI extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
         <div id="dr-lib-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
             <strong>📂 Drop files here, or click to browse</strong>
@@ -508,7 +508,7 @@
       <!-- Intake card -->
       <div class="card">
         <h2>Drayage intake <span class="muted-inline">— paste a client request</span></h2>
-        <p class="muted">Paste an email or screenshot. Claude extracts the cargo type, container, addresses, ports, dates and fills the form below. Always review before clicking Run.</p>
+        <p class="muted">Paste an email or screenshot. Our AI extracts the cargo type, container, addresses, ports, dates and fills the form below. Always review before clicking Run.</p>
         <textarea id="dr-intake-text" rows="5" placeholder="e.g. 'Pls quote drayage from APM Newark to our warehouse 1234 Main St, Chicago IL 60601. 40HC, 18 tons, ready Mon. General cargo, tri-axle chassis needed.'"></textarea>
         <div id="dr-intake-image-preview" hidden>
           <img id="dr-intake-image" alt="pasted screenshot" />
@@ -524,7 +524,7 @@
 
       <!-- Form -->
       <div class="card">
-        <h2>Drayage details <span class="muted-inline">— review and edit anything Claude got wrong, then Save + Run</span></h2>
+        <h2>Drayage details <span class="muted-inline">— review and edit anything the AI got wrong, then Save + Run</span></h2>
 
         <div class="grid">
           <label>Cargo type
@@ -815,7 +815,7 @@
     <section id="tab-record" class="tab-pane">
       <div class="card">
         <h2>Record a workflow <span class="muted-inline">— teach the app a new site</span></h2>
-        <p class="muted">Paste a URL. A browser opens, you do your normal flow (login, search, click through), then close the browser. Claude reads everything you did and produces a step-by-step workflow you can refer to or replay later.</p>
+        <p class="muted">Paste a URL. A browser opens, you do your normal flow (login, search, click through), then close the browser. Our AI reads everything you did and produces a step-by-step workflow you can refer to or replay later.</p>
         <label class="full">URL to record on
           <input id="rec-url" placeholder="https://www.example.com/quote-request" />
         </label>
@@ -832,7 +832,7 @@
 
       <div id="rec-active-card" class="card" hidden>
         <h2>Recording in progress…</h2>
-        <p class="muted">A Chromium window opened (look for it on your taskbar). Do your normal workflow there. <strong>When you're done, close the browser window</strong> — Claude will analyze automatically.</p>
+        <p class="muted">A Chromium window opened (look for it on your taskbar). Do your normal workflow there. <strong>When you're done, close the browser window</strong> — the AI will analyze automatically.</p>
         <div class="row">
           <div id="rec-active-meta" class="muted"></div>
         </div>
@@ -894,7 +894,7 @@
     <section id="tab-shipments" class="tab-pane">
       <div class="card">
         <h2>Shipment board <span class="muted-inline">— booked &amp; in-progress</span></h2>
-        <p class="muted">Drop email screenshots, PDFs, or booking briefings — Claude reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit, ref included. <strong>Ref numbers are yours</strong> (your File# / typed in) — LoadMode never assigns them. Bulk-load a whole tracking sheet with <strong>Import tracking sheet</strong>.</p>
+        <p class="muted">Drop email screenshots, PDFs, or booking briefings — our AI reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit, ref included. <strong>Ref numbers are yours</strong> (your File# / typed in) — LoadMode never assigns them. Bulk-load a whole tracking sheet with <strong>Import tracking sheet</strong>.</p>
 
         <div id="ship-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -1202,7 +1202,7 @@
         <button id="clarify-cancel" class="btn-sm" title="Cancel">✕</button>
       </div>
       <div class="image-modal-body clarify-body">
-        <p class="muted small">Claude found multiple plausible values and isn't sure which is yours. Pick one for each, or type your own answer. You can also drop / paste / browse additional files below to give Claude more context before re-running.</p>
+        <p class="muted small">Our AI found multiple plausible values and isn't sure which is yours. Pick one for each, or type your own answer. You can also drop / paste / browse additional files below to give the AI more context before re-running.</p>
         <div id="clarify-questions"></div>
         <div id="clarify-uploader" class="clarify-uploader">
           <span class="clarify-uploader-prompt">📎 Drop files, click to browse, or press Ctrl+V to paste a screenshot</span>
