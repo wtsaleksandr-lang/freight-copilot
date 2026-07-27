@@ -280,6 +280,25 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .status-inline.success { color: var(--success); }
 .status-inline.error { color: var(--error); }
 
+/* Inline processing spinner — inherits currentColor so it stays theme-aware
+   and colour-matches whatever status/upload-state text it sits next to. */
+.spin-loader {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.5em;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.8;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spin-loader { animation-duration: 1.6s; }
+}
+
 .table-wrap {
   overflow-x: auto;
   margin-top: 8px;
