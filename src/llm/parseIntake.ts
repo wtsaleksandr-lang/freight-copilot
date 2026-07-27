@@ -34,6 +34,7 @@ Target fields:
 
 - notes: ready dates, urgency, container count, anything else worth keeping.
 - confidence: 'high' if all key fields were explicit; 'medium' if some inferred; 'low' if a lot of guessing.
+- documentType: "quote_request" when this is a customer/shipper request asking you to quote (the normal case for this intake); "rate_sheet" when the dropped file is actually a carrier/NVOCC ocean RATE SHEET or rate quotation (a pricing list to keep as reference, NOT a request to quote); "other" for anything else. When unsure, prefer "quote_request".
 
 Rules:
 - Be conservative. Null beats a guess. The user reviews and corrects manually.
@@ -80,6 +81,10 @@ const INTAKE_TOOL_SCHEMA = {
 
     notes: { type: ['string', 'null'] },
     confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    documentType: {
+      type: ['string', 'null'],
+      enum: ['rate_sheet', 'quote_request', 'other', null],
+    },
   },
   required: [
     'cargoType',
@@ -126,6 +131,14 @@ const IntakeSchema = z.object({
   commodity: z.string().nullable(),
   notes: z.string().nullable(),
   confidence: z.enum(['high', 'medium', 'low']),
+  // Mis-drop safety net: classifies whether the dropped file is actually a
+  // rate sheet (vs the expected client quote request). Additive/optional so
+  // existing extraction is unaffected. Frontend offers to re-route if so.
+  documentType: z
+    .enum(['rate_sheet', 'quote_request', 'other'])
+    .nullable()
+    .optional()
+    .default('quote_request'),
 });
 
 export type IntakeResult = z.infer<typeof IntakeSchema>;

@@ -617,6 +617,93 @@ const HEADER_TAB_KEYS = ['new', 'shipments', 'drayage', 'trucking', 'history', '
   } catch (_) { /* ignore */ }
 })();
 
+// ── Mis-drop safety net ────────────────────────────────────────────────────
+// If a user drops the WRONG kind of file into an intake/library box (e.g. a
+// rate sheet into a client-request intake, or a client request into the rate
+// library), the parser's `documentType` classifier flags it and we surface a
+// dismissible inline offer to re-route it to the correct surface — carrying
+// the already-dropped files. Prompt-and-confirm only; we never auto-move.
+const misdropSurfaces = {};
+function registerMisdropSurface(key, handle) {
+  misdropSurfaces[key] = handle;
+}
+
+// Render (or replace) a dismissible offer banner. Appends inside `container`,
+// or — when opts.insertAfter is given — inserts directly after that element.
+// opts: { message, buttonLabel, targetKey, getFiles?() -> File[], insertAfter? }
+function showMisdropOffer(container, opts) {
+  const anchor = opts.insertAfter || null;
+  const parent = anchor ? anchor.parentElement : container;
+  if (!parent) return null;
+  // Only one offer per surface at a time.
+  parent
+    .querySelectorAll(':scope > .misdrop-offer')
+    .forEach((n) => n.remove());
+
+  const bar = document.createElement('div');
+  bar.className = 'misdrop-offer';
+  bar.setAttribute('role', 'status');
+
+  const icon = document.createElement('span');
+  icon.className = 'misdrop-offer-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '↪';
+
+  const text = document.createElement('span');
+  text.className = 'misdrop-offer-text';
+  text.textContent = opts.message;
+
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.className = 'btn-sm misdrop-offer-go';
+  go.textContent = opts.buttonLabel;
+
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'misdrop-offer-dismiss';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.title = 'Dismiss';
+  dismiss.textContent = '✕';
+
+  bar.append(icon, text, go, dismiss);
+
+  go.addEventListener('click', () => {
+    const target = misdropSurfaces[opts.targetKey];
+    bar.remove();
+    if (!target) return;
+    try {
+      if (target.tab) activateTabBy(target.tab);
+    } catch (_) {
+      /* tab switch is best-effort */
+    }
+    let files = [];
+    try {
+      files =
+        typeof opts.getFiles === 'function' ? opts.getFiles() || [] : [];
+    } catch (_) {
+      files = [];
+    }
+    if (files.length && typeof target.addFiles === 'function') {
+      target.addFiles(files);
+    }
+    // Defer focus/scroll so the tab pane is visible first.
+    if (typeof target.focus === 'function') {
+      setTimeout(() => {
+        try {
+          target.focus();
+        } catch (_) {
+          /* ignore */
+        }
+      }, 0);
+    }
+  });
+  dismiss.addEventListener('click', () => bar.remove());
+
+  if (anchor) anchor.insertAdjacentElement('afterend', bar);
+  else parent.appendChild(bar);
+  return bar;
+}
+
 // Nav "More ▾" overflow menu — reveals the Tools tabs (Settings / Bundles /
 // Web agent / Record) without taking up primary nav space. The menu items
 // carry data-tab, so the shared [data-tab] handler above switches the tab;
@@ -996,6 +1083,8 @@ function createDropzoneWithNotes(opts) {
     notesEl,
     getFiles: () => pendingFiles.slice(),
     getNotes: () => notesEl.value.trim(),
+    // Accept files handed over from another surface (mis-drop re-route).
+    addFiles: (fl) => ingest(fl),
     status,
     clear() {
       pendingFiles = [];
@@ -1033,7 +1122,27 @@ const drIntake = createDropzoneWithNotes({
         ? `Extracted — ready to run. ${data.readiness.reason}`
         : `Extracted — review the form (${data.readiness.reason})`;
     drIntake.status(msg, cls);
+
+    // Mis-drop safety net: a rate sheet dropped into the client-request
+    // intake. Offer to save it to the library instead — never auto-move.
+    if (data.documentType === 'rate_sheet') {
+      showMisdropOffer(drIntake.el, {
+        message:
+          'This looks like a rate sheet, not a client request. Save it to your rate library instead?',
+        buttonLabel: 'Save to library →',
+        targetKey: 'drayage-library',
+        getFiles: () => drIntake.getFiles(),
+      });
+    }
   },
+});
+
+// Register the drayage client-request intake as a mis-drop re-route target.
+registerMisdropSurface('drayage-intake', {
+  tab: 'drayage',
+  addFiles: (fs) => drIntake.addFiles(fs),
+  focus: () =>
+    drIntake.el.scrollIntoView({ behavior: 'smooth', block: 'center' }),
 });
 
 function applyDrayageIntake(d) {
@@ -1859,10 +1968,36 @@ const ocIntake = createDropzoneWithNotes({
     const notesHtml = data.notes
       ? ` <span class="muted">· Notes: ${esc(data.notes)}</span>`
       : '';
+    // Capture the status element BEFORE status() runs — status() rewrites the
+    // element's className (dropping `dzn-status`), so a later
+    // querySelector('.dzn-status') would return null and throw.
+    const ocStatusEl = ocIntake.el.querySelector('.dzn-status');
     ocIntake.status(null, '');
-    ocIntake.el.querySelector('.dzn-status').innerHTML =
-      `Extracted — <span class="${confClass}">${data.confidence} confidence</span>. Review the form below.${notesHtml}`;
+    if (ocStatusEl) {
+      ocStatusEl.innerHTML =
+        `Extracted — <span class="${confClass}">${data.confidence} confidence</span>. Review the form below.${notesHtml}`;
+    }
+
+    // Mis-drop safety net: a rate sheet dropped into the client-request
+    // intake. Offer to import it as a rate sheet instead — never auto-move.
+    if (data.documentType === 'rate_sheet') {
+      showMisdropOffer(ocIntake.el, {
+        message:
+          'This looks like a rate sheet, not a client request. Import it into your rate sheets instead?',
+        buttonLabel: 'Import as rate sheet →',
+        targetKey: 'ocean-sheet',
+        getFiles: () => ocIntake.getFiles(),
+      });
+    }
   },
+});
+
+// Register the ocean client-request intake as a mis-drop re-route target.
+registerMisdropSurface('ocean-intake', {
+  tab: 'new',
+  addFiles: (fs) => ocIntake.addFiles(fs),
+  focus: () =>
+    ocIntake.el.scrollIntoView({ behavior: 'smooth', block: 'center' }),
 });
 
 document.getElementById('reply-copy-btn').addEventListener('click', async () => {
@@ -3309,6 +3444,14 @@ async function loadCredList() {
     e.preventDefault();
     dropzone.classList.remove('is-drag');
     ingestFiles(e.dataTransfer?.files);
+  });
+
+  // Register as a mis-drop re-route target: a rate sheet mis-dropped into the
+  // ocean client-request intake can be handed here to be imported properly.
+  registerMisdropSurface('ocean-sheet', {
+    tab: 'new',
+    addFiles: (fs) => ingestFiles(fs),
+    focus: () => dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' }),
   });
 
   // Ctrl+V paste support: intercept only when the Sheets tab is active
@@ -9160,6 +9303,14 @@ function esc(s) {
     ingest(e.dataTransfer?.files);
   });
 
+  // Register the rate library as a mis-drop re-route target (a rate sheet
+  // dropped into the client-request intake can be handed here).
+  registerMisdropSurface('drayage-library', {
+    tab: 'drayage',
+    addFiles: (fs) => ingest(fs),
+    focus: () => dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+  });
+
   // Paste zone
   pasteZone?.addEventListener('paste', (e) => {
     const items = (e.clipboardData || {}).items || [];
@@ -9211,9 +9362,31 @@ function esc(s) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'parse failed');
+
+      // Mis-drop safety net: a client quote request dropped into the rate
+      // library. Offer to extract it into the quote form instead — never
+      // auto-move. Shown even when no rates were found (the typical shape).
+      const isMisdroppedRequest = data.documentType === 'quote_request';
+      if (isMisdroppedRequest) {
+        const offerFiles = pending.slice();
+        showMisdropOffer(null, {
+          message:
+            'This looks like a client request, not a rate sheet. Extract it into the quote form instead?',
+          buttonLabel: 'Extract into quote form →',
+          targetKey: 'drayage-intake',
+          getFiles: () => offerFiles,
+          insertAfter: parseBtn.closest('.row') || parseBtn,
+        });
+      }
+
       const rates = data.rates || [];
       if (rates.length === 0) {
-        setStat('No rates found in the file(s).', 'error');
+        setStat(
+          isMisdroppedRequest
+            ? 'This looks like a client request — see the offer above.'
+            : 'No rates found in the file(s).',
+          isMisdroppedRequest ? 'info' : 'error'
+        );
         return;
       }
       previewRates = rates;

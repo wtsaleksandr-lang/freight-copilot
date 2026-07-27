@@ -95,7 +95,9 @@ For EACH rate row in the document, extract:
 - currency: native currency in the document (USD / CAD / etc.). The server will FX-normalise to USD after extraction. DO NOT convert yourself.
 - notes: anything else worth keeping per row — validity period, conditions, "subject to chassis availability", weight tier (if a tiered structure), "round trip only", etc. Concise.
 
-Return through the extract_drayage_rates tool. The output shape is { rates: RateEntry[] }. Even if the document has only one rate, return it as a single-element array. NEVER return an empty rates array if the document has visible rate data.
+Also classify the document in "document_type": "rate_sheet" when it is a carrier/provider drayage rate sheet, rate quotation, or rate confirmation (a pricing list of lanes/rates — the normal case for this library import); "quote_request" when the dropped file is actually a customer/shipper INQUIRY asking you to quote a move (an email or message requesting a price, NOT offering one — it has no actual rates to save); "other" for anything else. When unsure, prefer "rate_sheet" if any real rates are present, else "quote_request".
+
+Return through the extract_drayage_rates tool. The output shape is { rates: RateEntry[], document_type }. Even if the document has only one rate, return it as a single-element array. NEVER return an empty rates array if the document has visible rate data.
 
 Rules:
 - Be conservative with hallucinations. Null beats a guess.
@@ -141,6 +143,15 @@ const RateSchema = z.object({
 
 const ResultSchema = z.object({
   rates: z.array(RateSchema).default([]),
+  // Mis-drop safety net: classifies whether the dropped file is actually a
+  // client quote request (vs the expected rate sheet). Additive/optional so
+  // existing extraction is unaffected. The route surfaces it so the frontend
+  // can offer to re-route a mis-dropped quote request to the intake form.
+  document_type: z
+    .enum(['rate_sheet', 'quote_request', 'other'])
+    .nullable()
+    .optional()
+    .default('rate_sheet'),
 });
 
 export type DrayageRateEntry = z.infer<typeof RateSchema>;
@@ -191,6 +202,10 @@ const TOOL_SCHEMA = {
           notes: { type: ['string', 'null'] },
         },
       },
+    },
+    document_type: {
+      type: ['string', 'null'],
+      enum: ['rate_sheet', 'quote_request', 'other', null],
     },
   },
   required: ['rates'],
