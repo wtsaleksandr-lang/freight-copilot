@@ -4,6 +4,7 @@ export type ShipmentUpdateField =
   | 'operationalStatus'
   | 'pol'
   | 'pod'
+  | 'fpod'
   | 'containerType'
   | 'containerQuantity'
   | 'notes';
@@ -16,6 +17,7 @@ export interface ShipmentUpdateSource {
   operationalStatus?: string | null;
   pol?: string | null;
   pod?: string | null;
+  fpod?: string | null;
   containerType?: string | null;
   containerQuantity?: number | null;
   notes?: string | null;
@@ -112,8 +114,11 @@ export function extractShipmentUpdateProposals(
   const pol = /(?:POL|port of loading)\s*[:#-]\s*([^\n,;]{2,60})/i.exec(source);
   if (pol?.[1]) addProposal(proposals, current, 'pol', pol[1].trim(), 'high', evidenceLine(source, pol.index));
 
-  const pod = /(?:POD|port of discharge|destination port)\s*[:#-]\s*([^\n,;]{2,60})/i.exec(source);
+  const pod = /(?:(?<![A-Za-z])POD|port of discharge|destination port)\s*[:#-]\s*([^\n,;]{2,60})/i.exec(source);
   if (pod?.[1]) addProposal(proposals, current, 'pod', pod[1].trim(), 'high', evidenceLine(source, pod.index));
+
+  const fpod = /(?:FPOD|final port of delivery|final destination|delivery terminal)\s*[:#-]\s*([^\n,;]{2,60})/i.exec(source);
+  if (fpod?.[1]) addProposal(proposals, current, 'fpod', fpod[1].trim(), 'high', evidenceLine(source, fpod.index));
 
   const container = /\b(?:(\d+)\s*[x×]\s*)?(20|40|45)\s*['’]?(?:\s*)(HC|HQ|DV|GP|RF|RH|OT|FR|NOR|REEFER|DRY)?\b/i.exec(source);
   if (container) {

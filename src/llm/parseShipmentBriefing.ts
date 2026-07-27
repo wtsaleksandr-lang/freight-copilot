@@ -22,6 +22,8 @@ Target fields (all optional — leave null if not stated):
 - pol_code: UN/LOCODE for POL if mentioned (e.g. "USCHS").
 - pod: port of discharge (destination port, e.g. "Hamburg", "Constanta", "Izmir"). Same rules as pol — must be a specific port.
 - pod_code: UN/LOCODE for POD if mentioned (e.g. "DEHAM").
+- fpod: Final Port of Delivery — the inland terminal / ramp the cargo moves to AFTER the discharge port (pod) via on-carriage (truck/rail). Examples: "Chicago Ramp", "Kansas City", "Memphis". DISTINCT from pod (the ocean discharge port — Hamburg, Newark). For pure port-to-port ocean lanes with no on-carriage leg, leave fpod null. If the email mentions e.g. "discharge at Newark, rail to Chicago", then pod = "Newark" and fpod = "Chicago". Mirrors fpol on the origin side.
+- fpod_code: UN/LOCODE for fpod if mentioned (USCHI, etc.).
 - container_type: 20GP / 40GP / 40HC / 20RF / 40RF / 40RH / 40NOR / 20OT / 40OT / 20FR / 40FR / 20TK. Translate equivalents: "20'std", "20DV", "20 dry standard" → 20GP. "40HQ", "40' high cube" → 40HC. If multiple types, list them comma-separated (e.g. "20GP, 40HC").
 - container_quantity: how many containers in this shipment, as an integer. Look for "Quantity x 3", "3 x 40HC", "Container quantity: 2", "Qty: 5", or simply "3 x 40HC" in a heading. If the document only mentions one container or doesn't state a quantity, return 1. This number drives all per-container math — when set to N, every per-container line item in cost_items must be multiplied by N.
 - cargo_type: 'general' / 'hazmat' / 'reefer' / 'oog' (out-of-gauge) / 'high_value'. Default 'general' unless explicitly stated.
@@ -131,6 +133,8 @@ const ShipmentSchema = z.object({
   pol_code: z.string().nullable().optional(),
   pod: z.string().nullable().optional(),
   pod_code: z.string().nullable().optional(),
+  fpod: z.string().nullable().optional(),
+  fpod_code: z.string().nullable().optional(),
   container_type: z.string().nullable().optional(),
   container_quantity: z.number().int().nullable().optional(),
   cargo_type: z.string().nullable().optional(),
@@ -180,6 +184,8 @@ const TOOL_SCHEMA = {
     pol_code: { type: ['string', 'null'] },
     pod: { type: ['string', 'null'] },
     pod_code: { type: ['string', 'null'] },
+    fpod: { type: ['string', 'null'] },
+    fpod_code: { type: ['string', 'null'] },
     container_type: { type: ['string', 'null'] },
     container_quantity: { type: ['integer', 'null'] },
     cargo_type: { type: ['string', 'null'] },

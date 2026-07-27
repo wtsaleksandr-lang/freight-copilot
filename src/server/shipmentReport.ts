@@ -6,6 +6,7 @@ export interface ShipmentReportRow {
   fpol?: string | null;
   pol?: string | null;
   pod?: string | null;
+  fpod?: string | null;
   containerType?: string | null;
   containerQuantity?: number | null;
   cargoName?: string | null;
@@ -82,7 +83,7 @@ export function buildShipmentStatusReport(
     return {
       ...row,
       statusLabel: titleStatus(row.operationalStatus),
-      lane: `${endpoint(row.fpol, row.pol)} → ${endpoint(row.pod)}`,
+      lane: `${endpoint(row.fpol, row.pol)} → ${endpoint(row.fpod, row.pod)}`,
       equipment: `${quantity}${clean(row.containerType) || clean(row.shipmentType) || '—'}`,
       lastUpdated: Number.isNaN(updated.getTime())
         ? '—'

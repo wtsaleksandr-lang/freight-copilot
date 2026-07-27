@@ -360,6 +360,12 @@ export const shipments = pgTable('shipments', {
   polCode: text('pol_code'),
   pod: text('pod'),
   podCode: text('pod_code'),
+  /** Final Port of Delivery — the inland terminal/ramp the cargo moves
+   *  to AFTER the ocean discharge port (`pod`) via on-carriage (truck /
+   *  rail). Distinct from `pod` (the ocean port). Mirrors the fpol/pol
+   *  pairing on the origin side. `fpodCode` is the optional UN/LOCODE. */
+  fpod: text('fpod'),
+  fpodCode: text('fpod_code'),
   containerType: text('container_type'),
   /** How many containers in this shipment (e.g. "3 x 40HC" → 3).
    *  When set, every per-container line item in costBreakdownJson is
