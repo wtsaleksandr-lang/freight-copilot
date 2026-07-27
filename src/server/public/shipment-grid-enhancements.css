@@ -92,3 +92,25 @@
 /* An edited cell is already forced opaque (#ship-table td.is-editing above); make
    that hold when the edited cell is itself in the frozen column too. */
 #ship-table td.is-editing.is-frozen-col{background-color:#fff;background-image:none}
+
+/* ── Per-row height / resize ───────────────────────────────────────────────
+   Each body row carries a thin grab strip on its bottom edge (cursor:row-resize)
+   so the user can shrink (minimize) or grow ANY row; the height persists per
+   browser (localStorage['freight.shipments.rowHeights'], keyed by ref id) and
+   is re-applied on every render. Rows default to a single clamped line; a grown
+   row (is-custom-height) relaxes the single-line clamp so content wraps and the
+   extra height shows more, while a minimized row (is-min-height) stays tight. */
+/* The handle is hosted in the row's leftmost cell (a <td>, where position:relative
+   reliably establishes a containing block — unlike <tr>). The host cell overflows
+   visibly and the strip extends rightward so it's an easy grab target, pinned to
+   the visible left edge (and it rides along if that column is frozen). z-index
+   beats frozen cells (≤6) so it stays grabbable even over a pinned column. */
+#ship-table tbody td.ship-row-resize-host{position:relative;overflow:visible}
+.ship-row-resize-handle{position:absolute;left:0;width:220px;bottom:-2px;height:7px;cursor:row-resize;z-index:8}
+.ship-row-resize-handle:hover{background:rgba(56,189,248,.5)}
+body.is-row-resizing{cursor:row-resize!important;user-select:none}
+/* Grown row: relax the single-line clamp so content wraps within the taller
+   row. Excludes an actively-edited cell (keeps its own overflow:visible). */
+#ship-table tbody tr.is-custom-height td:not(.is-editing){white-space:normal;overflow:hidden;text-overflow:clip;vertical-align:top}
+/* Minimized row: keep the tight single-line clamp at the reduced height. */
+#ship-table tbody tr.is-min-height td:not(.is-editing){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}

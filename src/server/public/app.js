@@ -4820,7 +4820,8 @@ function formatMoney(n, cur) {
           arts.length > 0
             ? `<button type="button" class="ship-attach-badge" data-action="attachments" title="${arts.length} attachment${arts.length === 1 ? '' : 's'}">📎 ${arts.length}</button>`
             : '';
-        return `<tr data-ref="${esc(row.refId)}">${cells}<td class="actions-cell">${badge}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td></tr>`;
+        const rh = rowHeightAttrs(row.refId);
+        return `<tr data-ref="${esc(row.refId)}" class="ship-body-row${rh.cls}"${rh.style}>${cells}<td class="actions-cell">${badge}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td></tr>`;
       })
       .join('');
     wireRowSelection();
@@ -4829,6 +4830,7 @@ function formatMoney(n, cur) {
     wireAttachmentBadges(rows);
     wireRowDropTargets(rows);
     wireRefCopy();
+    wireRowResize();
   }
 
   // Single-click on a Ref cell copies the ref to the clipboard. The
@@ -6045,6 +6047,57 @@ function formatMoney(n, cur) {
   }
   let columnWidths = loadColWidths();
 
+  // ── Per-row height ───────────────────────────────────────────────────────
+  // Rows default to a single clamped line. A user can drag the bottom edge of
+  // any row to shrink (minimize) or grow it, and the chosen height persists
+  // per browser keyed by the shipment ref id — mirrors the colWidths pattern.
+  // Below ROW_WRAP_THRESHOLD the row stays a tight single line; at/above it the
+  // single-line clamp is relaxed so content wraps and a taller row shows more.
+  const ROW_MIN_H = 22; // floor px — small enough to minimize a row
+  const ROW_WRAP_THRESHOLD = 40; // >= this px, relax the single-line clamp
+  const ROW_HEIGHTS_KEY = 'freight.shipments.rowHeights';
+  function loadRowHeights() {
+    try {
+      const raw = localStorage.getItem(ROW_HEIGHTS_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch {
+      return {};
+    }
+  }
+  function saveRowHeights(map) {
+    try {
+      localStorage.setItem(ROW_HEIGHTS_KEY, JSON.stringify(map));
+    } catch {
+      /* quota / private mode — silently ignore */
+    }
+  }
+  let rowHeights = loadRowHeights();
+
+  // Apply (or clear, when h == null) a custom height to a <tr>. Toggles the
+  // wrap-relaxing class vs the tight single-line class based on the threshold.
+  function applyRowHeight(tr, h) {
+    if (h == null || !Number.isFinite(h) || h <= 0) {
+      tr.style.removeProperty('height');
+      tr.classList.remove('is-custom-height', 'is-min-height');
+      return;
+    }
+    tr.style.height = `${Math.round(h)}px`;
+    const wrap = h >= ROW_WRAP_THRESHOLD;
+    tr.classList.toggle('is-custom-height', wrap);
+    tr.classList.toggle('is-min-height', !wrap);
+  }
+
+  // Inline class + style for a row on first paint, so saved heights are applied
+  // on every render (survives reload / exit-reenter) with no flash.
+  function rowHeightAttrs(refId) {
+    const h = rowHeights[refId];
+    if (!Number.isFinite(h) || h <= 0) return { cls: '', style: '' };
+    const cls = h >= ROW_WRAP_THRESHOLD ? ' is-custom-height' : ' is-min-height';
+    return { cls, style: ` style="height:${Math.round(h)}px"` };
+  }
+
   // <colgroup> drives the resizable widths. Each <col> maps 1:1 to a
   // SHIP_COLS entry, plus a final <col> for the actions column.
   function colgroupHtml() {
@@ -6101,6 +6154,62 @@ function formatMoney(n, cur) {
         }
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
+      });
+    });
+  }
+
+  // Drag the thin strip on a row's bottom edge to set that row's height to any
+  // value — shrink to a small floor (minimize) or grow freely (content wraps).
+  // Mirrors wireColumnResize but on the vertical axis; persists per ref id.
+  // Double-click the strip resets the row to its automatic single-line height.
+  function wireRowResize() {
+    table.querySelectorAll('tbody tr[data-ref]').forEach((tr) => {
+      const host = tr.firstElementChild; // leftmost cell — a positioned <td>
+      if (!host || host.querySelector('.ship-row-resize-handle')) return;
+      host.classList.add('ship-row-resize-host');
+      const handle = document.createElement('span');
+      handle.className = 'ship-row-resize-handle';
+      handle.title = 'Drag to resize row · double-click to reset';
+      host.appendChild(handle);
+      // A plain click on the strip must not bubble to the host cell (e.g. the
+      // status cell opens a picker on click).
+      handle.addEventListener('click', (e) => e.stopPropagation());
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startHeight = tr.getBoundingClientRect().height;
+        const startY = e.clientY;
+        document.body.classList.add('is-row-resizing');
+        function onMove(ev) {
+          const delta = ev.clientY - startY;
+          const next = Math.max(ROW_MIN_H, Math.round(startHeight + delta));
+          applyRowHeight(tr, next);
+        }
+        function onUp() {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          document.body.classList.remove('is-row-resizing');
+          // Persist the actual rendered height (captures any content-driven
+          // clamp so what you reload is what you saw).
+          const ref = tr.dataset.ref;
+          const final = Math.round(tr.getBoundingClientRect().height);
+          if (ref && Number.isFinite(final) && final > 0) {
+            rowHeights[ref] = final;
+            saveRowHeights(rowHeights);
+          }
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      handle.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const ref = tr.dataset.ref;
+        if (ref && ref in rowHeights) {
+          delete rowHeights[ref];
+          saveRowHeights(rowHeights);
+        }
+        applyRowHeight(tr, null);
       });
     });
   }
