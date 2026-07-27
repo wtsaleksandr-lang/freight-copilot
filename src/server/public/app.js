@@ -7741,7 +7741,7 @@ function formatMoney(n, cur) {
       // reorder headers / resize handles — those own their own drag gestures.
       if (
         e.target.closest(
-          '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"], th[draggable="true"], .shipment-column-resizer'
+          '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"], th[draggable="true"], .shipment-column-resizer, .ship-row-resize-handle'
         )
       ) {
         return;

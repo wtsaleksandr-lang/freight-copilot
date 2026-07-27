@@ -106,8 +106,9 @@
    the visible left edge (and it rides along if that column is frozen). z-index
    beats frozen cells (≤6) so it stays grabbable even over a pinned column. */
 #ship-table tbody td.ship-row-resize-host{position:relative;overflow:visible}
-.ship-row-resize-handle{position:absolute;left:0;width:220px;bottom:-2px;height:7px;cursor:row-resize;z-index:8}
-.ship-row-resize-handle:hover{background:rgba(56,189,248,.5)}
+.ship-row-resize-handle{position:absolute;left:0;width:340px;bottom:-5px;height:11px;cursor:row-resize;z-index:8;display:flex;align-items:center}
+.ship-row-resize-handle::after{content:"";display:block;width:100%;height:2px;border-radius:2px;background:rgba(120,140,170,.22);transition:background .12s,height .12s}
+.ship-row-resize-handle:hover::after{background:rgba(56,189,248,.9);height:4px}
 body.is-row-resizing{cursor:row-resize!important;user-select:none}
 /* Grown row: relax the single-line clamp so content wraps within the taller
    row. Excludes an actively-edited cell (keeps its own overflow:visible). */
