@@ -164,5 +164,9 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
 .clearance-disclaimer strong{color:var(--ink)}
 .clearance-disclaimer a{color:var(--accent,#1e40af);font-weight:600;text-decoration:underline;margin-left:4px}
 
-/* Customs: import-from-document row */
+/* Customs: import-from-document row (legacy fallback markup) */
 .clearance-import-row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+/* Customs: import-from-document dropzone block (matches other tabs' intake) */
+.clearance-import-block{margin-top:14px}
+.clearance-import-label{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.clearance-import-block #clearance-import-status{display:block;margin-top:8px}

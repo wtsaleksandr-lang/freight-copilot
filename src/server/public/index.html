@@ -108,6 +108,16 @@
         </div>
       </details>
 
+      <!-- ─── Client-request intake: promoted to first-class (was buried under
+           the fragile "Advanced" details). AI reads the request and fills the
+           quote form below. Wired by ocIntake in app.js (#intake-dropzone). ─── -->
+      <div class="card">
+        <span class="intake-eyebrow is-quote">Client request</span>
+        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
+        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI reads it all and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <div id="intake-dropzone"></div>
+      </div>
+
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
       <div class="card">
         <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
@@ -228,12 +238,6 @@
       <!-- ─── Advanced: live portal automation (fragile, work in progress) ─── -->
       <details class="advanced-section">
         <summary><strong>Advanced — live portal automation</strong> <span class="muted small">(fragile, work in progress)</span></summary>
-
-      <div class="card">
-        <h2>Intake <span class="muted-inline">— a client's quote request</span></h2>
-        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI reads it all and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
-        <div id="intake-dropzone"></div>
-      </div>
 
       <div class="card">
         <h2>Quote details <span class="muted-inline">— pick carriers, set your margin, hit one button</span></h2>
@@ -457,8 +461,8 @@
       <!-- Rate library card — top of the Drayage tab. AI extracts every
            rate from a dropped/pasted file and APPENDS to the database
            (price-history preserved). User filters / searches below. -->
-      <details class="card dr-fold">
-        <summary class="dr-fold-summary"><h2>Drayage rate library <span class="muted-inline">— upload provider rate sheets &amp; build a searchable archive</span></h2></summary>
+      <details class="card dr-fold" open>
+        <summary class="dr-fold-summary"><span class="intake-eyebrow is-library">Rate library</span><h2>Save rates to your library <span class="muted-inline">— upload provider rate sheets → stored for future quotes</span></h2></summary>
         <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Our AI extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
         <div id="dr-lib-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -497,7 +501,8 @@
 
       <!-- Intake card -->
       <div class="card">
-        <h2>Drayage intake <span class="muted-inline">— a client request</span></h2>
+        <span class="intake-eyebrow is-quote">Client request</span>
+        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
         <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI extracts the cargo type, container, addresses, ports and dates and fills the form below. Always review before clicking Run.</p>
         <div id="dr-intake-dropzone"></div>
       </div>
