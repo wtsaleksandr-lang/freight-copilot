@@ -4016,6 +4016,9 @@ const SHIP_COLS = [
   { key: 'fpol', label: 'FPOL', editable: true },
   { key: 'pol', label: 'POL', editable: true },
   { key: 'pod', label: 'POD', editable: true },
+  // FPOD — final port of delivery / inland terminal cargo moves to after
+  // the discharge port via on-carriage (Chicago Ramp, Kansas City, etc.).
+  { key: 'fpod', label: 'FPOD', editable: true },
   // Shipment Type (FCL / LCL / Road).
   { key: 'shipmentType', label: 'Type', editable: true, kind: 'shipment-type' },
   { key: 'containerType', label: 'Cntr', editable: true },
@@ -4490,7 +4493,7 @@ function formatMoney(n, cur) {
     }
     const headers = [
       'Ref','Created','Status','Shipper','Receiver','Customer','Pickup',
-      'FPOL','POL','POD','Type','Cntr','Qty','CargoType','CargoName',
+      'FPOL','POL','POD','FPOD','Type','Cntr','Qty','CargoType','CargoName',
       'Sell USD','Cost USD','Profit USD','Carrier','BookingRef','Notes',
     ];
     function csvCell(v) {
@@ -4510,7 +4513,7 @@ function formatMoney(n, cur) {
       lines.push([
         r.refId, created, status,
         r.shipperName, r.receiverName, r.customerName, r.loadingAddress,
-        r.fpol, r.pol, r.pod,
+        r.fpol, r.pol, r.pod, r.fpod,
         r.shipmentType, r.containerType, r.containerQuantity,
         r.cargoType, r.cargoName,
         sell, cost, profit,
@@ -5362,8 +5365,8 @@ function formatMoney(n, cur) {
         return;
       }
 
-      // Ports / terminals (FPOL / POL / POD) → autosuggest from MAJOR_PORTS
-      if (field === 'fpol' || field === 'pol' || field === 'pod') {
+      // Ports / terminals (FPOL / POL / POD / FPOD) → autosuggest from MAJOR_PORTS
+      if (field === 'fpol' || field === 'pol' || field === 'pod' || field === 'fpod') {
         onActivate(td, () => openGridAutosuggest(td, refId, field, row[field] || '', {
           placeholder: 'Search port / terminal…',
           minChars: 1,
@@ -5820,6 +5823,7 @@ function formatMoney(n, cur) {
     fpol: 90,
     pol: 90,
     pod: 90,
+    fpod: 90,
     shipmentType: 60,
     containerType: 90,
     containerQuantity: 50,

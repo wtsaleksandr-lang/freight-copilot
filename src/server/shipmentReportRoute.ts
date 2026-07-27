@@ -21,6 +21,7 @@ export function registerShipmentReportRoute(app: Express): void {
           fpol: shipments.fpol,
           pol: shipments.pol,
           pod: shipments.pod,
+          fpod: shipments.fpod,
           containerType: shipments.containerType,
           containerQuantity: shipments.containerQuantity,
           cargoName: shipments.cargoName,

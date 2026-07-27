@@ -20,6 +20,7 @@ Column mapping (the sheet's headers → output fields). Headers may be abbreviat
 - EXP place / Export       → fpol   (the inland export origin, e.g. "Montreal")
 - POL                      → pol
 - POD                      → pod
+- FPOD / Final POD / Final destination / Delivery terminal / On-carriage to → fpod (the final inland delivery terminal/ramp the cargo moves to AFTER the discharge port, e.g. "Chicago Ramp")
 - SS line / Line / Carrier → carrier_preference
 - Type  (e.g. "1*40HQ", "6*40HC")  → SPLIT into container_quantity (the number before *) and container_type (after *, e.g. "40HQ"). "2x40HC" → qty 2, type "40HC".
 - Cut off                  → cut_off_date
@@ -50,6 +51,7 @@ const ShipmentImportSchema = z.object({
   fpol: z.string().nullable().optional(),
   pol: z.string().nullable().optional(),
   pod: z.string().nullable().optional(),
+  fpod: z.string().nullable().optional(),
   carrier_preference: z.string().nullable().optional(),
   container_type: z.string().nullable().optional(),
   container_quantity: z.number().int().nullable().optional(),
@@ -95,6 +97,7 @@ const SCHEMA_DESCRIPTION = `{
     "fpol": "string|null",
     "pol": "string|null",
     "pod": "string|null",
+    "fpod": "string|null",
     "carrier_preference": "string|null",
     "container_type": "string|null",
     "container_quantity": "integer|null",

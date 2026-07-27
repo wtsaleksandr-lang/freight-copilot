@@ -6,7 +6,7 @@ import { normalizeUniversalFile, type UniversalFileInput } from '../llm/universa
 import { chooseShipmentMatch } from './shipmentDocumentMatcher.js';
 
 const FIELD_MAP = {
-  bookingRef: 'booking_ref', carrierPreference: 'carrier_preference', pol: 'pol', pod: 'pod',
+  bookingRef: 'booking_ref', carrierPreference: 'carrier_preference', pol: 'pol', pod: 'pod', fpod: 'fpod',
   containerType: 'container_type', containerQuantity: 'container_quantity', notes: 'notes',
 } as const;
 
