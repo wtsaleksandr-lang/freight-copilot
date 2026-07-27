@@ -3317,8 +3317,18 @@ export function registerApiRoutes(app: Express): void {
         );
         const result = await parseDrayageRates(briefingFiles);
         const rates = result.rates ?? [];
+        // Mis-drop safety net: surface the classifier so the frontend can
+        // offer to re-route a mis-dropped client quote request to the intake
+        // form. Present even when no rates were found (the typical shape of a
+        // quote request dropped into the rate-library box).
+        const documentType = result.document_type ?? null;
         if (rates.length === 0) {
-          res.json({ inserted: 0, rates: [], message: 'No rates found in document.' });
+          res.json({
+            inserted: 0,
+            rates: [],
+            documentType,
+            message: 'No rates found in document.',
+          });
           return;
         }
 
@@ -3368,7 +3378,7 @@ export function registerApiRoutes(app: Express): void {
               notes: r.notes ?? null,
             };
           });
-          res.json({ rates: previewRates });
+          res.json({ rates: previewRates, documentType });
           return;
         }
 

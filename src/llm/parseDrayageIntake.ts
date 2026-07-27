@@ -40,6 +40,7 @@ Rules:
 - Do NOT invent port codes or addresses. If the email says "Newark" but no specific terminal, use port code "USEWR" and leave terminal null.
 - Distinguish carefully: "delivery to 1234 Main St, Chicago" = DESTINATION DOOR. "Pickup from APM Terminals Newark" = ORIGIN CY.
 - Set readiness 'ready_to_run' if all required-for-run fields look present (cargo type, container, both ends fully populated). Otherwise 'needs_review' with a brief reason.
+- Classify the source in "documentType": "quote_request" when it is a customer/shipper request asking you to quote a drayage move (the normal case for this intake); "rate_sheet" when the dropped file is actually a carrier/provider drayage RATE SHEET or rate quotation (a pricing list of lanes/rates to keep as reference, NOT a request to quote); "other" for anything else. When unsure, prefer "quote_request".
 
 Return via the parse_drayage_intake tool.`;
 
@@ -80,6 +81,10 @@ const PARSE_TOOL_SCHEMA = {
     accessorials: { type: 'array', items: { type: 'string' } },
     clientName: { type: ['string', 'null'] },
     notes: { type: ['string', 'null'] },
+    documentType: {
+      type: ['string', 'null'],
+      enum: ['rate_sheet', 'quote_request', 'other', null],
+    },
     readiness: {
       type: 'object',
       properties: {
@@ -131,6 +136,14 @@ const Schema = z.object({
   accessorials: z.array(z.string()),
   clientName: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // Mis-drop safety net: classifies whether the dropped file is actually a
+  // rate sheet (vs the expected client quote request). Additive/optional so
+  // existing extraction is unaffected. Frontend offers to re-route if so.
+  documentType: z
+    .enum(['rate_sheet', 'quote_request', 'other'])
+    .nullable()
+    .optional()
+    .default('quote_request'),
   readiness: z.object({
     status: z.enum(['ready_to_run', 'needs_review']),
     reason: z.string(),
