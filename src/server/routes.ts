@@ -13,6 +13,7 @@ import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
 import { parseIntake, type IntakeInput } from '../llm/parseIntake.js';
+import { friendlyAiError } from '../llm/callAiTool.js';
 import {
   generateClientReply,
   generateBundleReply,
@@ -732,9 +733,7 @@ export function registerApiRoutes(app: Express): void {
       res.json(result);
     } catch (err) {
       console.error('[api/intake] error:', err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
+      res.status(500).json({ error: friendlyAiError(err) });
     }
   });
 
@@ -918,9 +917,7 @@ export function registerApiRoutes(app: Express): void {
       res.json(result);
     } catch (err) {
       console.error('[api/drayage/intake] error:', err);
-      res.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
+      res.status(500).json({ error: friendlyAiError(err) });
     }
   });
 

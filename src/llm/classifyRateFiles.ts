@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { loadEnv } from '../config.js';
-import { getModel } from './model.js';
+import { callAiTool, type AiContentBlock } from './callAiTool.js';
 import { normalizeUniversalFile, type UniversalFileInput } from './universalFileText.js';
 
 const ClassificationSchema = z.object({
@@ -24,7 +22,7 @@ const TOOL = {
 
 export async function classifyRateFiles(files: UniversalFileInput[]) {
   const normalized = files.map(normalizeUniversalFile);
-  const content: Array<Record<string, unknown>> = [{
+  const content: AiContentBlock[] = [{
     type: 'text',
     text: 'Classify this batch as ocean, drayage, trucking, or ambiguous. Ocean means carrier port-to-port/container ocean freight. Drayage means container trucking tied to a port, rail ramp, terminal, chassis, pre-pull, detention, or CY/door move. Trucking means standalone FTL/LTL, dry van, flatbed, reefer, step deck, hotshot, or broker lane pricing. Use ambiguous when the files contain multiple unrelated modes or the evidence is insufficient. Do not extract rates and do not guess.',
   }];
@@ -36,20 +34,14 @@ export async function classifyRateFiles(files: UniversalFileInput[]) {
     else content.push({ type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.fileBase64! } });
   }
 
-  const env = loadEnv();
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1024,
+  const toolInput = await callAiTool({
     system: 'You classify freight rate documents. Accuracy is more important than forcing a category.',
-    tools: [{ name: 'classify_rate_files', description: 'Return one classification for the supplied rate-file batch.', input_schema: TOOL as never }],
-    tool_choice: { type: 'tool', name: 'classify_rate_files' },
-    messages: [{ role: 'user', content: content as never }],
+    content,
+    tool: { name: 'classify_rate_files', description: 'Return one classification for the supplied rate-file batch.', input_schema: TOOL },
+    maxTokens: 1024,
   });
-  const tool = response.content.find((block) => block.type === 'tool_use');
-  if (!tool || tool.type !== 'tool_use') throw new Error('Rate classifier did not return structured output');
   return {
-    ...ClassificationSchema.parse(tool.input),
+    ...ClassificationSchema.parse(toolInput),
     files: normalized.map((file) => ({ filename: file.filename, kind: file.kind, warnings: file.warnings })),
   };
 }

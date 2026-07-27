@@ -1,11 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { z } from 'zod';
-import { loadEnv } from '../config.js';
 
-import { getModel } from './model.js';
-// MODEL resolved per-call below (async)
-const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
+import { callAiTool, type AiContentBlock } from './callAiTool.js';
 
 const INTAKE_SYSTEM_PROMPT = `You are an intake assistant for an ocean freight forwarder.
 You receive a message or screenshot from a client requesting a quote, and you extract the
@@ -140,87 +135,45 @@ export type IntakeInput =
   | { imageBase64: string; imageMediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' };
 
 export async function parseIntake(input: IntakeInput): Promise<IntakeResult> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error(
-      'ANTHROPIC_API_KEY is still the placeholder. Set a real key in .env'
-    );
-  }
-
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
-  const userMessage: MessageParam =
+  const content: AiContentBlock[] =
     'text' in input
-      ? {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Client request:\n\n${input.text}`,
+      ? [{ type: 'text', text: `Client request:\n\n${input.text}` }]
+      : [
+          {
+            type: 'text',
+            text: 'Extract the quote details from this client message screenshot.',
+          },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: input.imageMediaType,
+              data: input.imageBase64,
             },
-          ],
-        }
-      : {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Extract the quote details from this client message screenshot.',
-            },
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: input.imageMediaType,
-                data: input.imageBase64,
-              },
-            },
-          ],
-        };
+          },
+        ];
 
-  console.log('[parseIntake] Calling Claude for intake extraction...');
+  console.log('[parseIntake] Calling AI provider for intake extraction...');
 
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 1024,
-    system: [
-      {
-        type: 'text',
-        text: INTAKE_SYSTEM_PROMPT,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tools: [
-      {
-        name: 'parse_quote_intake',
-        description:
-          'Extract structured lane, container, weight, and commodity info from a client quote request.',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        input_schema: INTAKE_TOOL_SCHEMA as any,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tool_choice: { type: 'tool', name: 'parse_quote_intake' },
-    messages: [userMessage],
+  const toolInput = await callAiTool({
+    system: INTAKE_SYSTEM_PROMPT,
+    content,
+    tool: {
+      name: 'parse_quote_intake',
+      description:
+        'Extract structured lane, container, weight, and commodity info from a client quote request.',
+      input_schema: INTAKE_TOOL_SCHEMA,
+    },
+    maxTokens: 1024,
   });
 
-  const toolUse = response.content.find((b) => b.type === 'tool_use');
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('Claude did not return a tool_use block');
-  }
-
-  const parsed = IntakeSchema.safeParse(toolUse.input);
+  const parsed = IntakeSchema.safeParse(toolInput);
   if (!parsed.success) {
     console.error('[parseIntake] Zod validation failed:', parsed.error.issues);
     throw new Error('Intake tool output failed schema validation');
   }
 
-  const cacheRead = response.usage.cache_read_input_tokens ?? 0;
-  const cacheCreate = response.usage.cache_creation_input_tokens ?? 0;
-  console.log(
-    `[parseIntake] Done (confidence=${parsed.data.confidence}). ` +
-      `Tokens: in=${response.usage.input_tokens}, cache_read=${cacheRead}, cache_create=${cacheCreate}, out=${response.usage.output_tokens}`
-  );
+  console.log(`[parseIntake] Done (confidence=${parsed.data.confidence}).`);
 
   return parsed.data;
 }

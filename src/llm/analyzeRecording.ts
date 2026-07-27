@@ -1,11 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { writeFile } from 'node:fs/promises';
-import { loadEnv } from '../config.js';
 
-import { getModel } from './model.js';
-// MODEL resolved per-call below (async)
-const PLACEHOLDER_KEY = 'PLACEHOLDER_REPLACE_WITH_REAL_KEY';
+import { callAiTool } from './callAiTool.js';
 
 const SYSTEM_PROMPT = `You convert raw browser-automation recordings into a clean, human-readable workflow plus the structured information our system needs to replay it later.
 
@@ -136,51 +132,28 @@ export interface AnalyzeRecordingInput {
 export async function analyzeRecording(
   input: AnalyzeRecordingInput
 ): Promise<RecordingAnalysis> {
-  const env = loadEnv();
-  if (env.ANTHROPIC_API_KEY === PLACEHOLDER_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is still the placeholder.');
-  }
-  const client = new Anthropic({ apiKey: (await (await import('../server/apiKeysService.js')).loadAiKey('anthropic')) ?? env.ANTHROPIC_API_KEY });
-
   const carrierContext = input.carrierCode
     ? `\nThis recording was captured during onboarding for carrier code ${input.carrierCode}.`
     : '';
   const descContext = input.description ? `\nUser's description: ${input.description}` : '';
 
-  console.log('[analyzeRecording] Sending recording to Claude...');
-  const response = await client.messages.create({
-    model: await getModel(),
-    max_tokens: 4096,
-    system: [
-      { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-    ],
-    tools: [
-      {
-        name: 'analyze_recording',
-        description: 'Return the structured analysis of the recording.',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        input_schema: ANALYZE_TOOL_SCHEMA as any,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tool_choice: { type: 'tool', name: 'analyze_recording' },
-    messages: [
-      {
-        role: 'user',
-        content:
-          `Recorded against URL: ${input.url}` +
-          carrierContext +
-          descContext +
-          `\n\nPlaywright Codegen output:\n\`\`\`javascript\n${input.recordingCode}\n\`\`\``,
-      },
-    ],
+  console.log('[analyzeRecording] Sending recording to AI provider...');
+  const toolInput = await callAiTool({
+    system: SYSTEM_PROMPT,
+    content:
+      `Recorded against URL: ${input.url}` +
+      carrierContext +
+      descContext +
+      `\n\nPlaywright Codegen output:\n\`\`\`javascript\n${input.recordingCode}\n\`\`\``,
+    tool: {
+      name: 'analyze_recording',
+      description: 'Return the structured analysis of the recording.',
+      input_schema: ANALYZE_TOOL_SCHEMA,
+    },
+    maxTokens: 4096,
   });
 
-  const toolUse = response.content.find((b) => b.type === 'tool_use');
-  if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('Claude did not return a tool_use block');
-  }
-  const parsed = AnalysisSchema.safeParse(toolUse.input);
+  const parsed = AnalysisSchema.safeParse(toolInput);
   if (!parsed.success) {
     console.error('[analyzeRecording] Zod issues:', parsed.error.issues);
     throw new Error('Analyzer output failed schema validation');

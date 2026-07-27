@@ -173,3 +173,57 @@ export async function callGeminiTool(
   // Anthropic's toolUse.input. Zod validates it downstream.
   return fc.args;
 }
+
+export interface GeminiTextParams {
+  modelName: string;
+  systemPrompt: string;
+  userText: string;
+  maxTokens?: number;
+}
+
+/**
+ * Plain text generation (no tools) via Gemini. Mirrors the Anthropic
+ * text path (system prompt + one user turn → text string) so the reply
+ * generators can route to either provider without changing their prompts.
+ */
+export async function callGeminiText(params: GeminiTextParams): Promise<string> {
+  const { loadAiKey } = await import('../server/apiKeysService.js');
+  const env = loadEnv();
+  const apiKey = (await loadAiKey('gemini')) ?? env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      'No Gemini API key set. Add one in the Carrier secrets page or set GEMINI_API_KEY in .env.'
+    );
+  }
+
+  const requestBody = {
+    systemInstruction: { parts: [{ text: params.systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: params.userText }] }],
+    generationConfig: {
+      maxOutputTokens: params.maxTokens ?? 1024,
+      temperature: 0,
+    },
+  };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(params.modelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${text.slice(0, 500)}`);
+  }
+  const data = (await resp.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text =
+    data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text ?? '')
+      .join('') ?? '';
+  if (!text.trim()) {
+    throw new Error('Gemini returned no text');
+  }
+  return text;
+}
