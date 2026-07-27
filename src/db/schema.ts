@@ -417,6 +417,13 @@ export const shipments = pgTable('shipments', {
    *  in the Status column. Independent of DelayPredict's tracking
    *  status (which lives in shipment.tracking at render time). */
   operationalStatus: text('operational_status'),
+  /** MULTI-STATUS: a shipment can hold several operational statuses at once
+   *  (e.g. "booking" AND "invoiced"). Stored as a jsonb array of the same
+   *  canonical values as `operationalStatus`. The EMPTY ARRAY is the "No status
+   *  set" state — never a member — so "no status" can't coexist with a real
+   *  one. `operationalStatus` (scalar) is retained for backward-compat this
+   *  release; boot self-heal backfills this column from it. */
+  operationalStatuses: jsonb('operational_statuses').$type<string[]>().default([]),
   notes: text('notes'),
   /** JSON list of uploaded source files (paths under /shipments-files/...).
    *  addedAt is a server-stamped ISO timestamp; missing on legacy rows. */

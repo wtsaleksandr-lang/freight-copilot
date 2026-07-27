@@ -96,6 +96,7 @@ import {
   deleteShipment,
   getShipment,
 } from '../db/shipmentBoard.js';
+import { legacyScalarToArray } from '../db/shipmentStatus.js';
 import {
   parseShipmentSheet,
   type ShipmentSheetMediaType,
@@ -1888,6 +1889,10 @@ export function registerApiRoutes(app: Express): void {
     return {
       refId: s('ref_id'),
       operationalStatus: s('operational_status'),
+      // MULTI-STATUS: a single imported status becomes a one-element array;
+      // an empty scalar → `[]` (no status). Keeps the scalar too for
+      // backward-compat this release.
+      operationalStatuses: legacyScalarToArray(s('operational_status')),
       bookingRef: s('booking_ref'),
       customerName: s('customer_name'),
       shipperName: s('shipper_name'),
