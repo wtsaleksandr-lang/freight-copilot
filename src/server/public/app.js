@@ -4129,6 +4129,61 @@ function statusFor(value) {
   );
 }
 
+// ── MULTI-STATUS helpers (mirror src/db/shipmentStatus.ts) ────────────────
+// A shipment holds an ARRAY of statuses. The EMPTY ARRAY is "No status set"
+// (never a member value), so "no status" can't coexist with a real status.
+// Real statuses = every STATUS_OPTIONS entry except the '' (none) sentinel.
+const STATUS_ORDER = STATUS_OPTIONS.filter((o) => o.value !== '').map((o) => o.value);
+// Filter sentinel: show only shipments with NO status set (empty array).
+const NO_STATUS_FILTER = '__none__';
+
+function normStatus(value) {
+  const v = (value == null ? '' : String(value)).trim();
+  if (v === '') return null;
+  return STATUS_LEGACY_MAP[v] ?? v;
+}
+
+// Read a row's statuses as a clean, de-duped, canonically-ordered array.
+// Prefers the new `operationalStatuses` array; falls back to the legacy scalar
+// `operationalStatus` (so a row still works before the boot backfill runs).
+function statusListOf(row) {
+  const raw = Array.isArray(row?.operationalStatuses)
+    ? row.operationalStatuses
+    : row?.operationalStatus
+      ? [row.operationalStatus]
+      : [];
+  const out = [];
+  for (const item of raw) {
+    const one = normStatus(item);
+    if (one != null && !out.includes(one)) out.push(one);
+  }
+  return out.sort((a, b) => {
+    const ia = STATUS_ORDER.indexOf(a);
+    const ib = STATUS_ORDER.indexOf(b);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+}
+
+// Toggle a real status on/off. Adding to [] → [status]; removing the last → [].
+function toggleStatusList(list, value) {
+  const normalized = normStatus(value);
+  if (normalized == null) return statusListOf({ operationalStatuses: list });
+  const current = statusListOf({ operationalStatuses: list });
+  const next = current.includes(normalized)
+    ? current.filter((s) => s !== normalized)
+    : [...current, normalized];
+  return statusListOf({ operationalStatuses: next });
+}
+
+// Filter predicate: '' → all; NO_STATUS_FILTER → empty array; real → contains.
+function statusListMatchesFilter(list, filterValue) {
+  if (filterValue === '' || filterValue == null) return true;
+  const arr = statusListOf({ operationalStatuses: list });
+  if (filterValue === NO_STATUS_FILTER) return arr.length === 0;
+  const want = normStatus(filterValue);
+  return want != null && arr.includes(want);
+}
+
 const SHIP_COLS = [
   // Status — colored dot, hover label, double-click to change.
   { key: 'operationalStatus', label: 'Status', editable: true, kind: 'status', cls: 'track-cell' },
@@ -4694,7 +4749,10 @@ function formatMoney(n, cur) {
     const lines = [headers.join(',')];
     for (const r of rows) {
       const created = r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : '';
-      const status = (r.operationalStatus || '').replace(/_/g, ' ');
+      // MULTI-STATUS: export all set statuses as human labels, "; "-joined.
+      const status = statusListOf(r)
+        .map((v) => statusFor(v).label)
+        .join('; ');
       const sell = typeof r.soldRate === 'number' ? r.soldRate : '';
       const cost = typeof r.ourCost === 'number' ? r.ourCost : '';
       const profit = (typeof r.soldRate === 'number' && typeof r.ourCost === 'number')
@@ -4754,6 +4812,14 @@ function formatMoney(n, cur) {
       for (const [key, needle] of active) {
         const col = SHIP_COLS.find((c) => c.key === key);
         if (!col) continue;
+        // Status filters use ARRAY-CONTAINS semantics (a shipment matches if
+        // its status array includes the selected status; the "No status"
+        // option matches an empty array), not the equality the other selects
+        // use.
+        if (col.kind === 'status') {
+          if (!statusListMatchesFilter(statusListOf(row), needle)) return false;
+          continue;
+        }
         const haystack = filterValueFor(row, col);
         if (col.filter === 'select') {
           if (haystack !== needle) return false;
@@ -4908,7 +4974,10 @@ function formatMoney(n, cur) {
     if (refId) {
       const row = (allRows || []).find((r) => r.refId === refId);
       if (row && td.classList.contains('track-cell')) {
-        return row.operationalStatus || '';
+        const list = statusListOf(row);
+        return list.length === 0
+          ? statusFor('').label
+          : list.map((v) => statusFor(v).label).join(', ');
       }
     }
     return (td.textContent || '').trim();
@@ -5549,10 +5618,9 @@ function formatMoney(n, cur) {
       if (kind === 'status') {
         td.addEventListener('click', (e) => {
           e.stopPropagation();
-          // Already open — don't re-render the picker mid-interaction.
-          if (td.querySelector('select')) return;
-          const mappedCurrent = statusFor(row.operationalStatus).value;
-          openStatusPicker(td, refId, mappedCurrent);
+          // Already open — don't re-open a second popover over the first.
+          if (document.querySelector('.status-popover')) return;
+          openStatusPicker(td, refId);
         });
         return;
       }
@@ -5751,126 +5819,98 @@ function formatMoney(n, cur) {
     });
   }
 
-  function openStatusPicker(td, refId, current) {
-    const sel = document.createElement('select');
-    sel.className = 'cell-inline-select';
-    sel.innerHTML = STATUS_OPTIONS.map(
-      (o) =>
-        `<option value="${esc(o.value)}"${o.value === current ? ' selected' : ''}>${o.icon}  ${esc(o.label)}</option>`
-    ).join('');
-    const previousIcon = td.querySelector('.status-icon')?.outerHTML;
-    td.replaceChildren(sel);
-    sel.focus();
-    // Open the dropdown immediately on the first click so the user
-    // doesn't have to click the cell, then click the select.
-    if (typeof sel.showPicker === 'function') {
-      try { sel.showPicker(); } catch (_) { /* unsupported in some browsers */ }
+  // Repaint a status cell's icons from an array (empty → single ⚪). Kept as a
+  // node build (not innerHTML) so it's safe if the browser relocates children
+  // during focus transitions. `data-count` drives the shrink-to-fit CSS.
+  function paintStatusCell(td, list) {
+    const icons = list.length === 0 ? [statusFor('')] : list.map((v) => statusFor(v));
+    const wrap = document.createElement('span');
+    wrap.className = 'status-icons';
+    wrap.setAttribute('data-count', String(icons.length));
+    for (const s of icons) {
+      const i = document.createElement('span');
+      i.className = 'status-icon';
+      i.textContent = s.icon;
+      wrap.appendChild(i);
+    }
+    try {
+      td.replaceChildren(wrap);
+    } catch {
+      /* td detached — next render reflects state. */
+    }
+    const labels = list.length === 0 ? [statusFor('').label] : list.map((v) => statusFor(v).label);
+    td.title = labels.join(' + ');
+  }
+
+  // MULTI-STATUS picker — an icon-grid popover where each status toggles on/off.
+  // The whole array is committed on every toggle (optimistic, with rollback).
+  // "No status set" is the implicit empty-array state (all toggles off → ⚪);
+  // it is not a togglable member, so it can never coexist with a real status.
+  function openStatusPicker(td, refId) {
+    const ref = (allRows || []).find((r) => r.refId === refId);
+    let list = statusListOf(ref || {});
+
+    const grid = document.createElement('div');
+    grid.className = 'status-toggle-grid';
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', 'Toggle operational statuses');
+
+    const hint = document.createElement('div');
+    hint.className = 'status-toggle-hint muted small';
+
+    function paintButtons() {
+      grid.querySelectorAll('button[data-status]').forEach((b) => {
+        const on = list.includes(b.dataset.status);
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      hint.textContent =
+        list.length === 0
+          ? 'No status set — click an icon to add one.'
+          : `${list.length} status${list.length === 1 ? '' : 'es'} set — click to toggle.`;
     }
 
-    // The flag prevents races between `change` and `blur` (both fire
-    // when the user picks an option — change is synchronous, blur
-    // follows when focus leaves the select). Whichever fires first
-    // owns the save; the other becomes a no-op.
-    let resolved = false;
-
-    // Helper: build the icon span as a node (not via innerHTML). Using
-    // replaceChildren below is more robust than innerHTML because the
-    // browser may relocate the <select> internally during blur/focus
-    // transitions, and innerHTML's implicit remove-children step
-    // throws "The node to be removed is no longer a child of this
-    // node" when that happens.
-    function makeIconSpan(icon) {
-      const span = document.createElement('span');
-      span.className = 'status-icon';
-      span.textContent = icon;
-      return span;
-    }
-    function restore() {
-      const fallbackIcon = '⚪';
-      let restoredIcon = fallbackIcon;
-      if (previousIcon) {
-        // previousIcon is the outerHTML string captured at open time;
-        // extract the text inside the span to rebuild the node safely.
-        const m = /<span[^>]*>([\s\S]*?)<\/span>/i.exec(previousIcon);
-        if (m && m[1]) restoredIcon = m[1];
-      }
-      try {
-        td.replaceChildren(makeIconSpan(restoredIcon));
-      } catch {
-        /* td detached from DOM — nothing to restore */
-      }
-    }
-    async function commit(rawVal) {
-      if (resolved) return;
-      resolved = true;
-      const newVal = rawVal || null;
-      const s = statusFor(newVal);
-
-      // OPTIMISTIC UPDATE — paint the new icon immediately so the user
-      // sees feedback within one frame, regardless of network latency.
-      // The PATCH happens in the background; we only roll back if it
-      // actually fails.
-      if (td.isConnected) {
+    for (const opt of STATUS_OPTIONS) {
+      if (opt.value === '') continue; // '' (none) is the empty-array state, not a toggle
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'status-toggle';
+      btn.dataset.status = opt.value;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', opt.label);
+      btn.innerHTML = `<span class="status-toggle-icon" aria-hidden="true">${opt.icon}</span><span class="status-toggle-label">${esc(opt.label)}</span>`;
+      btn.addEventListener('click', async () => {
+        const prev = list.slice();
+        list = toggleStatusList(list, opt.value);
+        paintButtons();
+        paintStatusCell(td, list);
+        td.classList.add('is-saved');
+        setTimeout(() => td.classList.remove('is-saved'), 1200);
+        if (ref) ref.operationalStatuses = list.slice();
+        // Persist the WHOLE array. Roll back UI + data if it fails.
         try {
-          td.replaceChildren(makeIconSpan(s.icon));
-          td.title = s.label;
-          td.classList.add('is-saved');
-          setTimeout(() => td.classList.remove('is-saved'), 1200);
-        } catch {
-          /* td detached — next render will reflect the new state. */
+          await patchField(refId, 'operationalStatuses', list);
+        } catch (err) {
+          list = prev;
+          if (ref) ref.operationalStatuses = prev.slice();
+          paintButtons();
+          paintStatusCell(td, list);
+          toast('Save failed (status reverted): ' + err.message, 'error');
         }
-      }
-      // Keep the in-memory row in sync so any concurrent re-render
-      // (filter input, refresh) shows the new icon.
-      const ref = (allRows || []).find((r) => r.refId === refId);
-      const prevValue = ref ? ref.operationalStatus : current;
-      if (ref) ref.operationalStatus = newVal;
-
-      // Persist in the background. If it fails, revert UI + data.
-      try {
-        await patchField(refId, 'operationalStatus', newVal);
-      } catch (err) {
-        if (td.isConnected) {
-          try {
-            const prevS = statusFor(prevValue);
-            td.replaceChildren(makeIconSpan(prevS.icon));
-            td.title = prevS.label;
-          } catch {
-            /* ignore */
-          }
-        }
-        if (ref) ref.operationalStatus = prevValue;
-        toast('Save failed (status reverted): ' + err.message, 'error');
-      }
+      });
+      grid.appendChild(btn);
     }
 
-    sel.addEventListener('change', () => commit(sel.value));
-    sel.addEventListener('blur', () => {
-      if (resolved) return;
-      // If the select's value differs from `current`, a pick happened
-      // (some browsers don't fire `change` consistently with showPicker
-      // — especially when picking the FIRST option of an unselected
-      // dropdown). Treat it as a commit rather than a cancel.
-      if ((sel.value || '') !== (current || '')) {
-        commit(sel.value);
-        return;
-      }
-      resolved = true;
-      restore();
-    });
-    sel.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (!resolved) {
-          resolved = true;
-          restore();
-        }
-        sel.blur();
-      } else if (e.key === 'Enter') {
-        // Enter commits the highlighted option (same as change).
-        e.preventDefault();
-        commit(sel.value);
-      }
-    });
+    const body = document.createElement('div');
+    body.className = 'status-popover-body';
+    body.appendChild(grid);
+    body.appendChild(hint);
+
+    paintButtons();
+
+    const handle = openCompactPanel(td, body, { title: 'Status' });
+    handle.panel.classList.add('status-popover');
+    grid.querySelector('button')?.focus();
   }
 
   function openShipmentTypePicker(td, refId, current) {
@@ -6227,9 +6267,15 @@ function formatMoney(n, cur) {
   function filterRowHtml() {
     const cells = SHIP_COLS.map((c) => {
       if (c.kind === 'status') {
-        const opts = STATUS_OPTIONS.map(
-          (o) => `<option value="${esc(o.value)}">${esc(o.label === '— none —' ? 'All' : o.label)}</option>`
-        ).join('');
+        // '' = All (no filter). NO_STATUS_FILTER matches the empty-array
+        // ("No status set") rows. Each real status matches via array-contains.
+        const opts = [
+          `<option value="">All</option>`,
+          `<option value="${esc(NO_STATUS_FILTER)}">${statusFor('').icon}  No status set</option>`,
+          ...STATUS_OPTIONS.filter((o) => o.value !== '').map(
+            (o) => `<option value="${esc(o.value)}">${o.icon}  ${esc(o.label)}</option>`
+          ),
+        ].join('');
         c.filter = 'select';
         return `<th class="filter-th"><select class="filter-input" data-filter-key="${c.key}">${opts}</select></th>`;
       }
@@ -6278,12 +6324,20 @@ function formatMoney(n, cur) {
   function cellHtml(row, col) {
     // Status — icon (emoji) hint, single-click opens the picker.
     if (col.kind === 'status') {
-      const s = statusFor(row.operationalStatus);
+      const list = statusListOf(row);
       const dpBits = [];
       if (row.tracking?.data?.eta) dpBits.push(`ETA ${row.tracking.data.eta}`);
       if (row.tracking?.data?.vessel_name) dpBits.push(row.tracking.data.vessel_name);
-      const tooltip = [s.label, ...dpBits].filter(Boolean).join(' · ');
-      return `<td class="cell track-cell" data-field="operationalStatus" data-kind="status" title="${esc(tooltip)}" aria-label="${esc(tooltip)}"><span class="status-icon">${s.icon}</span></td>`;
+      // Empty array → single neutral ⚪ ("No status set"). Otherwise render one
+      // icon per status. `data-count` drives the shrink-to-fit CSS so N icons
+      // COMPRESS to fit the cell instead of widening it or growing row height.
+      const icons = list.length === 0 ? [statusFor('')] : list.map((v) => statusFor(v));
+      const labels = list.length === 0 ? [statusFor('').label] : list.map((v) => statusFor(v).label);
+      const tooltip = [labels.join(' + '), ...dpBits].filter(Boolean).join(' · ');
+      const iconSpans = icons
+        .map((s) => `<span class="status-icon">${s.icon}</span>`)
+        .join('');
+      return `<td class="cell track-cell" data-field="operationalStatuses" data-kind="status" title="${esc(tooltip)}" aria-label="${esc(tooltip)}"><span class="status-icons" data-count="${icons.length}">${iconSpans}</span></td>`;
     }
 
     // Merged Cargo — icon (cargo type) + truncated name. Click for modal.

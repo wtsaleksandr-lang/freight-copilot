@@ -1,6 +1,7 @@
 import { desc, eq, like, or, sql } from 'drizzle-orm';
 import { createDbClient, getPostgresPool } from './client.js';
 import { shipments } from './schema.js';
+import { backfillStatusesSql } from './shipmentStatus.js';
 
 export type ShipmentRow = typeof shipments.$inferSelect;
 export type NewShipment = typeof shipments.$inferInsert;
@@ -25,6 +26,15 @@ export function ensureShipmentColumns(): Promise<void> {
     const pool = getPostgresPool();
     await pool.query('ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fpod text');
     await pool.query('ALTER TABLE shipments ADD COLUMN IF NOT EXISTS fpod_code text');
+    // MULTI-STATUS: add the jsonb array column, then idempotently backfill it
+    // from the legacy scalar `operational_status` (mapping legacy values to the
+    // canonical set). Only untouched rows (null / '[]') that carry a non-empty
+    // scalar are seeded, so this is safe to re-run every boot. A fresh Publish
+    // heals + backfills automatically — no manual migration, no 500.
+    await pool.query(
+      "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS operational_statuses jsonb DEFAULT '[]'::jsonb"
+    );
+    await pool.query(backfillStatusesSql());
   })().catch((error) => {
     // Never rethrow — must not crash boot or a request. Reset so a later
     // call can retry the heal (e.g. after a transient DB blip).
@@ -117,6 +127,7 @@ export async function createShipment(
     bookingRef: patch.bookingRef ?? null,
     shipmentType: patch.shipmentType ?? null,
     operationalStatus: patch.operationalStatus ?? null,
+    operationalStatuses: patch.operationalStatuses ?? [],
     notes: patch.notes ?? null,
     cutOffDate: patch.cutOffDate ?? null,
     siDate: patch.siDate ?? null,
@@ -162,6 +173,7 @@ const EDITABLE_FIELDS = new Set<keyof ShipmentRow>([
   'bookingRef',
   'shipmentType',
   'operationalStatus',
+  'operationalStatuses',
   'notes',
   'cutOffDate',
   'siDate',
