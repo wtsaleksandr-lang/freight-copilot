@@ -36,6 +36,7 @@ import { CONTAINER_TYPES } from '../data/containerTypes.js';
 import { MAJOR_PORTS } from '../data/ports.js';
 import { SPECIAL_EQUIPMENT, ACCESSORIALS } from '../data/drayageOptions.js';
 import { renderQuotePdf } from './pdf.js';
+import { geocodeSearch } from './geocodeProviders.js';
 import { runAgent } from '../agent/runAgent.js';
 import {
   startRecording,
@@ -182,12 +183,15 @@ export function registerApiRoutes(app: Express): void {
   });
 
   /**
-   * Address autosuggest via OpenStreetMap Nominatim. Free, no API key.
-   * Proxied through our server so we can attach a proper User-Agent and
-   * (later) cache responses if needed.
+   * Address autosuggest, proxied server-side so the API key never reaches
+   * the browser and we can attach a proper User-Agent.
    *
-   * Returns a normalized list: [{ display, street, city, state, zip, country }]
-   * Frontend debounces input.
+   * Backend: Geoapify Autocomplete when GEOAPIFY_API_KEY is set (real
+   * street-address + postal-code typeahead for US + CA); otherwise the free,
+   * keyless OpenStreetMap Nominatim fallback so dev without the key still
+   * works. Both return the SAME normalized list:
+   *   [{ display, street, city, state, zip, country, countryCode, lat, lng }]
+   * Frontend debounces input (350ms, min 3 chars).
    */
   app.get('/api/data/geocode', async (req: Request, res: Response) => {
     const rawQ = req.query.q;
@@ -202,40 +206,10 @@ export function registerApiRoutes(app: Express): void {
     const allowed = ['us', 'ca'];
     const ccFilter = allowed.includes(country) ? country : 'us,ca';
     try {
-      const url = new URL('https://nominatim.openstreetmap.org/search');
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('limit', '8');
-      url.searchParams.set('countrycodes', ccFilter);
-      url.searchParams.set('q', q);
-      const r = await fetch(url, {
-        headers: {
-          'User-Agent': 'freight-copilot/1.0 (personal-use freight forwarder app)',
-          Accept: 'application/json',
-        },
-      });
-      if (!r.ok) {
-        res.status(502).json({ error: `Nominatim returned ${r.status}` });
-        return;
-      }
-      const raw = (await r.json()) as Array<{
-        display_name: string;
-        address?: Record<string, string | undefined>;
-      }>;
-      const results = raw.map((it) => {
-        const a = it.address ?? {};
-        const street = [a.house_number, a.road].filter(Boolean).join(' ').trim();
-        const city =
-          a.city ?? a.town ?? a.village ?? a.hamlet ?? a.municipality ?? '';
-        return {
-          display: it.display_name,
-          street,
-          city,
-          state: a.state ?? a.region ?? '',
-          zip: a.postcode ?? '',
-          country: a.country ?? '',
-          countryCode: (a.country_code ?? '').toUpperCase(),
-        };
+      const results = await geocodeSearch({
+        q,
+        ccFilter,
+        apiKey: process.env.GEOAPIFY_API_KEY,
       });
       res.json({ results });
     } catch (err) {

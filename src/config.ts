@@ -83,6 +83,14 @@ const envSchema = z.object({
   AI_MODEL_FALLBACK: z.string().min(1).default('claude-sonnet-4-6'),
   /** Google AI Studio key (for AI_PROVIDER=gemini). */
   GEMINI_API_KEY: z.string().optional(),
+  /**
+   * Geoapify API key (server-side) for the address / ZIP autosuggest at
+   * GET /api/data/geocode. When set, the route uses Geoapify Autocomplete
+   * for real street-address + postal-code typeahead (US + CA); when absent,
+   * it falls back to the free, keyless OpenStreetMap Nominatim path. The key
+   * is proxied only — it never reaches the browser.
+   */
+  GEOAPIFY_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
