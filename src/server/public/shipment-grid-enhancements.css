@@ -112,8 +112,30 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
 /* Grown row: relax the single-line clamp so content wraps within the taller
    row. Excludes an actively-edited cell (keeps its own overflow:visible). */
 #ship-table tbody tr.is-custom-height td:not(.is-editing){white-space:normal;overflow:hidden;text-overflow:clip;vertical-align:top}
-/* Minimized row: keep the tight single-line clamp at the reduced height. */
-#ship-table tbody tr.is-min-height td:not(.is-editing){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+/* Every cell's inner content is wrapped in a .cell-clip block (see wrapCellClip
+   in app.js). By default it is display:contents — no box, so normal + grown rows
+   and inline editing behave exactly as before. */
+#ship-table tbody td .cell-clip{display:contents}
+/* Minimized row: shrink BELOW a single line. A <td>'s own height is only a
+   MINIMUM and it cannot clip its content vertically, so the fix is to cap the
+   inner .cell-clip block instead. The per-row target rides in --row-h (set
+   inline in JS). The td takes that fixed height with tight padding; the inner
+   block caps its own height and hides the overflow, so the cell — and therefore
+   the row — renders shorter than one text line, with content clipped (not spilling
+   into neighbours). Excludes an actively-edited cell so editing temporarily
+   expands it. */
+/* line-height:0 removes the cell's own inline strut. A table cell reserves a
+   line box from its line-height even when its only child is a block, and since
+   `height` on a <td> is just a MINIMUM that strut (≈19px) would floor the row
+   well above the target. The .cell-clip below restores line-height for the text. */
+#ship-table tbody tr.is-min-height td:not(.is-editing){height:var(--row-h);padding-top:1px;padding-bottom:1px;vertical-align:top;line-height:0}
+/* Both the board-wide .cell-clip wrapper AND the JS-injected action menu
+   (.ship-row-actions, added per-row by shipment-actions-ui.js — its cell is NOT
+   a wrapped cell) must cap, or that one un-clipped cell floors the whole row (a
+   table row stretches to its tallest cell). Capping the .ship-row-actions child
+   lets the shrunk row ignore the action button's natural height. */
+#ship-table tbody tr.is-min-height td:not(.is-editing) .cell-clip,
+#ship-table tbody tr.is-min-height td:not(.is-editing) .ship-row-actions{display:block;max-height:calc(var(--row-h) - 4px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.1}
 
 /* ── Deadline proximity coloring ─────────────────────────────────────────────
    Date cells for hard freight deadlines (cut-off, SI, draft, loading, ETD, ETA)

@@ -4880,14 +4880,19 @@ function formatMoney(n, cur) {
     }
     tbody.innerHTML = rows
       .map((row) => {
-        const cells = SHIP_COLS.map((col) => cellHtml(row, col)).join('');
+        const cells = SHIP_COLS.map((col) => wrapCellClip(cellHtml(row, col))).join('');
         const arts = Array.isArray(row.artifactsJson) ? row.artifactsJson : [];
         const badge =
           arts.length > 0
             ? `<button type="button" class="ship-attach-badge" data-action="attachments" title="${arts.length} attachment${arts.length === 1 ? '' : 's'}">📎 ${arts.length}</button>`
             : '';
         const rh = rowHeightAttrs(row.refId);
-        return `<tr data-ref="${esc(row.refId)}" class="ship-body-row${rh.cls}"${rh.style}>${cells}<td class="actions-cell">${badge}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td></tr>`;
+        // The actions cell is wrapped too (its buttons would otherwise floor a
+        // shrunk row's height — every cell must be clippable for a row to go tiny).
+        const actionsTd = wrapCellClip(
+          `<td class="actions-cell">${badge}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td>`
+        );
+        return `<tr data-ref="${esc(row.refId)}" class="ship-body-row${rh.cls}"${rh.style}>${cells}${actionsTd}</tr>`;
       })
       .join('');
     wireRowSelection();
@@ -6100,7 +6105,7 @@ function formatMoney(n, cur) {
   // per browser keyed by the shipment ref id — mirrors the colWidths pattern.
   // Below ROW_WRAP_THRESHOLD the row stays a tight single line; at/above it the
   // single-line clamp is relaxed so content wraps and a taller row shows more.
-  const ROW_MIN_H = 22; // floor px — small enough to minimize a row
+  const ROW_MIN_H = 14; // floor px — below a single text line: content is CLIPPED
   const ROW_WRAP_THRESHOLD = 40; // >= this px, relax the single-line clamp
   const ROW_HEIGHTS_KEY = 'freight.shipments.rowHeights';
   function loadRowHeights() {
@@ -6127,11 +6132,16 @@ function formatMoney(n, cur) {
   function applyRowHeight(tr, h) {
     if (h == null || !Number.isFinite(h) || h <= 0) {
       tr.style.removeProperty('height');
+      tr.style.removeProperty('--row-h');
       tr.classList.remove('is-custom-height', 'is-min-height');
       return;
     }
-    tr.style.height = `${Math.round(h)}px`;
+    const px = Math.round(h);
+    tr.style.height = `${px}px`;
     const wrap = h >= ROW_WRAP_THRESHOLD;
+    // --row-h drives the cell-clip cap for shrunk rows (see the is-min-height
+    // CSS). Only meaningful below the wrap threshold; harmless when grown.
+    tr.style.setProperty('--row-h', `${px}px`);
     tr.classList.toggle('is-custom-height', wrap);
     tr.classList.toggle('is-min-height', !wrap);
   }
@@ -6141,8 +6151,10 @@ function formatMoney(n, cur) {
   function rowHeightAttrs(refId) {
     const h = rowHeights[refId];
     if (!Number.isFinite(h) || h <= 0) return { cls: '', style: '' };
+    const px = Math.round(h);
     const cls = h >= ROW_WRAP_THRESHOLD ? ' is-custom-height' : ' is-min-height';
-    return { cls, style: ` style="height:${Math.round(h)}px"` };
+    // Inline --row-h so a shrunk row's cell-clip cap is present on first paint.
+    return { cls, style: ` style="height:${px}px;--row-h:${px}px"` };
   }
 
   // <colgroup> drives the resizable widths. Each <col> maps 1:1 to a
@@ -6319,6 +6331,29 @@ function formatMoney(n, cur) {
     const btn = document.getElementById('ship-clear-filters');
     if (!btn) return;
     btn.hidden = Object.keys(filters).length === 0;
+  }
+
+  // Wrap a fully-built `<td …>inner</td>` so its inner content lives inside a
+  // `.cell-clip` block. That inner block is what lets a shrunk row render SHORTER
+  // than one line of text: a table cell's own `height` is only a MINIMUM and it
+  // cannot clip its content vertically, but a normal block child can (max-height
+  // + overflow:hidden). By default `.cell-clip` is display:contents (no box), so
+  // normal + grown rows and inline editing behave exactly as before; only the
+  // is-min-height CSS promotes it to a capped block. Applied board-wide so EVERY
+  // cell can shrink — the row's height floors at its tallest cell, so all must
+  // clip. `esc()` turns any raw '>' in attributes into '&gt;', so the first '>'
+  // reliably closes the opening <td> tag and the last '</td>' is the cell end.
+  function wrapCellClip(tdHtml) {
+    const open = tdHtml.indexOf('>');
+    const close = tdHtml.lastIndexOf('</td>');
+    if (open < 0 || close < 0 || close <= open) return tdHtml;
+    return (
+      tdHtml.slice(0, open + 1) +
+      '<div class="cell-clip">' +
+      tdHtml.slice(open + 1, close) +
+      '</div>' +
+      tdHtml.slice(close)
+    );
   }
 
   function cellHtml(row, col) {
