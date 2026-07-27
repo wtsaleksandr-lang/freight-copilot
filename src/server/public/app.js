@@ -3018,7 +3018,7 @@ async function loadCredList() {
     }
   });
 
-  refreshBtn.addEventListener('click', loadCredList);
+  refreshBtn.addEventListener('click', (e) => { e.stopPropagation(); loadCredList(); });
 
   table.addEventListener('click', async (e) => {
     const row = e.target.closest('tr[data-carrier]');

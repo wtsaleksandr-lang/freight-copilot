@@ -3,6 +3,7 @@
 const esc=(value)=>{const d=document.createElement('div');d.textContent=String(value??'');return d.innerHTML;};
 const modeIcon={default:'●',power:'◆',ultimate:'▲',custom:'⚙'};
 let state=null;
+let host=null;
 
 function findHost(){
   const headings=[...document.querySelectorAll('h1,h2,h3,strong,label')];
@@ -28,7 +29,7 @@ function profileCard(profile,activeMode){
 }
 
 function render(){
-  const host=findHost();
+  if(!host||!host.isConnected)host=findHost();
   if(!host||!state)return;
   const active=state.active;
   const presets=[...state.presets];
@@ -39,9 +40,15 @@ function render(){
     <div class="ai-route-summary"><div><h3>Routing plan</h3><p>${esc(active.summary)}</p></div><div class="ai-safety"><span>Web research: <strong>${esc(active.webPolicy)}</strong></span><span>Prompt caching: <strong>${active.promptCaching?'Enabled':'Disabled'}</strong></span><span>Approval: <strong>${active.requireHumanApproval?'Required':'Routine tasks automatic'}</strong></span><span>Max task spend: <strong>$${Number(active.maxTaskCostUsd).toFixed(2)}</strong></span></div></div>
     <details class="ai-model-details"><summary>Models and responsibilities</summary><ul>${active.roles.map(roleLine).join('')}</ul></details>
     <div class="ai-control-actions"><button type="button" class="primary" id="ai-routing-save">Save mode</button><button type="button" class="btn-sm" id="ai-routing-test">Preview task plan</button><span id="ai-routing-status" class="status-inline"></span></div>`;
-  host.querySelectorAll('[data-ai-mode]').forEach((button)=>button.addEventListener('click',()=>selectMode(button.dataset.aiMode)));
-  host.querySelector('#ai-routing-save')?.addEventListener('click',save);
-  host.querySelector('#ai-routing-test')?.addEventListener('click',preview);
+  if(!host.__aiBound){
+    host.__aiBound=true;
+    host.addEventListener('click',(event)=>{
+      const card=event.target.closest('[data-ai-mode]');
+      if(card){selectMode(card.dataset.aiMode);return;}
+      if(event.target.closest('#ai-routing-save')){save();return;}
+      if(event.target.closest('#ai-routing-test')){preview();return;}
+    });
+  }
 }
 
 function selectMode(mode){
