@@ -39,7 +39,7 @@
     bar.innerHTML = `
       <div class="shipment-grid-toolbar-main">
         <strong>Shipment spreadsheet</strong>
-        <span class="muted small">Grab and drag to pan · double-click a cell to edit · drag a column edge to resize · paste rows from Excel.</span>
+        <span class="muted small">Grab and drag to pan · double-click a cell to edit · drag a column edge to resize · drag a row's bottom edge to resize its height · paste rows from Excel.</span>
       </div>
       <div class="shipment-grid-toolbar-actions">
         <button type="button" id="shipment-density-btn" aria-pressed="false" title="Toggle compact row height">Compact rows</button>
