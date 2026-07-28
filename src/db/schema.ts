@@ -1,5 +1,16 @@
 import { pgTable, integer, serial, text, doublePrecision, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
+// Ocean email templates + disclaimer. The table is also created/seeded at
+// runtime by ensureEmailTemplateTable() in src/db/emailTemplates.ts. It is
+// declared here so drizzle-kit push (Replit's publish migration) recognizes it
+// as a managed table and never generates a DROP for it. Column types mirror the
+// raw DDL exactly (text PK, text NOT NULL, timestamptz NOT NULL DEFAULT NOW()).
+export const emailTemplates = pgTable('email_templates', {
+  templateKey: text('template_key').primaryKey(),
+  body: text('body').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
 export const carriers = pgTable('carriers', {
   id: serial('id').primaryKey(),
   code: text('code').notNull().unique(),
