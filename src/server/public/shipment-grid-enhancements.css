@@ -100,15 +100,24 @@
    is re-applied on every render. Rows default to a single clamped line; a grown
    row (is-custom-height) relaxes the single-line clamp so content wraps and the
    extra height shows more, while a minimized row (is-min-height) stays tight. */
-/* The handle is hosted in the row's leftmost cell (a <td>, where position:relative
-   reliably establishes a containing block — unlike <tr>). The host cell overflows
-   visibly and the strip extends rightward so it's an easy grab target, pinned to
-   the visible left edge (and it rides along if that column is frozen). z-index
-   beats frozen cells (≤6) so it stays grabbable even over a pinned column. */
-#ship-table tbody td.ship-row-resize-host{position:relative;overflow:visible}
-.ship-row-resize-handle{position:absolute;left:0;width:340px;bottom:-5px;height:11px;cursor:row-resize;z-index:8;display:flex;align-items:center}
-.ship-row-resize-handle::after{content:"";display:block;width:100%;height:2px;border-radius:2px;background:rgba(120,140,170,.22);transition:background .12s,height .12s}
-.ship-row-resize-handle:hover::after{background:rgba(56,189,248,.9);height:4px}
+/* Excel-style: the grab zone is the FULL bottom border of every body row — a
+   delegated pointer handler on the table (wireRowResize in app.js) detects when
+   the pointer is within ~5px of any row's bottom edge (over ANY cell, including
+   the frozen first column) and starts the resize there. No per-row handle
+   element; discoverability comes from the hover feedback below.
+   While hovering a border, `body.ship-row-resize-ready` forces the row-resize
+   cursor everywhere over the sheet (beats the wrapper's grab cursor), and the
+   hovered row gets a full-width accent line on its bottom edge so it reads as a
+   grabbable divider. `body.is-row-resizing` holds the cursor through the drag. */
+body.ship-row-resize-ready,
+body.ship-row-resize-ready .ship-table-wrap,
+body.ship-row-resize-ready #ship-table td,
+body.ship-row-resize-ready #ship-table td *{cursor:row-resize!important}
+/* Full-width accent line on the hovered row's bottom border (spans every cell,
+   frozen included). Subtle by default is unnecessary — it only appears on hover,
+   which is the "strong" state; box-shadow leaves the deadline background washes
+   and the focus ring intact. */
+#ship-table tbody tr.is-resize-hover>td{box-shadow:inset 0 -3px 0 -1px rgba(56,189,248,.9)}
 body.is-row-resizing{cursor:row-resize!important;user-select:none}
 /* Grown row: relax the single-line clamp so content wraps within the taller
    row. Excludes an actively-edited cell (keeps its own overflow:visible). */

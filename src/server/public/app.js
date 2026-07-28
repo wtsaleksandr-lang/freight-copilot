@@ -6458,59 +6458,98 @@ function formatMoney(n, cur) {
     });
   }
 
-  // Drag the thin strip on a row's bottom edge to set that row's height to any
-  // value — shrink to a small floor (minimize) or grow freely (content wraps).
-  // Mirrors wireColumnResize but on the vertical axis; persists per ref id.
-  // Double-click the strip resets the row to its automatic single-line height.
+  // Excel-style row resize: grab ANY row's bottom border (anywhere along its
+  // full width, over any cell — even the frozen first column) and drag to set
+  // that row's height. A single delegated set of listeners lives on the <table>
+  // (installed once; survives re-renders since the table element persists), so
+  // there are no per-row handle elements to miss. The grab band is a ~10px zone
+  // centred on each body row's bottom border; hovering it shows cursor:row-resize
+  // plus a full-width accent line so it's obviously grabbable. Reuses the shared
+  // applyRowHeight / ROW_MIN_H / rowHeights persistence. Double-click the border
+  // resets the row to its automatic single-line height.
+  const ROW_RESIZE_ZONE = 5; // px tolerance either side of a border
+  function rowResizeTarget(clientY, target) {
+    // Only body data rows participate — never the header / filter rows.
+    const tr = target && target.closest && target.closest('tbody tr[data-ref]');
+    if (!tr) return null;
+    const r = tr.getBoundingClientRect();
+    // Near THIS row's bottom border → resize this row.
+    if (clientY >= r.bottom - ROW_RESIZE_ZONE && clientY <= r.bottom + ROW_RESIZE_ZONE) {
+      return tr;
+    }
+    // Near THIS row's top border (== the row above's bottom) → resize the row
+    // ABOVE (Excel resizes the row whose bottom edge you grabbed).
+    if (clientY >= r.top - ROW_RESIZE_ZONE && clientY <= r.top + ROW_RESIZE_ZONE) {
+      const prev = tr.previousElementSibling;
+      if (prev && prev.matches && prev.matches('tr[data-ref]')) return prev;
+    }
+    return null;
+  }
   function wireRowResize() {
-    table.querySelectorAll('tbody tr[data-ref]').forEach((tr) => {
-      const host = tr.firstElementChild; // leftmost cell — a positioned <td>
-      if (!host || host.querySelector('.ship-row-resize-handle')) return;
-      host.classList.add('ship-row-resize-host');
-      const handle = document.createElement('span');
-      handle.className = 'ship-row-resize-handle';
-      handle.title = 'Drag to resize row · double-click to reset';
-      host.appendChild(handle);
-      // A plain click on the strip must not bubble to the host cell (e.g. the
-      // status cell opens a picker on click).
-      handle.addEventListener('click', (e) => e.stopPropagation());
-      handle.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const startHeight = tr.getBoundingClientRect().height;
-        const startY = e.clientY;
-        document.body.classList.add('is-row-resizing');
-        function onMove(ev) {
-          const delta = ev.clientY - startY;
-          const next = Math.max(ROW_MIN_H, Math.round(startHeight + delta));
-          applyRowHeight(tr, next);
-        }
-        function onUp() {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          document.body.classList.remove('is-row-resizing');
-          // Persist the actual rendered height (captures any content-driven
-          // clamp so what you reload is what you saw).
-          const ref = tr.dataset.ref;
-          const final = Math.round(tr.getBoundingClientRect().height);
-          if (ref && Number.isFinite(final) && final > 0) {
-            rowHeights[ref] = final;
-            saveRowHeights(rowHeights);
-          }
-        }
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
-      handle.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    if (table.__rowResizeDelegated) return; // install exactly once
+    table.__rowResizeDelegated = true;
+    let hoverTr = null;
+    function setHover(tr) {
+      if (hoverTr === tr) return;
+      if (hoverTr) hoverTr.classList.remove('is-resize-hover');
+      hoverTr = tr;
+      if (hoverTr) hoverTr.classList.add('is-resize-hover');
+      document.body.classList.toggle('ship-row-resize-ready', !!hoverTr);
+    }
+    // Hover affordance — cursor + accent line when the pointer sits on a border.
+    table.addEventListener('mousemove', (e) => {
+      if (document.body.classList.contains('is-row-resizing')) return;
+      setHover(rowResizeTarget(e.clientY, e.target));
+    });
+    table.addEventListener('mouseleave', () => setHover(null));
+    // Start the drag. pointerdown fires (and is stopped) BEFORE the wrapper's
+    // drag-to-pan pointerdown, so grabbing a border never pans the sheet.
+    table.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const tr = rowResizeTarget(e.clientY, e.target);
+      if (!tr) return;
+      e.preventDefault();
+      e.stopPropagation(); // exclude from drag-to-pan
+      const startHeight = tr.getBoundingClientRect().height;
+      const startY = e.clientY;
+      let moved = false;
+      document.body.classList.add('is-row-resizing');
+      function onMove(ev) {
+        const delta = ev.clientY - startY;
+        if (!moved && Math.abs(delta) < 2) return; // ignore a jitter-free click
+        moved = true;
+        const next = Math.max(ROW_MIN_H, Math.round(startHeight + delta));
+        applyRowHeight(tr, next);
+      }
+      function onUp() {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.body.classList.remove('is-row-resizing');
+        if (!moved) return; // a plain click on the border leaves auto height
+        // Persist the actual rendered height (captures any content-driven clamp
+        // so what you reload is what you saw).
         const ref = tr.dataset.ref;
-        if (ref && ref in rowHeights) {
-          delete rowHeights[ref];
+        const final = Math.round(tr.getBoundingClientRect().height);
+        if (ref && Number.isFinite(final) && final > 0) {
+          rowHeights[ref] = final;
           saveRowHeights(rowHeights);
         }
-        applyRowHeight(tr, null);
-      });
+      }
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+    // Double-click the border resets the row to its automatic height.
+    table.addEventListener('dblclick', (e) => {
+      const tr = rowResizeTarget(e.clientY, e.target);
+      if (!tr) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ref = tr.dataset.ref;
+      if (ref && ref in rowHeights) {
+        delete rowHeights[ref];
+        saveRowHeights(rowHeights);
+      }
+      applyRowHeight(tr, null);
     });
   }
 
