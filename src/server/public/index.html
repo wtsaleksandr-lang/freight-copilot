@@ -491,9 +491,19 @@
     </section>
 
     <section id="tab-drayage" class="tab-pane">
-      <!-- Rate library card — top of the Drayage tab. AI extracts every
-           rate from a dropped/pasted file and APPENDS to the database
-           (price-history preserved). User filters / searches below. -->
+      <!-- Client-request intake FIRST, so Drayage matches Ocean & Customs
+           (all three tabs lead with the client-request / quote upload; the
+           rate library follows). -->
+      <div class="card">
+        <span class="intake-eyebrow is-quote">Client request</span>
+        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
+        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI extracts the cargo type, container, addresses, ports and dates and fills the form below. Always review before clicking Run.</p>
+        <div id="dr-intake-dropzone"></div>
+      </div>
+
+      <!-- Rate library card. AI extracts every rate from a dropped/pasted
+           file and APPENDS to the database (price-history preserved). User
+           filters / searches below. -->
       <details class="card dr-fold" open>
         <summary class="dr-fold-summary"><span class="intake-eyebrow is-library">Rate library</span><h2>Save rates to your library <span class="muted-inline">— upload provider rate sheets → stored for future quotes</span></h2></summary>
         <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Our AI extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
@@ -531,14 +541,6 @@
           <p class="muted small" style="margin-top: 6px;">Edit any field directly. Use ✕ to drop a row. Hit Save when ready — every kept row is appended to the library.</p>
         </div>
       </details>
-
-      <!-- Intake card -->
-      <div class="card">
-        <span class="intake-eyebrow is-quote">Client request</span>
-        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
-        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI extracts the cargo type, container, addresses, ports and dates and fills the form below. Always review before clicking Run.</p>
-        <div id="dr-intake-dropzone"></div>
-      </div>
 
       <!-- Form -->
       <div class="card">
