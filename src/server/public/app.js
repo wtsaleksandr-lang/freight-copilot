@@ -6437,7 +6437,10 @@ function formatMoney(n, cur) {
         document.body.classList.add('is-col-resizing');
         function onMove(ev) {
           const delta = ev.clientX - startX;
-          const next = Math.max(40, Math.round(startWidth + delta));
+          // 8px floor: let a column shrink to an Excel-style sliver (well below
+          // the ~38px "1cm" the user wanted) while keeping the resize handle
+          // grabbable so a column can never collapse to an unrecoverable 0px.
+          const next = Math.max(8, Math.round(startWidth + delta));
           col.style.width = `${next}px`;
         }
         function onUp() {

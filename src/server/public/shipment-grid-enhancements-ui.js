@@ -264,7 +264,7 @@
       const hidden = prefs.hidden.includes(key);
       table.querySelectorAll('tr').forEach((row) => row.children[index]?.classList.toggle('shipment-column-hidden', hidden));
       const width = Number(prefs.widths[key]);
-      if (Number.isFinite(width) && width >= 24) {
+      if (Number.isFinite(width) && width >= 6) {
         table.querySelectorAll('tr').forEach((row) => {
           const cell = row.children[index];
           if (cell) { cell.style.width = `${width}px`; cell.style.minWidth = `${width}px`; }
@@ -340,10 +340,16 @@
         const startWidth = th.getBoundingClientRect().width;
         const key = th.dataset.gridKey;
         const move = (e) => {
-          // 24px floor: narrow enough to shrink a column to a sliver (the user
-          // wanted to drag columns much tighter) while still leaving the resize
-          // handle grabbable so it can never collapse to an unrecoverable 0px.
-          const width = Math.max(24, Math.round(startWidth + e.clientX - startX));
+          // 8px floor: shrink a column to an Excel-style sliver (well under the
+          // ~38px "1cm" the user asked for) while keeping the handle grabbable so
+          // it can never collapse to an unrecoverable 0px.
+          const width = Math.max(8, Math.round(startWidth + e.clientX - startX));
+          // The grid is table-layout:fixed, so the <colgroup><col> width is what
+          // ACTUALLY governs the column — cell widths alone are ignored. Drive the
+          // matching <col> (keyed by the same field id) so this handle isn't a
+          // no-op; also set the cells so frozen-column measuring stays correct.
+          const colEl = key ? table.querySelector(`col[data-col-key="${CSS.escape(key)}"]`) : null;
+          if (colEl) colEl.style.width = `${width}px`;
           const index = Array.from(th.parentElement.children).indexOf(th);
           table.querySelectorAll('tr').forEach((row) => {
             const cell = row.children[index];
@@ -356,9 +362,24 @@
           document.removeEventListener('pointermove', move);
           document.removeEventListener('pointerup', finish);
           document.removeEventListener('pointercancel', finish);
+          const finalW = Math.round(th.getBoundingClientRect().width);
           const prefs = readPrefs();
-          prefs.widths[key] = Math.round(th.getBoundingClientRect().width);
+          prefs.widths[key] = finalW;
           savePrefs(prefs);
+          // Also persist to app.js's colWidths store (keyed by the same field id
+          // for every real column) so the <colgroup> keeps this width — with no
+          // floor — when the board fully re-renders. Guarded by the <col> lookup:
+          // only write when the key maps to a real column.
+          if (key && table.querySelector(`col[data-col-key="${CSS.escape(key)}"]`)) {
+            try {
+              const raw = localStorage.getItem('freight.shipments.colWidths');
+              const map = raw ? JSON.parse(raw) : {};
+              if (map && typeof map === 'object') {
+                map[key] = finalW;
+                localStorage.setItem('freight.shipments.colWidths', JSON.stringify(map));
+              }
+            } catch { /* quota / private mode — ignore */ }
+          }
         };
         document.addEventListener('pointermove', move);
         document.addEventListener('pointerup', finish, { once: true });
