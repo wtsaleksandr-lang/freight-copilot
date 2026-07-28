@@ -18,7 +18,13 @@
 /* Density toggle mirrors the pressed state of the other toolbar buttons. */
 .shipment-grid-toolbar button[aria-pressed=true]{background:#23466f!important;color:#fff!important;border-color:#38bdf8!important}
 .table-wrap:has(#ship-table){min-width:0;overflow-x:auto;overflow-y:visible;overflow-anchor:none;scrollbar-gutter:stable}
-#ship-table{table-layout:fixed;width:max-content;min-width:100%}
+/* width:1px (not max-content) so table-layout:fixed STRICTLY honors each
+   <colgroup><col> width and clips overflowing content via the overflow:hidden
+   below — instead of letting cell content set a hard minimum column width. This
+   is what lets a column be dragged down to an Excel-style sliver; with
+   max-content the content was an un-shrinkable floor. min-width:100% still fills
+   the viewport; the table grows past it (horizontal scroll) via the col widths. */
+#ship-table{table-layout:fixed;width:1px;min-width:100%}
 #ship-table th,#ship-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #ship-table th{position:relative;user-select:none}
 #ship-table th[draggable=true]{cursor:grab}
