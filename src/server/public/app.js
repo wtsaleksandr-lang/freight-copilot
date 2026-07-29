@@ -6348,13 +6348,36 @@ function formatMoney(n, cur) {
   // single-line clamp is relaxed so content wraps and a taller row shows more.
   const ROW_MIN_H = 14; // floor px — below a single text line: content is CLIPPED
   const ROW_WRAP_THRESHOLD = 40; // >= this px, relax the single-line clamp
+  // Ceiling px. No real data row is dragged taller than this; heights above it
+  // are treated as corrupt — historically produced on touch devices where a
+  // vertical scroll-drag was misread as a row-resize (now blocked). Applied on
+  // load (self-heal) AND during resize (defensive cap).
+  const ROW_MAX_H = 400;
   const ROW_HEIGHTS_KEY = 'freight.shipments.rowHeights';
   function loadRowHeights() {
     try {
       const raw = localStorage.getItem(ROW_HEIGHTS_KEY);
       if (!raw) return {};
       const obj = JSON.parse(raw);
-      return obj && typeof obj === 'object' ? obj : {};
+      if (!obj || typeof obj !== 'object') return {};
+      // Self-heal: drop any absurd / invalid saved height so a phone that got a
+      // runaway touch-resize before the fix resets those rows to auto on load.
+      let changed = false;
+      for (const k of Object.keys(obj)) {
+        const v = Number(obj[k]);
+        if (!Number.isFinite(v) || v <= 0 || v > ROW_MAX_H) {
+          delete obj[k];
+          changed = true;
+        }
+      }
+      if (changed) {
+        try {
+          localStorage.setItem(ROW_HEIGHTS_KEY, JSON.stringify(obj));
+        } catch {
+          /* quota / private mode — ignore */
+        }
+      }
+      return obj;
     } catch {
       return {};
     }
@@ -6377,9 +6400,9 @@ function formatMoney(n, cur) {
       tr.classList.remove('is-custom-height', 'is-min-height');
       return;
     }
-    const px = Math.round(h);
+    const px = Math.min(ROW_MAX_H, Math.round(h));
     tr.style.height = `${px}px`;
-    const wrap = h >= ROW_WRAP_THRESHOLD;
+    const wrap = px >= ROW_WRAP_THRESHOLD;
     // --row-h drives the cell-clip cap for shrunk rows (see the is-min-height
     // CSS). Only meaningful below the wrap threshold; harmless when grown.
     tr.style.setProperty('--row-h', `${px}px`);
@@ -6508,6 +6531,10 @@ function formatMoney(n, cur) {
     // Start the drag. pointerdown fires (and is stopped) BEFORE the wrapper's
     // drag-to-pan pointerdown, so grabbing a border never pans the sheet.
     table.addEventListener('pointerdown', (e) => {
+      // Touch is for scrolling — never resizing. A finger dragging to scroll
+      // starts within the border grab-zone and would otherwise be misread as a
+      // row-resize (and saved), ballooning rows on phones. Resize is mouse/pen.
+      if (e.pointerType === 'touch') return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const tr = rowResizeTarget(e.clientY, e.target);
       if (!tr) return;
@@ -6521,7 +6548,10 @@ function formatMoney(n, cur) {
         const delta = ev.clientY - startY;
         if (!moved && Math.abs(delta) < 2) return; // ignore a jitter-free click
         moved = true;
-        const next = Math.max(ROW_MIN_H, Math.round(startHeight + delta));
+        const next = Math.min(
+          ROW_MAX_H,
+          Math.max(ROW_MIN_H, Math.round(startHeight + delta))
+        );
         applyRowHeight(tr, next);
       }
       function onUp() {
