@@ -7088,10 +7088,25 @@ function formatMoney(n, cur) {
     if (!td.closest('tr[data-ref]')) return null;
     const r = td.getBoundingClientRect();
     if (Math.abs(clientX - r.right) > COL_RESIZE_ZONE) return null;
-    const tr = td.parentElement;
-    const index = Array.from(tr.children).indexOf(td);
     const colgroup = table.querySelector('colgroup');
-    const col = colgroup ? colgroup.children[index] : null;
+    if (!colgroup) return null;
+    // Map the cell to its <col> by the cell's own field IDENTITY first, so it
+    // stays correct after columns are hidden/shown or reordered (a positional
+    // index shifts by one when a hidden cell is or isn't counted). Fall back to
+    // the positional index only for the few cells whose data-field ≠ col-key.
+    const field = td.getAttribute('data-field');
+    let col = null;
+    if (field) {
+      try {
+        col = colgroup.querySelector(`col[data-col-key="${CSS.escape(field)}"]`);
+      } catch {
+        col = null;
+      }
+    }
+    if (!col) {
+      const index = Array.from(td.parentElement.children).indexOf(td);
+      col = colgroup.children[index] || null;
+    }
     if (!col) return null;
     const key = col.getAttribute('data-col-key');
     if (!key || key === '__actions') return null;
