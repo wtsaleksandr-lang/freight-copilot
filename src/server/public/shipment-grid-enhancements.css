@@ -10,7 +10,11 @@
 .shipment-columns-menu label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
 /* Column row = visibility checkbox on the left, reorder controls on the right. */
 .shipment-column-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.shipment-column-row label{flex:1;min-width:0}
+.shipment-column-row label{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+/* The native checkbox keeps its UA-default margins (the global reset only zeroes
+   width/padding/border), which nudge it off-center from the title text. Reset the
+   margin and lock its size so align-items:center leaves it inline with the label. */
+.shipment-column-row label input[type="checkbox"]{flex:none;margin:0}
 .shipment-column-move{display:inline-flex;gap:2px;flex:none}
 .shipment-column-move-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;font-size:10px;line-height:1;border:1px solid rgba(148,163,184,.35);border-radius:6px;background:#16243b;color:#f8fafc;cursor:pointer}
 .shipment-column-move-btn:hover:not([disabled]),.shipment-column-move-btn:focus-visible{background:#23466f;color:#fff;border-color:#38bdf8;outline:2px solid rgba(56,189,248,.45)}

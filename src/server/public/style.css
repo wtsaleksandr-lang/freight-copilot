@@ -1389,6 +1389,10 @@ body.is-col-resizing * {
 .ship-table select.filter-input {
   cursor: pointer;
   appearance: auto;
+  /* Native dropdown arrow sits on the right edge; without room it overlaps the
+     "All" text in the narrow Status column. Reserve space so the label clears
+     the arrow while the select still fits its column. */
+  padding-right: 20px;
 }
 .ship-clear-filters {
   font-size: 10.5px;
