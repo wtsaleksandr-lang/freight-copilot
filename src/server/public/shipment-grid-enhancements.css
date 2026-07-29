@@ -181,3 +181,9 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
   background-image:linear-gradient(90deg,#dc2626 0,#dc2626 3px,transparent 3px);
   color:#7f1d1d;font-weight:600;
 }
+
+/* Click-to-preview: temporarily reveal a row's full content (see wirePreviewExpand
+   in app.js). Overrides the width auto-fit caps so wrapped/clipped/scaled cells
+   show everything; the row grows to fit and snaps back on the next outside click. */
+#ship-table tbody tr.is-row-preview>td{white-space:normal!important;max-height:none!important;height:auto;overflow:visible;vertical-align:top;background:rgba(56,189,248,.06)}
+#ship-table tbody tr.is-row-preview>td .cell-clip{display:block!important;max-height:none!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important}
