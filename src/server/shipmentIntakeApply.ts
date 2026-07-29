@@ -15,6 +15,7 @@ import {
   type ShipmentBriefing,
 } from '../llm/parseShipmentBriefing.js';
 import { convertMsgToEmailText } from '../llm/msgToText.js';
+import { recordShipmentCompanies } from '../db/companies.js';
 import { toUsd, conversionAnnotation } from './fxRates.js';
 
 /** Raw upload as received from the dashboard. */
@@ -239,6 +240,10 @@ export async function createFromBriefing(opts: ApplyOptions): Promise<ShipmentRo
     ...fields,
   });
 
+  // Auto-add the customer/shipper/receiver names to the company directory
+  // (fire-and-forget, non-fatal — never blocks the shipment create).
+  recordShipmentCompanies(fields as Record<string, unknown>);
+
   if (!ephemeral && files.length > 0) {
     const artifacts = await saveArtifacts(row.refId, files, briefingFiles, 1);
     const db = createDbClient();
@@ -267,7 +272,13 @@ export async function mergeFromBriefing(
   const briefingFiles = buildBriefingFiles(files);
 
   // Fill-only operational fields.
-  await mergeShipmentFillOnly(refId, operationalFieldsFromBriefing(briefing));
+  const opFields = operationalFieldsFromBriefing(briefing);
+  await mergeShipmentFillOnly(refId, opFields);
+
+  // Auto-add any company names seen in this briefing to the directory, even
+  // when fill-only skips writing them to an already-populated cell — a NEW
+  // company should still be captured. Fire-and-forget, non-fatal.
+  recordShipmentCompanies(opFields as Record<string, unknown>);
 
   // Append notes (don't overwrite).
   if (briefing.notes && briefing.notes.trim().length > 0) {

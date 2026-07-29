@@ -10,6 +10,7 @@ import { getDatabaseDiagnostics, type DatabaseDiagnostics } from './dbDiagnostic
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
 import { ensureShipmentColumns } from '../db/shipmentBoard.js';
 import { ensureEmailTemplateTable } from '../db/emailTemplates.js';
+import { ensureCompaniesTable } from '../db/companies.js';
 
 const REQUIRED_TABLES = ['shipments', 'quote_bundles', 'drayage_quotes', 'trucking_quotes', 'shipment_containers', 'shipment_follow_ups', 'drayage_rate_library'] as const;
 type FeatureState = 'ready' | 'review_required' | 'setup_required' | 'experimental' | 'unavailable';
@@ -261,6 +262,8 @@ export function registerRuntimeHealthRoute(app: Express): void {
       // Same self-heal for the persistent email-templates table. Never fails
       // the check — a missing table just falls back to in-code defaults.
       await ensureEmailTemplateTable().catch(() => {});
+      // Same self-heal for the saved company directory. Never fails the check.
+      await ensureCompaniesTable().catch(() => {});
       const [diagnostics, profile, providerStatuses, providers] = await Promise.all([
         getDatabaseDiagnostics(),
         getAiRoutingProfile(),

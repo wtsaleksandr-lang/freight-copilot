@@ -2,6 +2,7 @@ import { desc, eq, like, or, sql } from 'drizzle-orm';
 import { createDbClient, getPostgresPool } from './client.js';
 import { shipments } from './schema.js';
 import { backfillStatusesSql } from './shipmentStatus.js';
+import { recordShipmentCompanies } from './companies.js';
 
 export type ShipmentRow = typeof shipments.$inferSelect;
 export type NewShipment = typeof shipments.$inferInsert;
@@ -243,6 +244,9 @@ export async function updateShipment(
     .set(safe)
     .where(eq(shipments.refId, refId))
     .returning();
+  // Auto-add any changed customer/shipper/receiver name to the company
+  // directory. Fire-and-forget + non-fatal — never blocks or 500s the save.
+  recordShipmentCompanies(safe as Record<string, unknown>);
   return row ?? null;
 }
 
