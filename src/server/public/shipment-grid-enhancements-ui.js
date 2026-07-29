@@ -333,6 +333,9 @@
         th.appendChild(pin);
       }
       handle.addEventListener('pointerdown', (event) => {
+        // Touch scrolls, never resizes — otherwise a swipe over the thin handle
+        // hijacks the scroll and can jam a column to a sliver on phones.
+        if (event.pointerType === 'touch') return;
         event.preventDefault();
         event.stopPropagation();
         handle.setPointerCapture?.(event.pointerId);
