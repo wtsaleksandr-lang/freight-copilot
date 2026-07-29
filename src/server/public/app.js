@@ -5104,6 +5104,11 @@ function formatMoney(n, cur) {
     wireFilterInputs();
     updateClearFiltersButton();
     wireColumnResize();
+    // The enhancements-ui column resizer lives in another file; it fires this
+    // event on resize-end so we can re-fit that column's text to its new width.
+    table.addEventListener('ship:colfit', (e) =>
+      fitColumnByKey(e.detail && e.detail.key)
+    );
     headerMounted = true;
   }
 
@@ -5143,6 +5148,9 @@ function formatMoney(n, cur) {
     wireRowDropTargets(rows);
     wireRefCopy();
     wireRowResize();
+    // After the body + column widths are in the DOM, fit each cell's text to its
+    // column (wrap→shrink-font→clip). rAF so layout is settled before measuring.
+    requestAnimationFrame(fitAllCells);
   }
 
   // Single-click on a Ref cell copies the ref to the clipboard. The
@@ -6445,6 +6453,91 @@ function formatMoney(n, cur) {
     );
   }
 
+  // ── Column-narrowing text auto-fit ──────────────────────────────────────────
+  // As a column shrinks, each cell in an AUTO-height row degrades gracefully:
+  //   1) wrap and let the row grow — capped at ~2x a single text line;
+  //   2) if it still overflows, step the font DOWN to a readable floor;
+  //   3) at the floor, stop and let the cell clip.
+  // Manually-resized rows (is-min-height / is-custom-height) are left untouched —
+  // they own their height via --row-h and the existing clamp. Runs on resize-end
+  // and after each render (rAF); never mid-drag so dragging stays smooth.
+  const FIT_BASE_FONT = 13; // px — the board's base cell font
+  const FIT_MIN_FONT = 9; // px — smallest still-readable size before clipping
+  // The cap/clip must be applied to the inner `.cell-clip` BLOCK, not the <td>:
+  // a table cell treats height/max-height as a MINIMUM and can't clip vertically,
+  // whereas a block child can (mirrors the is-min-height row-shrink mechanism).
+  function clearFit(td, clip) {
+    td.style.removeProperty('font-size');
+    if (clip) {
+      clip.style.removeProperty('display');
+      clip.style.removeProperty('max-height');
+      clip.style.removeProperty('overflow');
+      clip.style.removeProperty('white-space');
+      clip.style.removeProperty('text-overflow');
+    }
+  }
+  function fitCell(td) {
+    const clip = td.querySelector(':scope > .cell-clip');
+    if (!clip) return; // only wrapped cells participate
+    const tr = td.parentElement;
+    // A manually-resized row owns its height via the is-min-height CSS — leave it.
+    if (
+      tr &&
+      (tr.classList.contains('is-min-height') ||
+        tr.classList.contains('is-custom-height'))
+    ) {
+      clearFit(td, clip);
+      return;
+    }
+    // Baseline: make the clip a measurable single-line block at base font.
+    td.style.fontSize = '';
+    clip.style.display = 'block';
+    clip.style.maxHeight = '';
+    clip.style.overflow = 'hidden';
+    clip.style.whiteSpace = 'nowrap';
+    clip.style.textOverflow = 'ellipsis';
+    // Fits on one line? Revert to the default look (single line, CSS ellipsis).
+    if (clip.scrollWidth <= clip.clientWidth + 1) {
+      clearFit(td, clip);
+      return;
+    }
+    // Phase 1: wrap, cap growth at ~2 lines of the BASE font (a fixed px box).
+    const cs = getComputedStyle(td);
+    const lineH = parseFloat(cs.lineHeight) || 18;
+    const cap = Math.ceil(lineH * 2);
+    clip.style.whiteSpace = 'normal';
+    clip.style.textOverflow = 'clip';
+    clip.style.maxHeight = `${cap}px`;
+    // Phase 2: step the font down so more text fits the fixed 2-line box — until
+    // it fits or we hit the readable floor.
+    let font = FIT_BASE_FONT;
+    td.style.fontSize = `${font}px`;
+    let guard = 0;
+    while (
+      font > FIT_MIN_FONT &&
+      clip.scrollHeight > clip.clientHeight + 1 &&
+      guard++ < 8
+    ) {
+      font -= 1;
+      td.style.fontSize = `${font}px`;
+    }
+    // Phase 3: any remaining overflow at the floor clips (overflow:hidden above).
+  }
+  function fitColumnByKey(key) {
+    if (!key || !table) return;
+    let sel;
+    try {
+      sel = `td[data-field="${CSS.escape(key)}"]`;
+    } catch {
+      return;
+    }
+    table.querySelectorAll(sel).forEach(fitCell);
+  }
+  function fitAllCells() {
+    if (!table) return;
+    table.querySelectorAll('tbody td[data-field]').forEach(fitCell);
+  }
+
   function wireColumnResize() {
     table.querySelectorAll('.col-resize-handle').forEach((handle) => {
       handle.addEventListener('mousedown', (e) => {
@@ -6477,6 +6570,7 @@ function formatMoney(n, cur) {
             columnWidths[key] = final;
             saveColWidths(columnWidths);
           }
+          fitColumnByKey(key); // re-fit this column's text to its new width
         }
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
