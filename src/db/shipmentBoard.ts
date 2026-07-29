@@ -34,6 +34,12 @@ export function ensureShipmentColumns(): Promise<void> {
     await pool.query(
       "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS operational_statuses jsonb DEFAULT '[]'::jsonb"
     );
+    // STATUS ITEMS: additive jsonb column holding the AI's compact milestone
+    // checklist (done/pending/na per key shipment task). Same self-heal pattern
+    // as operational_statuses — a fresh Publish creates it lazily, no migration.
+    await pool.query(
+      "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS status_items jsonb DEFAULT '[]'::jsonb"
+    );
     await pool.query(backfillStatusesSql());
   })().catch((error) => {
     // Never rethrow — must not crash boot or a request. Reset so a later
@@ -129,6 +135,7 @@ export async function createShipment(
     operationalStatus: patch.operationalStatus ?? null,
     operationalStatuses: patch.operationalStatuses ?? [],
     notes: patch.notes ?? null,
+    statusItems: patch.statusItems ?? [],
     cutOffDate: patch.cutOffDate ?? null,
     siDate: patch.siDate ?? null,
     seaAirCargo: patch.seaAirCargo ?? null,

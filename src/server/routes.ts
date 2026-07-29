@@ -121,6 +121,8 @@ import { decideShipmentIntake } from './shipmentDedupDecision.js';
 import {
   createFromBriefing,
   mergeFromBriefing,
+  mergeStatusItems,
+  statusItemsFromBriefing,
   type RawIntakeFile,
 } from './shipmentIntakeApply.js';
 import {
@@ -2457,6 +2459,22 @@ export function registerApiRoutes(app: Express): void {
           patch.notes = existing.notes
             ? `${existing.notes}\n\n${briefing.notes.trim()}`
             : briefing.notes.trim();
+        }
+
+        // Status checklist: upsert by label (newer doc wins). Direct DB write —
+        // statusItems isn't on the EDITABLE_FIELDS allow-list. Skipped in money
+        // mode (the user is only re-checking the figures).
+        if (mode !== 'money') {
+          const newStatusItems = statusItemsFromBriefing(briefing);
+          if (newStatusItems.length > 0) {
+            const mergedItems = mergeStatusItems(existing.statusItems, newStatusItems);
+            const db = createDbClient();
+            const { shipments: shipmentsTbl } = await import('../db/schema.js');
+            await db
+              .update(shipmentsTbl)
+              .set({ statusItems: mergedItems, updatedAt: new Date() })
+              .where(eq(shipmentsTbl.refId, refId));
+          }
         }
 
         // Cost breakdown: append new line items (positive AND negative —
