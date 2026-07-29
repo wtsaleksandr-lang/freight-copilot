@@ -11,6 +11,20 @@ export const emailTemplates = pgTable('email_templates', {
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 });
 
+// Saved company directory (customer / shipper / receiver names). Also
+// created at runtime by ensureCompaniesTable() in src/db/companies.ts (the
+// deploy runs no migration step). Declared here so drizzle-kit push recognizes
+// it as managed and never generates a DROP. Column types mirror the raw DDL
+// exactly (serial PK, text NOT NULL, text UNIQUE, jsonb, timestamptz NOT NULL
+// DEFAULT NOW()).
+export const companies = pgTable('companies', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  nameNormalized: text('name_normalized').unique(),
+  roles: jsonb('roles').$type<string[]>().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
 export const carriers = pgTable('carriers', {
   id: serial('id').primaryKey(),
   code: text('code').notNull().unique(),

@@ -6009,6 +6009,23 @@ function formatMoney(n, cur) {
       .slice(0, 10)
       .map((p) => ({ primary: p.name, secondary: `${p.code} · ${p.country}`, data: p }));
   }
+  // Saved company directory (customer / shipper / receiver). Hits the server
+  // type-ahead endpoint; an empty query returns recent companies. Shape matches
+  // what Autosuggest expects ({ primary, secondary?, data }). Never throws.
+  async function companySuggestFetch(q) {
+    try {
+      const r = await fetch(
+        `/api/companies?q=${encodeURIComponent(q || '')}&limit=12`
+      );
+      if (!r.ok) return [];
+      const data = await r.json();
+      const list = Array.isArray(data.companies) ? data.companies : [];
+      return list.map((c) => ({ primary: c.name, data: c }));
+    } catch (_) {
+      return [];
+    }
+  }
+
   function openGridAutosuggest(td, refId, field, currentValue, cfg) {
     closeFloatingEditor();
     const box = document.createElement('div');
@@ -6300,6 +6317,32 @@ function formatMoney(n, cur) {
       // Date columns (ETD/ETA, cut-off, SI, draft, loading) → calendar popup
       if (DATE_FIELDS.has(field)) {
         onActivate(td, () => openDatePicker(td, refId, field, row[field] || ''));
+        return;
+      }
+
+      // Company cells (Customer / Shipper / Receiver) → double-click / long-press
+      // opens the saved-company picker: a pre-filled type-ahead over the company
+      // directory. Typing live-filters saved companies (empty shows recent);
+      // pick one to set the cell, or type a brand-new name and Save/Enter — the
+      // shipment save then auto-adds it. Keyboard up/down/Enter/Esc handled by
+      // the shared Autosuggest popover. Saves through the same PATCH path as the
+      // other cells (patchField → PATCH /api/shipments/:refId), so updateShipment
+      // records the company in the directory.
+      if (
+        field === 'customerName' ||
+        field === 'shipperName' ||
+        field === 'receiverName'
+      ) {
+        onActivate(td, () =>
+          openGridAutosuggest(td, refId, field, row[field] || '', {
+            placeholder: 'Search saved companies…',
+            minChars: 0,
+            truncate: 35,
+            debounceMs: 150,
+            fetchFn: (q) => companySuggestFetch(q),
+            pickValue: (item) => item.primary,
+          })
+        );
         return;
       }
 

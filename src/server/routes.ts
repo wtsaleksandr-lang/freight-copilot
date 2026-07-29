@@ -95,6 +95,10 @@ import {
   saveEmailTemplates,
 } from '../db/emailTemplates.js';
 import {
+  searchCompanies,
+  upsertCompany,
+} from '../db/companies.js';
+import {
   listShipments,
   createShipment,
   updateShipment,
@@ -1967,6 +1971,50 @@ export function registerApiRoutes(app: Express): void {
       res.json({ ok: true, ...payload });
     } catch (err) {
       console.error('[api/email-templates PUT] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ---- Company directory (customer / shipper / receiver type-ahead) ----
+  // Search the saved company directory. `q` matches (normalized) against
+  // name_normalized; an empty q returns the most recent companies. Never 500s
+  // the picker — falls back to [] on any DB error inside searchCompanies.
+  app.get('/api/companies', async (req: Request, res: Response) => {
+    const rawQ = req.query.q;
+    const q = Array.isArray(rawQ) ? String(rawQ[0] ?? '') : String(rawQ ?? '');
+    const rawLimit = req.query.limit;
+    const parsedLimit = parseInt(
+      Array.isArray(rawLimit) ? String(rawLimit[0]) : String(rawLimit ?? ''),
+      10
+    );
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 50)
+      : 12;
+    try {
+      const companies = await searchCompanies(q, limit);
+      res.json({ companies });
+    } catch (err) {
+      console.error('[api/companies GET] error:', err);
+      res.json({ companies: [] });
+    }
+  });
+
+  // Optional explicit upsert (the modal normally relies on the shipment save to
+  // auto-add). Idempotent by normalized name; non-fatal.
+  app.post('/api/companies', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { name?: unknown };
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      res.status(400).json({ error: 'name required' });
+      return;
+    }
+    try {
+      await upsertCompany(name);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[api/companies POST] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });
