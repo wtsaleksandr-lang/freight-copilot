@@ -67,6 +67,12 @@ Target fields (all optional — leave null if not stated):
   • Strikethrough patterns: when two amounts appear together with one struck through (e.g. "12123 USD 11349 USD"), the LOWER one is the actual cost; the difference is a discount you must record.
 - notes: anything else worth keeping — secondary rates, ready dates, reefer temp, special instructions, document references. Keep concise (2-3 sentences max).
 
+- status_items: a SHORT structured checklist of this shipment's key operational milestones, derived ONLY from what the document(s) actually evidence. Each item: { label, state, detail? }.
+  • label: a concise milestone name. Prefer this canonical set when the document speaks to it: "Booking confirmed", "SI submitted", "VGM filed", "Docs received", "Customs cleared", "Cargo loaded", "Vessel departed", "Vessel arrived", "Payment received". Use another short label only when the document clearly evidences a distinct milestone.
+  • state: 'done' when the document shows the milestone is completed / confirmed / filed / received; 'pending' when it is expected / outstanding / awaited / requested-but-not-yet-done / has a future deadline; 'na' only when the document explicitly says it does not apply.
+  • detail (optional): a very short qualifier taken straight from the document — a date, a reference number, or a party (e.g. "MSCU2185714", "cut-off Jul 10"). Max ~40 chars. Never invent a detail.
+  GROUNDING RULE — this is strict: include a milestone ONLY if the document gives real evidence of its state. NEVER invent statuses, NEVER assume a milestone is done without evidence, and NEVER pad the list to look complete. An empty array is the correct answer when the document doesn't speak to operational progress (e.g. a pure carrier rate sheet). Keep it to the handful of milestones the document truly covers — quality over quantity.
+
 - questions: when the document contains MULTIPLE plausible candidates for a field that you cannot disambiguate yourself, populate this array instead of guessing. The dashboard will surface each question to the user with clickable answer buttons, then re-call you with the user's answers as authoritative.
 
   Use questions for:
@@ -126,6 +132,12 @@ const QuestionSchema = z.object({
   options: z.array(z.string()).default([]),
 });
 
+const StatusItemSchema = z.object({
+  label: z.string(),
+  state: z.enum(['done', 'pending', 'na']).default('pending'),
+  detail: z.string().nullable().optional(),
+});
+
 const ShipmentSchema = z.object({
   shipper_name: z.string().nullable().optional(),
   receiver_name: z.string().nullable().optional(),
@@ -170,6 +182,7 @@ const ShipmentSchema = z.object({
     .default([])
     .optional(),
   notes: z.string().nullable().optional(),
+  status_items: z.array(StatusItemSchema).default([]).optional(),
   // Coarse classification of the dropped document so downstream code can gate
   // behaviour. Specifically: a 'carrier_rate_sheet' must NEVER populate the
   // Sell side (see the gate in the /parse route) — it is our cost only.
@@ -239,6 +252,20 @@ const TOOL_SCHEMA = {
       },
     },
     notes: { type: ['string', 'null'] },
+    status_items: {
+      type: 'array',
+      description:
+        'Short structured checklist of key operational milestones this document actually evidences (Booking confirmed, SI submitted, VGM filed, Docs received, Customs cleared, Payment received, etc.). Empty array when the document says nothing about operational progress. NEVER invent or pad statuses.',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          state: { type: 'string', enum: ['done', 'pending', 'na'] },
+          detail: { type: ['string', 'null'] },
+        },
+        required: ['label', 'state'],
+      },
+    },
     questions: {
       type: 'array',
       description:

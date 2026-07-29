@@ -1779,6 +1779,34 @@ body.is-panel-dragging * {
   border-radius: 3px;
 }
 .compact-panel-close:hover { color: #fff; background: rgba(255,255,255,0.06); }
+/* Undo/redo controls in the breakdown panel header. Pushed to the
+   right so the title stays left and the cluster sits next to the ✕. */
+.bd-history-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 4px;
+}
+.bd-history-actions button {
+  background: transparent;
+  border: 1px solid #333;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.bd-history-actions button:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #555;
+}
+.bd-history-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .compact-panel-body {
   padding: 10px 12px;
   overflow: auto;
@@ -3490,4 +3518,59 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
 @media (max-width: 480px) {
   .misdrop-offer { flex-wrap: wrap; }
   .misdrop-offer-text { flex-basis: 100%; }
+}
+
+/* ── Shipment status checklist (Notes cell + modal) ─────────────────────── */
+.si-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.si-chip.si-done { background: var(--success-bg); color: var(--success); }
+.si-chip.si-pending { background: var(--warn-bg); color: var(--warn); }
+.si-chip.si-na { background: #f1f5f9; color: var(--muted); }
+.cell-notes.cell-status .si-preview {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+/* Status table inside the notes modal */
+.status-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2px 0 4px;
+  font-size: 13.5px;
+}
+.status-items-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.status-items-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.status-items-table td.si-label { color: var(--ink); }
+.status-items-table td.si-state { text-align: right; white-space: nowrap; }
+.status-items-table .si-detail { color: var(--muted); font-size: 12px; }
+.si-notes-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 12px 0 4px;
 }

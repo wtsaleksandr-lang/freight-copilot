@@ -121,6 +121,8 @@ import { decideShipmentIntake } from './shipmentDedupDecision.js';
 import {
   createFromBriefing,
   mergeFromBriefing,
+  mergeStatusItems,
+  statusItemsFromBriefing,
   type RawIntakeFile,
 } from './shipmentIntakeApply.js';
 import {
@@ -147,6 +149,64 @@ function csvEscape(v: string): string {
   const s = String(v);
   if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
+}
+
+export interface BreakdownSnapshotItem {
+  name?: string;
+  amount?: number;
+  currency?: string;
+  sourceFile?: string | null;
+  addedAt?: string;
+}
+
+interface NormalizedBreakdownItem {
+  name: string;
+  amount: number;
+  currency: string;
+  sourceFile: string | null;
+  addedAt: string;
+}
+
+/**
+ * Build the persisted DB payload for a full both-sides breakdown
+ * snapshot restore (breakdown route op:'set', used by the editor's
+ * undo/redo). Totals are ALWAYS recomputed as sum(items) so the
+ * total===sum invariant holds regardless of the totals the client
+ * sent; an empty side persists as null on both the array and total.
+ */
+export function buildBreakdownSnapshotUpdate(input: {
+  costBreakdown?: BreakdownSnapshotItem[];
+  soldBreakdown?: BreakdownSnapshotItem[];
+  now?: () => string;
+}): {
+  costBreakdownJson: NormalizedBreakdownItem[] | null;
+  ourCost: number | null;
+  soldBreakdownJson: NormalizedBreakdownItem[] | null;
+  soldRate: number | null;
+} {
+  const now = input.now || (() => new Date().toISOString());
+  const sanitize = (arr?: BreakdownSnapshotItem[]): NormalizedBreakdownItem[] => {
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((it) => it && Number.isFinite(Number(it.amount)))
+      .map((it) => ({
+        name: typeof it.name === 'string' ? it.name : String(it.name ?? ''),
+        amount: Number(it.amount) || 0,
+        currency: (it.currency || 'USD').toUpperCase(),
+        sourceFile: it.sourceFile ?? null,
+        addedAt: it.addedAt || now(),
+      }));
+  };
+  const costItems = sanitize(input.costBreakdown);
+  const soldItems = sanitize(input.soldBreakdown);
+  const costTotal = costItems.reduce((s, c) => s + (c.amount || 0), 0);
+  const soldTotal = soldItems.reduce((s, c) => s + (c.amount || 0), 0);
+  return {
+    costBreakdownJson: costItems.length > 0 ? costItems : null,
+    ourCost: costItems.length > 0 ? costTotal : null,
+    soldBreakdownJson: soldItems.length > 0 ? soldItems : null,
+    soldRate: soldItems.length > 0 ? soldTotal : null,
+  };
 }
 
 /**
@@ -2401,6 +2461,22 @@ export function registerApiRoutes(app: Express): void {
             : briefing.notes.trim();
         }
 
+        // Status checklist: upsert by label (newer doc wins). Direct DB write —
+        // statusItems isn't on the EDITABLE_FIELDS allow-list. Skipped in money
+        // mode (the user is only re-checking the figures).
+        if (mode !== 'money') {
+          const newStatusItems = statusItemsFromBriefing(briefing);
+          if (newStatusItems.length > 0) {
+            const mergedItems = mergeStatusItems(existing.statusItems, newStatusItems);
+            const db = createDbClient();
+            const { shipments: shipmentsTbl } = await import('../db/schema.js');
+            await db
+              .update(shipmentsTbl)
+              .set({ statusItems: mergedItems, updatedAt: new Date() })
+              .where(eq(shipmentsTbl.refId, refId));
+          }
+        }
+
         // Cost breakdown: append new line items (positive AND negative —
         // negative items represent discounts/credits like "1031 nautical
         // miles spent (-774 USD)"). Total ALWAYS equals sum(items).
@@ -2620,11 +2696,14 @@ export function registerApiRoutes(app: Express): void {
       }
       const body = (req.body ?? {}) as {
         side?: 'cost' | 'sold';
-        op?: 'add' | 'remove' | 'update' | 'set-total' | 'transfer';
+        op?: 'add' | 'remove' | 'update' | 'set-total' | 'transfer' | 'set';
         index?: number;
         item?: { name?: string; amount?: number; currency?: string };
         amount?: number; // for set-total
         fxRates?: Record<string, number>;
+        // for op:'set' — a full both-sides snapshot restore (undo/redo)
+        costBreakdown?: BreakdownSnapshotItem[];
+        soldBreakdown?: BreakdownSnapshotItem[];
       };
       const side = body.side === 'sold' ? 'sold' : 'cost';
       const op = body.op;
@@ -2634,11 +2713,33 @@ export function registerApiRoutes(app: Express): void {
         op !== 'remove' &&
         op !== 'update' &&
         op !== 'set-total' &&
-        op !== 'transfer'
+        op !== 'transfer' &&
+        op !== 'set'
       ) {
         res.status(400).json({
-          error: 'op must be add | remove | update | set-total | transfer',
+          error: 'op must be add | remove | update | set-total | transfer | set',
         });
+        return;
+      }
+
+      // op:'set' — restore a full both-sides snapshot in a single write.
+      // Used by the breakdown editor's undo/redo. Totals are always
+      // recomputed as sum(items) so the total===sum invariant holds no
+      // matter what totals the client sent.
+      if (op === 'set') {
+        const update = buildBreakdownSnapshotUpdate({
+          costBreakdown: body.costBreakdown,
+          soldBreakdown: body.soldBreakdown,
+        });
+        const dbSet = createDbClient();
+        const { shipments: shipmentsTblSet } = await import('../db/schema.js');
+        await dbSet
+          .update(shipmentsTblSet)
+          .set({ ...update, updatedAt: new Date() })
+          .where(eq(shipmentsTblSet.refId, refId));
+
+        const finalSet = await getShipment(refId);
+        res.json({ shipment: finalSet });
         return;
       }
 

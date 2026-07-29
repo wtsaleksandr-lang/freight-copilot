@@ -4495,6 +4495,61 @@ function truncate(s, n = 60) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+// ── Shipment status checklist (AI-extracted milestones) ──────────────────
+// Compact structured breakdown of what's DONE / PENDING, replacing the old
+// free-text notes blob when the AI extracted milestones from the documents.
+function normalizeStatusItems(items) {
+  return Array.isArray(items)
+    ? items.filter((i) => i && typeof i.label === 'string' && i.label.trim())
+    : [];
+}
+const STATUS_CHIP = {
+  done: { icon: '✓', cls: 'done', label: 'Done' },
+  pending: { icon: '⏳', cls: 'pending', label: 'Pending' },
+  na: { icon: '–', cls: 'na', label: 'N/A' },
+};
+function statusChipMeta(state) {
+  return STATUS_CHIP[state] || STATUS_CHIP.pending;
+}
+// One-line compact preview for the grid cell: "✓ 2  ⏳ 3" tally + first item.
+function statusItemsPreview(items) {
+  const list = normalizeStatusItems(items);
+  if (list.length === 0) return '';
+  const counts = { done: 0, pending: 0, na: 0 };
+  list.forEach((i) => {
+    counts[i.state] = (counts[i.state] || 0) + 1;
+  });
+  const tally = ['done', 'pending', 'na']
+    .filter((k) => counts[k] > 0)
+    .map((k) => {
+      const m = statusChipMeta(k);
+      return `<span class="si-chip si-${m.cls}">${m.icon} ${counts[k]}</span>`;
+    })
+    .join('');
+  return `<span class="si-preview">${tally}</span>`;
+}
+// Full two-column Item | Status table for the notes modal.
+function renderStatusItemsTable(items) {
+  const list = normalizeStatusItems(items);
+  if (list.length === 0) return '';
+  const rows = list
+    .map((i) => {
+      const m = statusChipMeta(i.state);
+      const detail = i.detail
+        ? ` <span class="si-detail">${esc(String(i.detail))}</span>`
+        : '';
+      return (
+        `<tr><td class="si-label">${esc(i.label)}${detail}</td>` +
+        `<td class="si-state"><span class="si-chip si-${m.cls}">${m.icon} ${m.label}</span></td></tr>`
+      );
+    })
+    .join('');
+  return (
+    `<table class="status-items-table"><thead><tr>` +
+    `<th>Item</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`
+  );
+}
+
 const CUR_SYMBOL = {
   USD: '$',
   CAD: 'C$',
@@ -5975,9 +6030,9 @@ function formatMoney(n, cur) {
           if (kind === 'cargo-modal') openCargoModal(row, refId);
           else if (kind === 'notes-modal') openTextModal('Notes', row.notes, async (v) => {
             await patchField(refId, 'notes', v);
-            td.textContent = truncate(v || '', 50);
-            td.classList.toggle('cell-empty', !v);
-          });
+            // Re-render the row so the cell reflects the checklist vs text preview.
+            await loadList();
+          }, { statusItems: row.statusItems });
           else openTextModal('Loading address', row.loadingAddress, async (v) => {
             await patchField(refId, 'loadingAddress', v);
             td.textContent = truncate(v || '', 35);
@@ -6448,6 +6503,22 @@ function formatMoney(n, cur) {
     profit: 110,
     carrierPreference: 110,
     bookingRef: 110,
+    // Operational tracking columns (added with the company-sheet import).
+    // Without a default here, colgroupHtml() emits a <col> with NO width and
+    // the table-layout:fixed / width:1px grid collapses it to ~0px — the column
+    // renders (and its Columns-menu checkbox works) but is invisible.
+    cutOffDate: 100,
+    siDate: 100,
+    seaAirCargo: 90,
+    vgm: 80,
+    draftDate: 100,
+    loadingDate: 100,
+    etd: 100,
+    eta: 100,
+    trucker: 120,
+    bolType: 80,
+    quoteRef: 100,
+    aes: 90,
     notes: 200,
   };
   // Column widths persist per browser. Stored as { [colKey]: pxNumber }.
@@ -6983,9 +7054,14 @@ function formatMoney(n, cur) {
       return `<td class="${cls.join(' ')}" data-field="cargo" data-kind="cargo-modal" title="${esc(tip)} — double-click to edit">${inner}</td>`;
     }
 
-    // Notes — preview only, click/double-click for modal with full text.
+    // Notes — compact status checklist when the AI extracted milestones,
+    // otherwise a truncated text preview. Click/double-click opens the modal.
     if (col.kind === 'notes-modal') {
+      const statusItems = normalizeStatusItems(row.statusItems);
       const v = row.notes || '';
+      if (statusItems.length > 0) {
+        return `<td class="cell cell-notes cell-status" data-field="notes" data-kind="notes-modal" title="Double-click to view checklist">${statusItemsPreview(statusItems)}</td>`;
+      }
       const cls = ['cell', 'cell-notes'];
       if (!v) cls.push('cell-empty');
       return `<td class="${cls.join(' ')}" data-field="notes" data-kind="notes-modal" title="Double-click to edit">${esc(truncate(v, 50))}</td>`;
@@ -7207,11 +7283,12 @@ function formatMoney(n, cur) {
   }
 
   // ──── Modals: long-text editor + Cargo (type+name) editor ────────────
-  function openTextModal(title, value, onSave) {
+  function openTextModal(title, value, onSave, opts = {}) {
     const modal = document.getElementById('cell-edit-modal');
     const titleEl = document.getElementById('cell-edit-title');
     const ta = document.getElementById('cell-edit-textarea');
     const cargoFields = document.getElementById('cell-edit-cargo-fields');
+    const statusBox = document.getElementById('cell-edit-status');
     const saveBtn = document.getElementById('cell-edit-save');
     const cancelBtn = document.getElementById('cell-edit-cancel');
     const closeBtn = document.getElementById('cell-edit-close');
@@ -7219,6 +7296,19 @@ function formatMoney(n, cur) {
     titleEl.textContent = title;
     ta.hidden = false;
     cargoFields.hidden = true;
+    // Structured status checklist (read-only) above the editable notes text.
+    if (statusBox) {
+      const items = normalizeStatusItems(opts.statusItems);
+      if (items.length > 0) {
+        statusBox.innerHTML =
+          renderStatusItemsTable(items) +
+          '<div class="si-notes-label">Notes</div>';
+        statusBox.hidden = false;
+      } else {
+        statusBox.innerHTML = '';
+        statusBox.hidden = true;
+      }
+    }
     ta.value = value ?? '';
     modal.hidden = false;
     setTimeout(() => ta.focus(), 30);
@@ -7261,6 +7351,11 @@ function formatMoney(n, cur) {
     titleEl.textContent = 'Cargo (type + description)';
     ta.hidden = true;
     cargoFields.hidden = false;
+    const statusBox = document.getElementById('cell-edit-status');
+    if (statusBox) {
+      statusBox.innerHTML = '';
+      statusBox.hidden = true;
+    }
     cargoTypeIn.value = row.cargoType || '';
     cargoNameIn.value = row.cargoName || '';
     // Back the cargo-type field with a growing directory of common types.
@@ -7636,7 +7731,107 @@ function formatMoney(n, cur) {
       }
     }
 
-    async function mutate(body) {
+    // ----- Undo/redo (per-shipment command stack) -----
+    // History is keyed by refId so switching rows never cross-
+    // contaminates. Each entry is { before, after, label } where
+    // before/after are full both-sides breakdown snapshots.
+    const historyKey = `breakdown:${refId}`;
+    const undoStack = window.LoadModeUndoStack || null;
+    let undoBtn = null;
+    let redoBtn = null;
+
+    // Deep-ish clone of one line item (items are flat objects).
+    const cloneItem = (it) => ({ ...it });
+
+    // Capture the current full state of BOTH sides from `row` (which
+    // mutate() keeps in sync after every write).
+    function snapshot() {
+      return {
+        costBreakdown: Array.isArray(row.costBreakdownJson)
+          ? row.costBreakdownJson.map(cloneItem)
+          : [],
+        ourCost: typeof row.ourCost === 'number' ? row.ourCost : null,
+        soldBreakdown: Array.isArray(row.soldBreakdownJson)
+          ? row.soldBreakdownJson.map(cloneItem)
+          : [],
+        soldRate: typeof row.soldRate === 'number' ? row.soldRate : null,
+      };
+    }
+
+    // Human-readable label for a mutation, used in the undo toast.
+    function describeOp(body) {
+      const s = body.side === 'sold' ? 'sell' : 'cost';
+      switch (body.op) {
+        case 'add':
+          return `add ${s} line item`;
+        case 'remove':
+          return `remove ${s} line item`;
+        case 'update':
+          return `edit ${s} line item`;
+        case 'set-total':
+          return `set ${s} total`;
+        case 'transfer':
+          return 'transfer line item';
+        default:
+          return 'change';
+      }
+    }
+
+    function updateHistoryButtons() {
+      if (!undoStack) return;
+      if (undoBtn) {
+        const can = undoStack.canUndo(historyKey);
+        undoBtn.disabled = !can;
+        const peek = can ? undoStack.peekUndo(historyKey) : null;
+        undoBtn.title = peek
+          ? `Undo: ${peek.label} (Ctrl+Z)`
+          : 'Nothing to undo';
+      }
+      if (redoBtn) {
+        const can = undoStack.canRedo(historyKey);
+        redoBtn.disabled = !can;
+        const peek = can ? undoStack.peekRedo(historyKey) : null;
+        redoBtn.title = peek
+          ? `Redo: ${peek.label} (Ctrl+Shift+Z)`
+          : 'Nothing to redo';
+      }
+    }
+
+    // POST a full snapshot restore. isHistory=true so replaying an
+    // undo/redo doesn't itself push a new history entry.
+    async function restoreSnapshot(snap) {
+      await mutate(
+        {
+          op: 'set',
+          costBreakdown: snap.costBreakdown,
+          soldBreakdown: snap.soldBreakdown,
+        },
+        { isHistory: true }
+      );
+    }
+
+    async function doUndo() {
+      if (!undoStack || !undoStack.canUndo(historyKey)) return;
+      const entry = undoStack.undo(historyKey);
+      if (!entry) return;
+      await restoreSnapshot(entry.before);
+      toast(`Undid ${entry.label}`, 'info', 2500);
+      updateHistoryButtons();
+    }
+
+    async function doRedo() {
+      if (!undoStack || !undoStack.canRedo(historyKey)) return;
+      const entry = undoStack.redo(historyKey);
+      if (!entry) return;
+      await restoreSnapshot(entry.after);
+      toast(`Redid ${entry.label}`, 'info', 2500);
+      updateHistoryButtons();
+    }
+
+    async function mutate(body, opts = {}) {
+      const isHistory = !!opts.isHistory;
+      // Snapshot BEFORE the write so we can reverse it later.
+      const before = isHistory ? null : snapshot();
       wrap.classList.add('is-busy');
       try {
         const r = await fetch(
@@ -7652,13 +7847,30 @@ function formatMoney(n, cur) {
         // Apply server response to local state, re-render panel.
         const sh = data.shipment;
         if (sh) {
+          // Keep BOTH sides of the row in sync (a transfer touches the
+          // other side too) so snapshots are always accurate.
+          row.costBreakdownJson = Array.isArray(sh.costBreakdownJson)
+            ? sh.costBreakdownJson
+            : [];
+          row.ourCost = typeof sh.ourCost === 'number' ? sh.ourCost : null;
+          row.soldBreakdownJson = Array.isArray(sh.soldBreakdownJson)
+            ? sh.soldBreakdownJson
+            : [];
+          row.soldRate = typeof sh.soldRate === 'number' ? sh.soldRate : null;
+          // Current-panel view state.
           items = Array.isArray(sh[breakdownKey]) ? sh[breakdownKey] : [];
           total = typeof sh[totalKey] === 'number' ? sh[totalKey] : null;
-          // Update the row reference too so the table reflects after refresh.
-          row[breakdownKey] = items;
-          row[totalKey] = total;
+        }
+        // Record history for user-initiated edits only.
+        if (!isHistory && undoStack) {
+          undoStack.push(historyKey, {
+            before,
+            after: snapshot(),
+            label: describeOp(body),
+          });
         }
         render();
+        updateHistoryButtons();
         // Keep the table in sync.
         await loadList();
       } catch (err) {
@@ -7669,7 +7881,54 @@ function formatMoney(n, cur) {
     }
 
     render();
-    openCompactPanel(anchorEl, wrap, { title });
+    const panelRef = openCompactPanel(anchorEl, wrap, { title });
+
+    // Inject Undo/Redo controls into the panel header, before the ✕.
+    if (undoStack && panelRef && panelRef.panel) {
+      const head = panelRef.panel.querySelector('.compact-panel-head');
+      if (head) {
+        const actions = document.createElement('span');
+        actions.className = 'bd-history-actions';
+        actions.innerHTML =
+          `<button type="button" class="bd-undo-btn" aria-label="Undo">↶ Undo</button>` +
+          `<button type="button" class="bd-redo-btn" aria-label="Redo">↷ Redo</button>`;
+        const closeBtn = head.querySelector('.compact-panel-close');
+        head.insertBefore(actions, closeBtn);
+        undoBtn = actions.querySelector('.bd-undo-btn');
+        redoBtn = actions.querySelector('.bd-redo-btn');
+        undoBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          doUndo();
+        });
+        redoBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          doRedo();
+        });
+        updateHistoryButtons();
+      }
+
+      // Ctrl+Z / Ctrl+Shift+Z (Cmd on mac), plus Ctrl+Y for redo,
+      // while this panel is open. Self-removes once the panel is gone.
+      const onHistoryKey = (e) => {
+        if (!panelRef.panel.isConnected) {
+          document.removeEventListener('keydown', onHistoryKey, true);
+          return;
+        }
+        const mod = e.ctrlKey || e.metaKey;
+        if (!mod) return;
+        const k = (e.key || '').toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          doUndo();
+        } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+          e.preventDefault();
+          doRedo();
+        }
+      };
+      document.addEventListener('keydown', onHistoryKey, true);
+    }
   }
 
   async function recheckCostsFromSaved(refId, btn) {
