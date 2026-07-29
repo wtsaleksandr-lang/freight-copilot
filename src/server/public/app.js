@@ -7017,6 +7017,11 @@ function formatMoney(n, cur) {
   function startColumnResize(col, key, startWidth, startX) {
     if (!col || !key) return;
     document.body.classList.add('is-col-resizing');
+    // POINTER events (not mouse): the callers start on pointerdown + preventDefault
+    // to stop the wrapper's drag-to-pan; preventDefault on pointerdown suppresses
+    // the compat MOUSE events, so ending on `mouseup` left the drag stuck. `pointerup`
+    // is unaffected, so the drag ends cleanly on release AND the sheet never pans.
+    let fitScheduled = false;
     function onMove(ev) {
       const delta = ev.clientX - startX;
       // 8px floor: let a column shrink to an Excel-style sliver (well below the
@@ -7024,10 +7029,19 @@ function formatMoney(n, cur) {
       // a column can never collapse to an unrecoverable 0px.
       const next = Math.max(8, Math.round(startWidth + delta));
       col.style.width = `${next}px`;
+      // Live-fit EVERY cell in the column as it narrows (wrap → shrink font →
+      // clip), not just on release — rAF-throttled so it stays smooth.
+      if (!fitScheduled) {
+        fitScheduled = true;
+        requestAnimationFrame(() => {
+          fitScheduled = false;
+          fitColumnByKey(key);
+        });
+      }
     }
     function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       document.body.classList.remove('is-col-resizing');
       // Persist the final value (read off the col, not startWidth+delta, so any
       // min-clamp from above is captured).
@@ -7036,15 +7050,17 @@ function formatMoney(n, cur) {
         columnWidths[key] = final;
         saveColWidths(columnWidths);
       }
-      fitColumnByKey(key); // re-fit this column's text to its new width
+      fitColumnByKey(key); // final re-fit at the released width
     }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   function wireColumnResize() {
     table.querySelectorAll('.col-resize-handle').forEach((handle) => {
-      handle.addEventListener('mousedown', (e) => {
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'touch') return; // touch scrolls, never resizes
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         const key = handle.getAttribute('data-col-key');
@@ -7072,10 +7088,25 @@ function formatMoney(n, cur) {
     if (!td.closest('tr[data-ref]')) return null;
     const r = td.getBoundingClientRect();
     if (Math.abs(clientX - r.right) > COL_RESIZE_ZONE) return null;
-    const tr = td.parentElement;
-    const index = Array.from(tr.children).indexOf(td);
     const colgroup = table.querySelector('colgroup');
-    const col = colgroup ? colgroup.children[index] : null;
+    if (!colgroup) return null;
+    // Map the cell to its <col> by the cell's own field IDENTITY first, so it
+    // stays correct after columns are hidden/shown or reordered (a positional
+    // index shifts by one when a hidden cell is or isn't counted). Fall back to
+    // the positional index only for the few cells whose data-field ≠ col-key.
+    const field = td.getAttribute('data-field');
+    let col = null;
+    if (field) {
+      try {
+        col = colgroup.querySelector(`col[data-col-key="${CSS.escape(field)}"]`);
+      } catch {
+        col = null;
+      }
+    }
+    if (!col) {
+      const index = Array.from(td.parentElement.children).indexOf(td);
+      col = colgroup.children[index] || null;
+    }
     if (!col) return null;
     const key = col.getAttribute('data-col-key');
     if (!key || key === '__actions') return null;
@@ -7102,14 +7133,13 @@ function formatMoney(n, cur) {
       setColCursor(hit ? hit.td : null);
     });
     table.addEventListener('mouseleave', () => setColCursor(null));
-    // MUST be mousedown (not pointerdown): startColumnResize ends on `mouseup`,
-    // and calling preventDefault() on a pointerdown suppresses the compat mouseup
-    // — so a pointerdown start left the drag stuck ("stays clicked", follows the
-    // mouse until you click again). mousedown keeps the whole gesture in the mouse
-    // event family so mouseup fires and the drag ends on release (grab-and-hold).
-    // Touch never fires mousedown mid-scroll, so scrolling is unaffected.
-    table.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
+    // pointerdown (like wireRowResize) so stopPropagation stops the wrapper's
+    // drag-to-pan pointerdown from also firing — otherwise the whole sheet panned
+    // while you resized from a cell edge. startColumnResize now ends on pointerup
+    // (which preventDefault does NOT suppress), so the drag still releases cleanly.
+    table.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') return; // touch scrolls, never resizes
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (rowResizeTarget(e.clientY, e.target)) return; // let row-resize win
       const hit = bodyColResizeTarget(e.clientX, e.target);
       if (!hit) return;
