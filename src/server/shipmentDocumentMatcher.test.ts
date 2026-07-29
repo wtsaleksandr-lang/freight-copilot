@@ -37,6 +37,32 @@ test('strong multi-field consensus with no clear winner returns ambiguous', () =
   assert.equal(result.status, 'ambiguous');
 });
 
+test('unmatched booking ref + strong soft overlap -> none (definitely new)', () => {
+  // A booking ref is present but matches no row, yet shipper+receiver+POL all
+  // match. The hard ref is authoritative: this CANNOT be an existing shipment,
+  // so it must create silently — never merge, never even prompt.
+  const result = chooseShipmentMatch(
+    {
+      bookingRef: 'ZZZ-NEW-99999',
+      shipperName: 'ABC Machinery',
+      receiverName: 'Port Client',
+      pol: 'Montreal',
+    },
+    rows
+  );
+  assert.equal(result.status, 'none');
+});
+
+test('soft signals alone never auto-merge (matched requires a hard ref)', () => {
+  // Even a lopsided strong soft match (customer+shipper heavily favouring one
+  // row) must ASK, not silently merge — only a booking/internal ref may merge.
+  const result = chooseShipmentMatch(
+    { customerName: 'Access Air', shipperName: 'ABC Machinery' },
+    rows
+  );
+  assert.notEqual(result.status, 'matched');
+});
+
 test('matching route ranks above partial party match', () => {
   const ranked = rankShipmentMatches({ customerName: 'Access Air', pol: 'Montreal', pod: 'Antwerp' }, rows);
   assert.equal(ranked[0]?.shipment.refId, 'S00011');

@@ -70,6 +70,22 @@ test('weak single-signal overlap -> create, no prompt', () => {
   assert.equal(decision.action, 'create');
 });
 
+test('unmatched booking ref never auto-merges, even with strong soft overlap -> create', () => {
+  // The exact failure Alex hit: a new doc for a different shipment shares the
+  // client/shipper/lane with an existing row, but carries its own booking ref
+  // that matches nothing. It must create a NEW shipment, never silently merge.
+  const decision = decideShipmentIntake(
+    {
+      bookingRef: 'BKG-BRAND-NEW-2026',
+      shipperName: 'ABC Machinery',
+      receiverName: 'Port Client',
+      pol: 'Montreal',
+    },
+    rows
+  );
+  assert.equal(decision.action, 'create');
+});
+
 test('ambiguous: strong multi-field tie -> clarify with candidate options', () => {
   // shipper + receiver + POL match BOTH rows equally (58 each) — a real "which?"
   const decision = decideShipmentIntake(
