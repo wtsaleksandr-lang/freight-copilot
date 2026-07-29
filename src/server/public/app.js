@@ -880,10 +880,10 @@ wireCyDoorToggle('dr-destination-type', 'dr-destination-cy', 'dr-destination-doo
 // or paste instead of dropping". Hands { files:[{filename,mediaType,
 // fileBase64}], notes } to onSubmit. Used by Drayage intake + customer Intake.
 const DZN_ACCEPT_MIME =
-  /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i;
-const DZN_ACCEPT_EXT = /\.(pdf|png|jpe?g|webp|gif|eml|msg|html?|txt)$/i;
+  /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i;
+const DZN_ACCEPT_EXT = /\.(pdf|png|jpe?g|webp|gif|eml|msg|html?|txt|docx|xlsx)$/i;
 const DZN_ACCEPT_ATTR =
-  'application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt';
+  'application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx';
 
 function dznFileTypeLabel(f) {
   const lower = (f.name || '').toLowerCase();
@@ -898,6 +898,8 @@ function dznFileTypeLabel(f) {
     return { icon: '🌐', label: 'HTML' };
   if (f.type === 'text/plain' || lower.endsWith('.txt'))
     return { icon: '📝', label: 'Text' };
+  if (lower.endsWith('.docx')) return { icon: '📄', label: 'Word (.docx)' };
+  if (lower.endsWith('.xlsx')) return { icon: '📊', label: 'Excel (.xlsx)' };
   return { icon: '📎', label: f.type || 'unknown' };
 }
 function dznFileSize(bytes) {
@@ -968,7 +970,7 @@ const FreightDrafts = (function () {
 function createDropzoneWithNotes(opts) {
   const { mount, onSubmit } = opts;
   if (!mount) throw new Error('createDropzoneWithNotes: mount is required');
-  const acceptHint = opts.acceptHint || 'Image · PDF · EML · MSG · HTML · TXT';
+  const acceptHint = opts.acceptHint || 'Image · PDF · DOCX · XLSX · EML · MSG · HTML · TXT';
   const notesPlaceholder =
     opts.notesPlaceholder || 'Add a note, or paste the request text here…';
   const submitLabel = opts.submitLabel || 'Extract';
@@ -1184,7 +1186,7 @@ function createDropzoneWithNotes(opts) {
 // Drayage intake — universal file drop + notes, AI fills the form
 const drIntake = createDropzoneWithNotes({
   mount: document.getElementById('dr-intake-dropzone'),
-  acceptHint: 'Image · PDF · EML · MSG · HTML · TXT',
+  acceptHint: 'Image · PDF · DOCX · XLSX · EML · MSG · HTML · TXT',
   notesPlaceholder:
     "Notes, or paste the request — e.g. 'Pls quote drayage from APM Newark to our warehouse 1234 Main St, Chicago IL 60601. 40HC, 18 tons, ready Mon. Tri-axle chassis needed.'",
   submitLabel: 'Extract',
@@ -1982,7 +1984,7 @@ wireCyDoorToggle('oc-destination-type', 'oc-destination-cy', 'oc-destination-doo
 // Intake — universal file drop + notes; extract, auto-fill the form.
 const ocIntake = createDropzoneWithNotes({
   mount: document.getElementById('intake-dropzone'),
-  acceptHint: 'Image · PDF · EML · MSG · HTML · TXT',
+  acceptHint: 'Image · PDF · DOCX · XLSX · EML · MSG · HTML · TXT',
   notesPlaceholder:
     'Notes, or paste the client request text here (Ctrl+V a screenshot onto the drop zone above)…',
   submitLabel: 'Extract',
@@ -3512,8 +3514,11 @@ async function loadCredList() {
 
   function ingestFiles(fileList) {
     const arr = Array.from(fileList || []);
-    const accepted = arr.filter((f) =>
-      /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i.test(f.type)
+    const accepted = arr.filter(
+      (f) =>
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(
+          f.type
+        ) || /\.(docx|xlsx)$/i.test((f.name || '').toLowerCase())
     );
     if (accepted.length !== arr.length) {
       setStatus(
@@ -4855,7 +4860,7 @@ function formatMoney(n, cur) {
     for (const f of arr) {
       // Accept by mime first
       if (
-        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(
           f.type
         )
       ) {
@@ -4866,7 +4871,7 @@ function formatMoney(n, cur) {
       // .eml / .msg / .html). .msg is decoded server-side by msgreader
       // and forwarded to Claude as plain email text.
       const lower = (f.name || '').toLowerCase();
-      if (/\.(eml|msg|html?|txt)$/.test(lower)) {
+      if (/\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower)) {
         accepted.push(f);
         continue;
       }
@@ -8411,8 +8416,8 @@ function formatMoney(n, cur) {
     dropzone.className = 'attachments-dropzone';
     dropzone.innerHTML = `
       <span class="attachments-dropzone-prompt">📂 Drop files here, or click to browse</span>
-      <span class="attachments-dropzone-hint">Image · PDF · EML · MSG · HTML · TXT</span>
-      <input type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+      <span class="attachments-dropzone-hint">Image · PDF · DOCX · XLSX · EML · MSG · HTML · TXT</span>
+      <input type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
     `;
 
     // Dedicated paste zone — separate from the drop zone so the user
@@ -8517,12 +8522,12 @@ function formatMoney(n, cur) {
       if (arr.length === 0) return;
       const accepted = arr.filter((f) => {
         if (
-          /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(f.type)
+          /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(f.type)
         ) {
           return true;
         }
         const lower = (f.name || '').toLowerCase();
-        return /\.(eml|msg|html?|txt)$/.test(lower);
+        return /\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower);
       });
       if (accepted.length === 0) {
         setStatus(
@@ -8753,13 +8758,13 @@ function formatMoney(n, cur) {
     const accepted = [];
     for (const f of arr) {
       if (
-        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(f.type)
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(f.type)
       ) {
         accepted.push(f);
         continue;
       }
       const lower = (f.name || '').toLowerCase();
-      if (/\.(eml|msg|html?|txt)$/.test(lower)) accepted.push(f);
+      if (/\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower)) accepted.push(f);
     }
     if (accepted.length === 0) {
       setStatus(
@@ -9114,13 +9119,13 @@ function openClarificationModal(questions) {
       const arr = Array.from(filesIn || []);
       for (const f of arr) {
         if (
-          /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(f.type)
+          /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(f.type)
         ) {
           additionalFiles.push(f);
           continue;
         }
         const lower = (f.name || '').toLowerCase();
-        if (/\.(eml|msg|html?|txt)$/.test(lower)) additionalFiles.push(f);
+        if (/\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower)) additionalFiles.push(f);
       }
       renderAttached();
     }
@@ -10144,6 +10149,8 @@ function esc(s) {
       return { icon: '🌐', label: 'HTML' };
     if (f.type === 'text/plain' || lower.endsWith('.txt'))
       return { icon: '📝', label: 'Text' };
+    if (lower.endsWith('.docx')) return { icon: '📄', label: 'Word (.docx)' };
+    if (lower.endsWith('.xlsx')) return { icon: '📊', label: 'Excel (.xlsx)' };
     return { icon: '📎', label: f.type || 'file' };
   }
 
@@ -10190,13 +10197,13 @@ function esc(s) {
     const arr = Array.from(filesIn || []);
     for (const f of arr) {
       if (
-        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain))$/i.test(f.type)
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(f.type)
       ) {
         pending.push(f);
         continue;
       }
       const lower = (f.name || '').toLowerCase();
-      if (/\.(eml|msg|html?|txt)$/.test(lower)) pending.push(f);
+      if (/\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower)) pending.push(f);
     }
     refreshPending();
   }

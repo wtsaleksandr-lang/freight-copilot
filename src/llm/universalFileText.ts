@@ -13,7 +13,19 @@ export interface NormalizedFile {
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const TEXT_EXTENSIONS = new Set(['txt', 'csv', 'tsv', 'json', 'xml', 'html', 'htm', 'eml', 'md', 'log', 'yaml', 'yml']);
+/** Zip-based office documents the extractor decodes to text (docx/xlsx/pptx/odt/ods/odp). */
+const OFFICE_DOC_EXTENSIONS = new Set(['docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp']);
 const ext = (name: string) => name.toLowerCase().split('.').pop() ?? '';
+
+/**
+ * True when the filename is a modern (zip-based) office document that
+ * `normalizeUniversalFile` can decode to text. Used by intake/briefing route
+ * loops to route these files through text extraction instead of rejecting
+ * them as an undetectable media type.
+ */
+export function isOfficeDocFile(filename: string | undefined): boolean {
+  return !!filename && OFFICE_DOC_EXTENSIONS.has(ext(filename));
+}
 
 function decodeXml(value: string): string {
   return value
@@ -109,7 +121,7 @@ export function normalizeUniversalFile(input: UniversalFileInput): NormalizedFil
   if (TEXT_EXTENSIONS.has(extension) || mediaType.startsWith('text/') || mediaType === 'message/rfc822') return { filename: input.filename, kind: 'text', mediaType: 'text/plain', text: buffer.toString('utf8'), warnings: [] };
   if (extension === 'msg') return { filename: input.filename, kind: 'text', mediaType: 'text/plain', text: msg(buffer), warnings: [] };
   if (extension === 'rtf') return { filename: input.filename, kind: 'text', mediaType: 'text/plain', text: rtf(buffer), warnings: [] };
-  if (['docx', 'xlsx', 'pptx', 'ods', 'odt', 'odp'].includes(extension)) {
+  if (OFFICE_DOC_EXTENSIONS.has(extension)) {
     const entries = unzipEntries(buffer);
     const text = extension === 'docx' ? docx(entries) : extension === 'xlsx' ? xlsx(entries) : extension === 'pptx' ? pptx(entries) : decodeXml(entries.get('content.xml')?.toString('utf8') ?? '');
     if (!text.trim()) throw new Error(`${input.filename}: no readable text was found in the office document`);

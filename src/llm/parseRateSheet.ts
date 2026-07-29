@@ -45,7 +45,14 @@ const RateSheetSchema = z.object({
 
 export type RateSheetResult = z.infer<typeof RateSheetSchema>;
 export type RateSheetMediaType = 'application/pdf' | 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
-export interface RateSheetInput { fileBase64: string; mediaType: RateSheetMediaType; filename?: string; }
+export interface RateSheetInput {
+  /** Base64 PDF/image sent to Claude as a visual document. Omit when passing `text`. */
+  fileBase64?: string;
+  mediaType?: RateSheetMediaType;
+  filename?: string;
+  /** Pre-decoded text (e.g. from an office document) sent inline instead of a visual document. */
+  text?: string;
+}
 
 const SCHEMA_DESCRIPTION = `{
   "carrier_code": "string",
@@ -77,13 +84,23 @@ const SCHEMA_DESCRIPTION = `{
 }`;
 
 export async function parseRateSheet(input: RateSheetInput): Promise<RateSheetResult> {
-  console.log(`[parseRateSheet] Routed extraction (${input.mediaType}, ${Math.round(input.fileBase64.length / 1024)} KB base64)`);
+  const hasMedia = !!(input.fileBase64 && input.mediaType);
+  const inlineText = input.text?.trim() ? input.text.slice(0, 60000) : undefined;
+  console.log(
+    hasMedia
+      ? `[parseRateSheet] Routed extraction (${input.mediaType}, ${Math.round((input.fileBase64 ?? '').length / 1024)} KB base64)`
+      : `[parseRateSheet] Text extraction (${(inlineText ?? '').length} chars from ${input.filename ?? 'document'})`
+  );
+  const baseInstruction =
+    'Extract every rate from this document. Keep destination charges strictly separate and preserve exact amounts, currencies, equipment and validity.';
   const result = await executeStructuredAiTask({
     kind: 'ocean-rate-sheet-extraction',
     systemPrompt: RATE_SHEET_SYSTEM_PROMPT,
-    userPrompt: 'Extract every rate from this document. Keep destination charges strictly separate and preserve exact amounts, currencies, equipment and validity.',
+    userPrompt: inlineText ? `${baseInstruction}\n\n${inlineText}` : baseInstruction,
     schemaDescription: SCHEMA_DESCRIPTION,
-    media: { mediaType: input.mediaType, base64: input.fileBase64, filename: input.filename },
+    media: hasMedia
+      ? { mediaType: input.mediaType as string, base64: input.fileBase64 as string, filename: input.filename }
+      : undefined,
     highStakes: true,
     validate(value) {
       const parsed = RateSheetSchema.safeParse(value);

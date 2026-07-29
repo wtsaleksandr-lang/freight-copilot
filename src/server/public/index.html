@@ -130,9 +130,9 @@
         <div id="sheet-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
             <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
-            <span class="muted small">PDF · PNG · JPG · WEBP — multiple at once</span>
+            <span class="muted small">PDF · PNG · JPG · WEBP · DOCX · XLSX — multiple at once</span>
           </div>
-          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden />
+          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx" hidden />
         </div>
 
         <div class="row">
@@ -532,7 +532,7 @@
             <strong>📂 Drop files here, or click to browse</strong>
             <span class="muted small">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT — multiple lanes per file are extracted automatically</span>
           </div>
-          <input id="dr-lib-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+          <input id="dr-lib-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
         </div>
         <div id="dr-lib-paste-zone" class="attachments-paste-zone" tabindex="0" contenteditable="true" spellcheck="false">
           <span class="attachments-paste-prompt">📋 Click here, then press Ctrl+V to paste a screenshot</span>
@@ -941,7 +941,7 @@
             <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
             <span class="muted small">PDF · PNG · JPG · WEBP · <strong>EML</strong> · <strong>MSG</strong> (Outlook) · HTML · TXT — multiple files describe ONE shipment</span>
           </div>
-          <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+          <input id="ship-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
         </div>
         <ul id="ship-pending-files" class="ship-pending-files" hidden></ul>
 
@@ -1249,7 +1249,7 @@
         <div id="clarify-uploader" class="clarify-uploader">
           <span class="clarify-uploader-prompt">📎 Drop files, click to browse, or press Ctrl+V to paste a screenshot</span>
           <span class="clarify-uploader-hint">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT</span>
-          <input id="clarify-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt" hidden />
+          <input id="clarify-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
           <div id="clarify-attached" class="clarify-attached"></div>
         </div>
         <div class="row" style="justify-content: flex-end;">
