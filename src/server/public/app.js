@@ -15,16 +15,27 @@
     }
     return stack;
   }
-  window.toast = function (message, kind = 'info', timeoutMs = 5000) {
+  // Optional `action` = { label, onClick } renders an inline button before the
+  // dismiss ✕ (used e.g. by the "Undo last import" toast). Additive — existing
+  // three-arg callers are unaffected.
+  window.toast = function (message, kind = 'info', timeoutMs = 5000, action = null) {
     try {
       const stack = getStack();
       const t = document.createElement('div');
       t.className = `toast toast-${kind}`;
-      t.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-close" title="Dismiss">✕</button>`;
+      t.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-action" hidden></button><button type="button" class="toast-close" title="Dismiss">✕</button>`;
       t.querySelector('.toast-msg').textContent = message;
       stack.appendChild(t);
       const close = () => { t.classList.add('is-out'); setTimeout(() => t.remove(), 240); };
       t.querySelector('.toast-close').addEventListener('click', close);
+      if (action && action.label && typeof action.onClick === 'function') {
+        const btn = t.querySelector('.toast-action');
+        btn.hidden = false;
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => {
+          try { action.onClick(); } finally { close(); }
+        });
+      }
       if (timeoutMs > 0) setTimeout(close, timeoutMs);
       // Stack overflow guard — keep at most 6 toasts visible.
       while (stack.children.length > 6) stack.firstChild?.remove();
@@ -4581,6 +4592,107 @@ function formatMoney(n, cur) {
 
   let pendingFiles = [];
 
+  // ---- Undo last import (single most-recent import only) ----
+  // After any successful file/email import (create OR merge), the server hands
+  // back a `revert` payload. We stash exactly ONE — the most recent — in a
+  // module var + localStorage so it survives a reload, and surface it two ways:
+  // an inline "Undo" button in the success toast, and a persistent toolbar
+  // button. Reverting clears the stash (guards against a double-revert).
+  const undoBtn = document.getElementById('ship-undo-import-btn');
+  const LAST_IMPORT_KEY = 'freight.shipments.lastImport';
+  let lastImport = null;
+  function loadLastImport() {
+    try {
+      const raw = localStorage.getItem(LAST_IMPORT_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      lastImport = parsed && parsed.revert && parsed.revert.refId ? parsed : null;
+    } catch {
+      lastImport = null;
+    }
+  }
+  function updateUndoBtn() {
+    if (!undoBtn) return;
+    const has = !!(lastImport && lastImport.revert && lastImport.revert.refId);
+    undoBtn.hidden = !has;
+    undoBtn.disabled = !has;
+    if (has) {
+      const rv = lastImport.revert;
+      undoBtn.title =
+        rv.action === 'merge'
+          ? `Undo import — restore ${rv.refId} to before the merge`
+          : `Undo import — remove ${rv.refId}`;
+    }
+  }
+  function stashLastImport(revert) {
+    if (!revert || !revert.action || !revert.refId) return;
+    lastImport = { revert, at: Date.now() };
+    try {
+      localStorage.setItem(LAST_IMPORT_KEY, JSON.stringify(lastImport));
+    } catch {
+      /* private mode / quota — keep the in-memory copy */
+    }
+    updateUndoBtn();
+  }
+  function clearLastImport() {
+    lastImport = null;
+    try {
+      localStorage.removeItem(LAST_IMPORT_KEY);
+    } catch {
+      /* ignore */
+    }
+    updateUndoBtn();
+  }
+  async function revertLastImport() {
+    if (!lastImport || !lastImport.revert) return;
+    const rv = lastImport.revert;
+    // Clear FIRST so a second click (toolbar or toast) is a no-op.
+    clearLastImport();
+    setStatus('ship-status', 'Reverting last import…', 'info', true);
+    try {
+      const r = await fetch('/api/shipments/intake/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: rv.action,
+          refId: rv.refId,
+          preState: rv.preState,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'revert failed');
+      await loadList();
+      setStatus(
+        'ship-status',
+        rv.action === 'create'
+          ? `Reverted — removed ${rv.refId}.`
+          : `Reverted ${rv.refId} to its pre-import state.`,
+        'success'
+      );
+      window.toast?.('Reverted last import.', 'success');
+    } catch (err) {
+      // Re-stash so the user can retry the undo.
+      stashLastImport(rv);
+      setStatus('ship-status', `Revert failed: ${err.message}`, 'error');
+      window.toast?.(`Revert failed: ${err.message}`, 'error');
+    }
+  }
+  // Surface a freshly-completed import: stash its revert payload + toast w/ Undo.
+  function announceImport(data) {
+    if (!data || !data.revert) return;
+    stashLastImport(data.revert);
+    const ref = data.shipment?.refId || data.revert.refId;
+    const msg = data.merged ? `Merged into ${ref}.` : `Created ${ref}.`;
+    window.toast?.(msg, 'success', 8000, {
+      label: '↩ Undo',
+      onClick: () => {
+        revertLastImport();
+      },
+    });
+  }
+  undoBtn?.addEventListener('click', revertLastImport);
+  loadLastImport();
+  updateUndoBtn();
+
   const pendingFilesList = document.getElementById('ship-pending-files');
   function fileTypeLabel(f) {
     const lower = (f.name || '').toLowerCase();
@@ -4886,6 +4998,8 @@ function formatMoney(n, cur) {
           : `Created ${data.shipment.refId} — review & edit cells as needed.`,
         'success'
       );
+      // Stash the revert payload + show an Undo toast for this single import.
+      announceImport(data);
       pendingFiles = [];
       refreshDropState();
       await loadList();

@@ -321,6 +321,97 @@ export async function getShipment(
   return row ?? null;
 }
 
+/**
+ * Columns the shipment-intake MERGE path (mergeFromBriefing) can mutate:
+ * fill-only operational fields, appended notes, the milestone checklist, the
+ * cost/sold breakdown + totals, and the appended source-file list. The "undo
+ * import" revert snapshots exactly these columns BEFORE a merge and restores
+ * them verbatim afterwards — nothing is recomputed. Keep this list in sync with
+ * mergeFromBriefing.
+ */
+export const MERGE_MUTABLE_COLUMNS = [
+  // Fill-only operational fields (mergeShipmentFillOnly).
+  'shipperName',
+  'receiverName',
+  'customerName',
+  'loadingAddress',
+  'fpol',
+  'fpolCode',
+  'pol',
+  'polCode',
+  'pod',
+  'podCode',
+  'fpod',
+  'fpodCode',
+  'containerType',
+  'containerQuantity',
+  'cargoType',
+  'cargoName',
+  'carrierPreference',
+  'bookingRef',
+  'shipmentType',
+  // Appended free-text notes + AI milestone checklist.
+  'notes',
+  'statusItems',
+  // Cost side (breakdown items + total + currency).
+  'costBreakdownJson',
+  'ourCost',
+  'ourCostCurrency',
+  // Sold side.
+  'soldBreakdownJson',
+  'soldRate',
+  'soldCurrency',
+  // Appended source files.
+  'artifactsJson',
+] as const satisfies readonly (keyof ShipmentRow)[];
+
+/** Snapshot of the mutable columns captured before an intake merge. */
+export type MergePreState = Partial<
+  Pick<ShipmentRow, (typeof MERGE_MUTABLE_COLUMNS)[number]>
+>;
+
+/**
+ * Capture the pre-merge value of every column the intake merge can touch, so a
+ * single "undo import" can restore the row exactly. Missing values are stored
+ * as null (not omitted) so the restore is a faithful overwrite.
+ */
+export function snapshotMergePreState(row: ShipmentRow): MergePreState {
+  const out: Record<string, unknown> = {};
+  for (const col of MERGE_MUTABLE_COLUMNS) {
+    out[col] = (row as Record<string, unknown>)[col] ?? null;
+  }
+  return out as MergePreState;
+}
+
+/**
+ * Restore a shipment's mutable columns to a previously captured snapshot
+ * (the "undo import" for a MERGE). Writes ONLY the snapshotted columns via a
+ * direct db.update — this bypasses updateShipment's EDITABLE_FIELDS filter,
+ * which excludes the jsonb breakdown/checklist/artifact columns. Recomputes
+ * nothing: totals and breakdowns are restored verbatim.
+ */
+export async function restoreShipmentSnapshot(
+  refId: string,
+  preState: MergePreState
+): Promise<ShipmentRow | null> {
+  await ensureShipmentColumns();
+  const db = createDbClient();
+  const set: Record<string, unknown> = {};
+  for (const col of MERGE_MUTABLE_COLUMNS) {
+    if (Object.prototype.hasOwnProperty.call(preState, col)) {
+      set[col] = (preState as Record<string, unknown>)[col] ?? null;
+    }
+  }
+  if (Object.keys(set).length === 0) return getShipment(refId);
+  set.updatedAt = new Date();
+  const [row] = await db
+    .update(shipments)
+    .set(set)
+    .where(eq(shipments.refId, refId))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteShipment(refId: string): Promise<boolean> {
   const db = createDbClient();
   const result = await db

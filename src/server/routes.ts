@@ -101,6 +101,9 @@ import {
   renameRefId,
   deleteShipment,
   getShipment,
+  snapshotMergePreState,
+  restoreShipmentSnapshot,
+  type MergePreState,
 } from '../db/shipmentBoard.js';
 import { legacyScalarToArray } from '../db/shipmentStatus.js';
 import {
@@ -3207,6 +3210,10 @@ export function registerApiRoutes(app: Express): void {
 
       const rawFiles = files as RawIntakeFile[];
       if (decision.action === 'merge') {
+        // Snapshot the target row BEFORE the merge so a single "undo import"
+        // can restore every mutated column verbatim.
+        const preRow = await getShipment(decision.refId);
+        const preState = preRow ? snapshotMergePreState(preRow) : null;
         const merged = await mergeFromBriefing({
           refId: decision.refId,
           briefing,
@@ -3221,6 +3228,7 @@ export function registerApiRoutes(app: Express): void {
             ephemeral,
             merged: true,
             mergedInto: decision.refId,
+            revert: { action: 'merge', refId: decision.refId, preState },
           });
           return;
         }
@@ -3234,7 +3242,12 @@ export function registerApiRoutes(app: Express): void {
         ephemeral,
         refId: forcedRef,
       });
-      res.json({ shipment: created, briefing, ephemeral });
+      res.json({
+        shipment: created,
+        briefing,
+        ephemeral,
+        revert: { action: 'create', refId: created.refId },
+      });
     } catch (err) {
       console.error('[api/shipments/parse] error:', err);
       res.status(500).json({
@@ -3275,12 +3288,22 @@ export function registerApiRoutes(app: Express): void {
           res.status(400).json({ error: 'refId is required to merge.' });
           return;
         }
+        // Snapshot before the merge so this user-confirmed merge is revertible.
+        const preRow = await getShipment(refId);
+        const preState = preRow ? snapshotMergePreState(preRow) : null;
         const row = await mergeFromBriefing({ refId, briefing, files, fxRates, ephemeral });
         if (!row) {
           res.status(404).json({ error: `Shipment ${refId} not found.` });
           return;
         }
-        res.json({ shipment: row, briefing, ephemeral, merged: true, mergedInto: refId });
+        res.json({
+          shipment: row,
+          briefing,
+          ephemeral,
+          merged: true,
+          mergedInto: refId,
+          revert: { action: 'merge', refId, preState },
+        });
         return;
       }
       const extractedRef = (briefing.our_reference_number ?? '').trim();
@@ -3292,9 +3315,65 @@ export function registerApiRoutes(app: Express): void {
         ephemeral,
         refId: refMatchesPattern ? extractedRef.toUpperCase() : undefined,
       });
-      res.json({ shipment: row, briefing, ephemeral });
+      res.json({
+        shipment: row,
+        briefing,
+        ephemeral,
+        revert: { action: 'create', refId: row.refId },
+      });
     } catch (err) {
       console.error('[api/shipments/parse-commit] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * Undo the single most-recent shipment import. The parse / parse-commit
+   * responses hand the client a `revert` payload; POSTing it back here reverses
+   * exactly that import:
+   *   action:'create' -> hard-delete the just-created shipment row.
+   *   action:'merge'  -> restore the target row's snapshotted columns verbatim
+   *                      (no recompute). Newly-stored source files may be left
+   *                      orphaned in object storage but are detached from the row.
+   * Body: { action:'create'|'merge', refId:string, preState?:MergePreState }.
+   */
+  app.post('/api/shipments/intake/revert', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      action?: 'create' | 'merge';
+      refId?: string;
+      preState?: MergePreState | null;
+    };
+    const action = body.action === 'merge' ? 'merge' : 'create';
+    const refId = String(body.refId ?? '').trim();
+    if (!refId) {
+      res.status(400).json({ error: 'refId is required to revert an import.' });
+      return;
+    }
+    try {
+      if (action === 'create') {
+        const ok = await deleteShipment(refId);
+        if (!ok) {
+          res.status(404).json({ error: `Shipment ${refId} not found (already reverted?).` });
+          return;
+        }
+        res.json({ ok: true, action: 'create', refId });
+        return;
+      }
+      // action === 'merge'
+      if (!body.preState || typeof body.preState !== 'object') {
+        res.status(400).json({ error: 'preState is required to revert a merge.' });
+        return;
+      }
+      const row = await restoreShipmentSnapshot(refId, body.preState);
+      if (!row) {
+        res.status(404).json({ error: `Shipment ${refId} not found.` });
+        return;
+      }
+      res.json({ ok: true, action: 'merge', refId, shipment: row });
+    } catch (err) {
+      console.error('[api/shipments/intake/revert] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });
