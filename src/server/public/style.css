@@ -1824,6 +1824,22 @@ body.is-panel-dragging * {
   color: #ff6b6b;
   background: rgba(255, 107, 107, 0.1);
 }
+/* One-click transfer of a line to the other side (Cost↔Sell). */
+.cost-breakdown .cost-line-move {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.cost-breakdown .cost-line-move:hover {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.6);
+}
 /* Existing line in click-to-edit mode. */
 .cost-breakdown .cost-line-clickable {
   cursor: pointer;
