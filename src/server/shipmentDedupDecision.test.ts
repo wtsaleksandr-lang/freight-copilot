@@ -60,9 +60,20 @@ test('none: empty signals against empty board -> create new', () => {
   assert.equal(decision.action, 'create');
 });
 
-test('ambiguous: shared shipper + container -> clarify with candidate options', () => {
+test('weak single-signal overlap -> create, no prompt', () => {
+  // shipper + container = 28, below the ambiguity floor: recurs across genuinely
+  // different freight shipments, so it must NOT raise the merge prompt anymore.
   const decision = decideShipmentIntake(
     { shipperName: 'ABC Machinery', containerType: '40HC' },
+    rows
+  );
+  assert.equal(decision.action, 'create');
+});
+
+test('ambiguous: strong multi-field tie -> clarify with candidate options', () => {
+  // shipper + receiver + POL match BOTH rows equally (58 each) — a real "which?"
+  const decision = decideShipmentIntake(
+    { shipperName: 'ABC Machinery', receiverName: 'Port Client', pol: 'Montreal' },
     rows
   );
   assert.equal(decision.action, 'clarify');

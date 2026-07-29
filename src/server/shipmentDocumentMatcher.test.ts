@@ -20,8 +20,20 @@ test('exact booking reference is decisive despite punctuation', () => {
   if (result.status === 'matched') assert.equal(result.match.shipment.refId, 'S00011');
 });
 
-test('shared evidence returns ambiguous candidates', () => {
+test('weak single-signal overlap does NOT prompt (silently create)', () => {
+  // shipper + container = 28, below the ambiguity floor — this combination
+  // recurs across genuinely different freight shipments, so it must not prompt.
   const result = chooseShipmentMatch({ shipperName: 'ABC Machinery', containerType: '40HC' }, rows);
+  assert.equal(result.status, 'none');
+});
+
+test('strong multi-field consensus with no clear winner returns ambiguous', () => {
+  // shipper + receiver + POL all match BOTH rows equally (58 each) — a genuine
+  // "which one?" that is worth asking about.
+  const result = chooseShipmentMatch(
+    { shipperName: 'ABC Machinery', receiverName: 'Port Client', pol: 'Montreal' },
+    rows
+  );
   assert.equal(result.status, 'ambiguous');
 });
 

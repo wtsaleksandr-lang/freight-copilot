@@ -59,6 +59,14 @@ export function chooseShipmentMatch(signals: ShipmentSignals, rows: MatchableShi
   const first = ranked[0];
   const second = ranked[1];
   if (!first) return { status: 'none' as const, ranked };
+  // Don't raise the "might already exist" prompt on weak, single-signal overlaps
+  // (same customer alone = 35, same POL+POD = 36, same shipper+container = 28…).
+  // In freight those repeat constantly across genuinely different shipments, so
+  // asking every time is noise. Only a real multi-field consensus (>= FLOOR) is
+  // worth interrupting for; strong IDs (booking 100 / internalRef 200) still go
+  // decisive below and real duplicates still auto-merge.
+  const AMBIGUOUS_FLOOR = 45;
+  if (first.score < AMBIGUOUS_FLOOR) return { status: 'none' as const, ranked: [] };
   const decisive = first.score >= 100 || (first.score >= 45 && (!second || first.score - second.score >= 20));
   return decisive
     ? { status: 'matched' as const, match: first, ranked }
