@@ -37,6 +37,9 @@ const CLIENT_SCRIPTS = [
   // Publishes the LoadModeDeadlineUrgency global; must load before app.js,
   // which calls it while rendering deadline date cells.
   'deadline-urgency.js',
+  // Publishes the LoadModeUndoStack global; must load before app.js,
+  // which reads it when opening the breakdown editor.
+  'undo-stack.js',
   'app.js',
   'progressive-disclosure-ui.js',
   'universal-rate-ingestion-ui.js',

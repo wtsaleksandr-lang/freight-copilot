@@ -1779,6 +1779,34 @@ body.is-panel-dragging * {
   border-radius: 3px;
 }
 .compact-panel-close:hover { color: #fff; background: rgba(255,255,255,0.06); }
+/* Undo/redo controls in the breakdown panel header. Pushed to the
+   right so the title stays left and the cluster sits next to the ✕. */
+.bd-history-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 4px;
+}
+.bd-history-actions button {
+  background: transparent;
+  border: 1px solid #333;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.bd-history-actions button:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #555;
+}
+.bd-history-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .compact-panel-body {
   padding: 10px 12px;
   overflow: auto;
