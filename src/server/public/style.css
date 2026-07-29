@@ -1283,6 +1283,11 @@ label.check-line input[type="checkbox"] {
   user-select: none;
   scroll-behavior: smooth;
   border-radius: 4px;
+  /* Keep the spreadsheet tall: at least ~11 rows visible (min-height beats any
+     flex-shrink from the parent that was squishing it to ~4 rows), and it grows
+     with content up to most of the viewport before scrolling internally. */
+  min-height: 440px;
+  max-height: 78vh;
   /* The JS drag-to-pan (app.js, pointer events + capture) is the SOLE owner of
      drag gestures here. Without this the browser also runs its own native
      touch/inertial pan on the same gesture and the two fight over scrollLeft

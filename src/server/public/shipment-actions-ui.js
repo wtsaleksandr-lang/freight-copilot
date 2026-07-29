@@ -18,6 +18,33 @@
     });
   }
 
+  // Position the menu with FIXED coordinates so it escapes the table's
+  // overflow:auto clipping (it was trapped inside the scroll box) and can open
+  // ABOVE the trigger when there isn't room below. Measured while hidden-visible.
+  function positionActionMenu(trigger, menu) {
+    menu.style.position = 'fixed';
+    menu.style.right = 'auto';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.style.visibility = 'hidden';
+    const m = menu.getBoundingClientRect();
+    const t = trigger.getBoundingClientRect();
+    const pad = 6;
+    let top = t.bottom + 5;
+    if (top + m.height > window.innerHeight - pad) {
+      top = Math.max(pad, t.top - m.height - 5); // flip up near the bottom edge
+    }
+    let left = t.right - m.width; // right-align to the trigger
+    if (left < pad) left = pad;
+    if (left + m.width > window.innerWidth - pad) left = window.innerWidth - m.width - pad;
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.visibility = '';
+  }
+  // A fixed menu doesn't move with the sheet, so close it on scroll/resize.
+  window.addEventListener('scroll', () => closeMenus(), true);
+  window.addEventListener('resize', () => closeMenus());
+
   function openShipmentTools() {
     document.getElementById('shipment-tools-details')?.setAttribute('open', '');
   }
@@ -65,6 +92,7 @@
       closeMenus(menu);
       menu.hidden = !opening;
       trigger.setAttribute('aria-expanded', String(opening));
+      if (opening) positionActionMenu(trigger, menu);
     });
     menu.addEventListener('click', async (event) => {
       event.stopPropagation();
