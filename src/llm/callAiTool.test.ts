@@ -120,7 +120,7 @@ test('default (Gemini) config routes callAiTool to the Gemini endpoint, never An
   assert.equal(out.via, 'gemini');
   assert.equal(calls.length, 1);
   assert.ok(calls[0]!.url.includes(GEMINI_HOST), 'should hit the Gemini endpoint');
-  assert.ok(calls[0]!.url.includes('gemini-2.5-flash'), 'should use the default gemini model id in the URL');
+  assert.ok(calls[0]!.url.includes('gemini-flash-latest'), 'should use the default gemini model id in the URL');
   // The core bug: a gemini model id must NEVER reach the Anthropic client.
   assert.ok(!calls.some((c) => c.url.includes(ANTHROPIC_HOST)), 'must not call Anthropic on the default config');
 });
