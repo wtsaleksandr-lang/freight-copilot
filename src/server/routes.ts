@@ -2233,6 +2233,19 @@ export function registerApiRoutes(app: Express): void {
           return;
         }
 
+        // Never let a CARRIER rate sheet populate the Sell side. A carrier
+        // rate sheet is OUR cost only; our sell rate is an independent lump
+        // sum (set by the user, or parsed from the customer's OWN request) and
+        // is never equal to the carrier's charges. If the AI classified the
+        // dropped document as a carrier rate sheet, drop any sold_rate /
+        // sold_items it may have inferred from the carrier's line items — the
+        // cost side is still applied below.
+        if (briefing.document_type === 'carrier_rate_sheet') {
+          briefing.sold_rate = null;
+          briefing.sold_currency = null;
+          briefing.sold_items = [];
+        }
+
         // Merge: only fill in fields the row doesn't already have a
         // value for. Don't clobber user edits.
         // In money mode the field map is narrowed to just the money-
@@ -2516,7 +2529,7 @@ export function registerApiRoutes(app: Express): void {
       }
       const body = (req.body ?? {}) as {
         side?: 'cost' | 'sold';
-        op?: 'add' | 'remove' | 'update' | 'set-total';
+        op?: 'add' | 'remove' | 'update' | 'set-total' | 'transfer';
         index?: number;
         item?: { name?: string; amount?: number; currency?: string };
         amount?: number; // for set-total
@@ -2529,10 +2542,11 @@ export function registerApiRoutes(app: Express): void {
         op !== 'add' &&
         op !== 'remove' &&
         op !== 'update' &&
-        op !== 'set-total'
+        op !== 'set-total' &&
+        op !== 'transfer'
       ) {
         res.status(400).json({
-          error: 'op must be add | remove | update | set-total',
+          error: 'op must be add | remove | update | set-total | transfer',
         });
         return;
       }
@@ -2575,6 +2589,80 @@ export function registerApiRoutes(app: Express): void {
           sourceFile: 'reconciled',
           addedAt: new Date().toISOString(),
         });
+      }
+
+      // Transfer: move one line item from this side to the OTHER side (Cost↔
+      // Sell) in a single write, fixing the AI's occasional mis-bucketing.
+      // Both totals are recomputed as the exact sum of their items.
+      if (op === 'transfer') {
+        const idx = Number(body.index);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= oldBreakdown.length) {
+          res.status(400).json({ error: 'invalid index' });
+          return;
+        }
+        const moved = next[idx];
+        if (!moved) {
+          res.status(400).json({ error: 'invalid index' });
+          return;
+        }
+        // Remove from the FROM side (`next` = reconciled from-side breakdown).
+        next.splice(idx, 1);
+
+        // Build the TO side, reconciling its own orphan delta first so its
+        // total also stays exactly sum(items).
+        const toSide = side === 'cost' ? 'sold' : 'cost';
+        const toBreakKey =
+          toSide === 'cost' ? 'costBreakdownJson' : 'soldBreakdownJson';
+        const toTotalKey = toSide === 'cost' ? 'ourCost' : 'soldRate';
+        const toCurKey = toSide === 'cost' ? 'ourCostCurrency' : 'soldCurrency';
+        const toBreakdown = (
+          (existing[toBreakKey] ?? []) as typeof oldBreakdown
+        ).slice();
+        const toSum = toBreakdown.reduce((s, c) => s + (c.amount || 0), 0);
+        const toStored =
+          typeof existing[toTotalKey] === 'number'
+            ? (existing[toTotalKey] as number)
+            : toSum;
+        const toCurrency = (existing[toCurKey] as string | null) || 'USD';
+        const toOrphan = toStored - toSum;
+        if (toBreakdown.length > 0 && Math.abs(toOrphan) > 0.005) {
+          toBreakdown.push({
+            name: 'Previous adjustment',
+            amount: Math.round(toOrphan * 100) / 100,
+            currency: toCurrency,
+            sourceFile: 'reconciled',
+            addedAt: new Date().toISOString(),
+          });
+        }
+        toBreakdown.push({
+          name: moved.name,
+          amount: moved.amount,
+          currency: moved.currency || 'USD',
+          sourceFile: moved.sourceFile || 'transferred',
+          addedAt: new Date().toISOString(),
+        });
+
+        const fromTotalT = next.reduce((s, c) => s + (c.amount || 0), 0);
+        const toTotalT = toBreakdown.reduce((s, c) => s + (c.amount || 0), 0);
+
+        const dbT = createDbClient();
+        const { shipments: shipmentsTblT } = await import('../db/schema.js');
+        await dbT
+          .update(shipmentsTblT)
+          .set({
+            [breakdownKey]: next.length > 0 ? next : null,
+            [totalKey]: next.length > 0 ? fromTotalT : null,
+            [currencyKey]: defaultCurrency,
+            [toBreakKey]: toBreakdown.length > 0 ? toBreakdown : null,
+            [toTotalKey]: toBreakdown.length > 0 ? toTotalT : null,
+            [toCurKey]: toCurrency,
+            updatedAt: new Date(),
+          })
+          .where(eq(shipmentsTblT.refId, refId));
+
+        const finalT = await getShipment(refId);
+        res.json({ shipment: finalT });
+        return;
       }
 
       if (op === 'add') {

@@ -7137,6 +7137,7 @@ function formatMoney(n, cur) {
                 return `<div class="cost-line cost-line-clickable" data-i="${i}" title="Click to edit">
                   <span class="cost-line-name">${esc(it.name || '—')}</span>
                   <span class="cost-line-amount">${esc(amt)}</span>${src}
+                  <button type="button" class="cost-line-move" data-i="${i}" title="Move this amount to the ${isCost ? 'Sell' : 'Cost'} side">→ ${isCost ? 'Sell' : 'Cost'}</button>
                   <button type="button" class="cost-line-remove" data-i="${i}" title="Remove">✕</button>
                 </div>`;
               })
@@ -7196,11 +7197,23 @@ function formatMoney(n, cur) {
         });
       });
 
+      // Transfer a mis-bucketed line to the other side (Cost↔Sell) in one
+      // click — server moves the item and recomputes both totals.
+      wrap.querySelectorAll('.cost-line-move').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const idx = Number(btn.getAttribute('data-i'));
+          await mutate({ side, op: 'transfer', index: idx });
+        });
+      });
+
       // Click an existing line to edit it inline (name, amount,
       // optional × N container multiply).
       wrap.querySelectorAll('.cost-line-clickable').forEach((row) => {
         row.addEventListener('click', (e) => {
           if (e.target.closest('.cost-line-remove')) return;
+          if (e.target.closest('.cost-line-move')) return;
           const idx = Number(row.getAttribute('data-i'));
           if (!Number.isInteger(idx)) return;
           editingIndex = idx;

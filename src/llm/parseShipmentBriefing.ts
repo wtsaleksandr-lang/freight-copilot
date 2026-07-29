@@ -28,6 +28,8 @@ Target fields (all optional — leave null if not stated):
 - container_quantity: how many containers in this shipment, as an integer. Look for "Quantity x 3", "3 x 40HC", "Container quantity: 2", "Qty: 5", or simply "3 x 40HC" in a heading. If the document only mentions one container or doesn't state a quantity, return 1. This number drives all per-container math — when set to N, every per-container line item in cost_items must be multiplied by N.
 - cargo_type: 'general' / 'hazmat' / 'reefer' / 'oog' (out-of-gauge) / 'high_value'. Default 'general' unless explicitly stated.
 - cargo_name: human-readable description of what's being shipped (e.g. "auto parts", "frozen seafood", "machinery", "personal effects"). Free text.
+- document_type: classify the SINGLE best-fitting kind of this document: 'carrier_rate_sheet' (a rate/quote FROM an ocean carrier, NVOCC, or co-loader listing THEIR charges — Maersk/CMA/MSC/etc. rate emails, FAK tariffs, spot quotes; this is OUR cost), 'client_request' (a customer asking US for a quote), 'invoice' (a bill), 'mixed' (clearly contains BOTH a customer request and carrier costs), or 'other'.
+  CRITICAL: when document_type is 'carrier_rate_sheet', leave sold_rate, sold_currency AND sold_items ALL null/empty, and put every carrier charge in cost_items ONLY. A carrier's charges are our COST, never our sell price — our sell rate is an independent lump sum we set ourselves and is never equal to the carrier's numbers. Do NOT copy or sum carrier line items into the sell side.
 - sold_rate: the price quoted to the customer in numeric form (no currency symbol). If multiple rates appear (e.g. one per container size), pick the one that's clearly "the agreed rate" or highest-priority — use notes for the rest.
   When multiple components add up to the customer-facing total (e.g. base ocean freight + export-declaration fee + customer-side markup), set sold_rate to the SUM of those components, and itemise them in sold_items below.
 - sold_currency: 'USD' / 'CAD' / 'EUR' / 'GBP' / etc. Default 'USD'.
@@ -168,6 +170,13 @@ const ShipmentSchema = z.object({
     .default([])
     .optional(),
   notes: z.string().nullable().optional(),
+  // Coarse classification of the dropped document so downstream code can gate
+  // behaviour. Specifically: a 'carrier_rate_sheet' must NEVER populate the
+  // Sell side (see the gate in the /parse route) — it is our cost only.
+  document_type: z
+    .enum(['carrier_rate_sheet', 'client_request', 'invoice', 'mixed', 'other'])
+    .nullable()
+    .optional(),
   questions: z.array(QuestionSchema).default([]).optional(),
 });
 
