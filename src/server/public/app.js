@@ -5204,6 +5204,8 @@ function formatMoney(n, cur) {
     wireRefCopy();
     wireRowResize();
     wireBodyColumnResize();
+    wirePreviewExpand();
+    previewTr = null; // the old expanded <tr> was just replaced by this re-render
     // After the body + column widths are in the DOM, fit each cell's text to its
     // column (wrap→shrink-font→clip). rAF so layout is settled before measuring.
     requestAnimationFrame(fitAllCells);
@@ -6730,6 +6732,68 @@ function formatMoney(n, cur) {
   function fitAllCells() {
     if (!table) return;
     table.querySelectorAll('tbody td[data-field]').forEach(fitCell);
+  }
+
+  // ── Click-to-preview row expand ─────────────────────────────────────────────
+  // Click a cell to temporarily reveal a row's FULL content (the width auto-fit
+  // otherwise wraps/shrinks/clips it). The row grows to fit; as soon as the user
+  // clicks anywhere else it snaps back to its normal fitted height. Never
+  // persisted, never touches saved row heights, and skipped for manually-resized
+  // rows (they own their height).
+  let previewTr = null;
+  function collapseRowPreview() {
+    if (!previewTr) return;
+    const tr = previewTr;
+    previewTr = null;
+    tr.classList.remove('is-row-preview');
+    // Restore the width-fit (re-clips / re-scales the cells).
+    tr.querySelectorAll(':scope > td[data-field]').forEach(fitCell);
+  }
+  function expandRowPreview(tr) {
+    if (!tr || previewTr === tr) return;
+    collapseRowPreview();
+    if (
+      tr.classList.contains('is-min-height') ||
+      tr.classList.contains('is-custom-height')
+    ) {
+      return; // a manually-sized row keeps its chosen height
+    }
+    // Clear the fit's inline caps so the cells show everything.
+    tr.querySelectorAll(':scope > td[data-field]').forEach((td) => {
+      td.style.removeProperty('font-size');
+      const clip = td.querySelector(':scope > .cell-clip');
+      if (clip) {
+        ['display', 'max-height', 'overflow', 'white-space', 'text-overflow'].forEach(
+          (p) => clip.style.removeProperty(p)
+        );
+      }
+    });
+    tr.classList.add('is-row-preview');
+    previewTr = tr;
+  }
+  function wirePreviewExpand() {
+    if (table.__previewWired) return;
+    table.__previewWired = true;
+    // Expand the clicked row (skip while editing / on the resize edge zones).
+    table.addEventListener('click', (e) => {
+      if (document.body.classList.contains('is-row-resizing')) return;
+      const td = e.target.closest('td[data-field]');
+      const tr = td && td.closest('tr.ship-body-row');
+      if (!tr || td.classList.contains('is-editing')) return;
+      if (e.target.closest('input,textarea,select,button')) return;
+      expandRowPreview(tr);
+    });
+    // Any click outside the expanded row collapses it (capture so it runs first).
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (previewTr && !previewTr.contains(e.target)) collapseRowPreview();
+      },
+      true
+    );
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') collapseRowPreview();
+    });
   }
 
   // Shared column-resize drag — used by BOTH the header handle and the body-cell
