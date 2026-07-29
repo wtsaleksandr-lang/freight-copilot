@@ -56,19 +56,36 @@ export function rankShipmentMatches(signals: ShipmentSignals, rows: MatchableShi
 
 export function chooseShipmentMatch(signals: ShipmentSignals, rows: MatchableShipment[]) {
   const ranked = rankShipmentMatches(signals, rows);
+  // HARD IDENTITY is the ONLY signal allowed to AUTO-MERGE. A shipment is "the
+  // same" one already on the board only when a hard reference matches: our
+  // internal S0xxxx ref, or the carrier booking / BL number. These come straight
+  // off the email subject line / booking number and uniquely identify a
+  // shipment. Soft signals (same client, shipper, receiver, lane, container)
+  // NEVER auto-merge — they recur constantly across genuinely different
+  // shipments (repeat business on the same lane), which is exactly what caused
+  // wrong silent merges.
+  const hardMatch = ranked.find(
+    (r) =>
+      same(signals.internalRef, r.shipment.refId) ||
+      same(signals.bookingRef, r.shipment.bookingRef)
+  );
+  if (hardMatch) return { status: 'matched' as const, match: hardMatch, ranked };
+
+  // A hard reference WAS provided but matched nothing on the board → this is
+  // definitively a NEW shipment. Do not merge, and do not even prompt on soft
+  // overlaps: an unmatched booking ref / internal ref is proof it isn't already
+  // here. (This is the rule Alex asked for: strictly follow subject line +
+  // booking reference — if present and unmatched, it can't be an existing row.)
+  const hasHardId = Boolean(norm(signals.internalRef) || norm(signals.bookingRef));
+  if (hasHardId) return { status: 'none' as const, ranked: [] };
+
+  // No hard reference at all → fall back to SOFT matching, but only ever ASK
+  // (ambiguous → the clarify prompt); never auto-merge. Below the consensus
+  // floor, just create a new shipment silently.
   const first = ranked[0];
-  const second = ranked[1];
-  if (!first) return { status: 'none' as const, ranked };
-  // Don't raise the "might already exist" prompt on weak, single-signal overlaps
-  // (same customer alone = 35, same POL+POD = 36, same shipper+container = 28…).
-  // In freight those repeat constantly across genuinely different shipments, so
-  // asking every time is noise. Only a real multi-field consensus (>= FLOOR) is
-  // worth interrupting for; strong IDs (booking 100 / internalRef 200) still go
-  // decisive below and real duplicates still auto-merge.
   const AMBIGUOUS_FLOOR = 45;
-  if (first.score < AMBIGUOUS_FLOOR) return { status: 'none' as const, ranked: [] };
-  const decisive = first.score >= 100 || (first.score >= 45 && (!second || first.score - second.score >= 20));
-  return decisive
-    ? { status: 'matched' as const, match: first, ranked }
-    : { status: 'ambiguous' as const, ranked: ranked.slice(0, 5) };
+  if (!first || first.score < AMBIGUOUS_FLOOR) {
+    return { status: 'none' as const, ranked: [] };
+  }
+  return { status: 'ambiguous' as const, ranked: ranked.slice(0, 5) };
 }
