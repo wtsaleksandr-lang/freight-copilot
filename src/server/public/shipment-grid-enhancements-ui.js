@@ -383,6 +383,14 @@
               }
             } catch { /* quota / private mode — ignore */ }
           }
+          // Ask app.js to re-fit this column's cell text to its new width
+          // (wrap → shrink-font → clip). app.js owns the fit logic + row-height
+          // state, so we signal it by event rather than duplicate it here.
+          try {
+            table.dispatchEvent(
+              new CustomEvent('ship:colfit', { detail: { key } })
+            );
+          } catch { /* older browsers without CustomEvent ctor — skip */ }
         };
         document.addEventListener('pointermove', move);
         document.addEventListener('pointerup', finish, { once: true });
