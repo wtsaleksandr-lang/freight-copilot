@@ -907,6 +907,64 @@ function dznFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+// ── In-progress draft persistence ──────────────────────────────────────────
+// Tabs are hide-not-destroy (activateTab only toggles `.tab-pane.active`), so a
+// widget's in-memory state already survives an in-app tab switch. What does NOT
+// survive is a full page reload / app re-open (Replit preview refresh, PWA
+// relaunch), which rebuilds the DOM from index.html and drops every unsent
+// textarea/input value AND every staged File. This helper:
+//   • mirrors in-progress TEXT into localStorage (survives reload; debounced),
+//   • keeps staged File objects in a session-lived, module-level in-memory stash
+//     keyed by dropzone id (a File can't be serialized to localStorage — this
+//     survives every tab switch and any widget re-init; a page reload dropping
+//     unsent files is the accepted trade-off).
+// Nothing here clears state on tab hide/show — it only clears a draft when the
+// widget is cleared or its content is successfully submitted/used.
+const FreightDrafts = (function () {
+  const TEXT_PREFIX = 'freight.draft.';
+  const fileStash = new Map(); // stashKey -> File[]
+  const key = (scope, field) => `${TEXT_PREFIX}${scope}.${field}`;
+  function saveText(scope, field, val) {
+    try {
+      if (val != null && String(val).trim() !== '')
+        localStorage.setItem(key(scope, field), String(val));
+      else localStorage.removeItem(key(scope, field));
+    } catch (_) { /* private mode / quota */ }
+  }
+  function loadText(scope, field) {
+    try { return localStorage.getItem(key(scope, field)); } catch (_) { return null; }
+  }
+  function clearText(scope, field) {
+    try { localStorage.removeItem(key(scope, field)); } catch (_) { /* ignore */ }
+  }
+  function debounce(fn, ms) {
+    let t;
+    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+  // Restore a saved value into a text input/textarea/select (only when the field
+  // is still empty, so a programmatic prefill or user edit is never clobbered),
+  // then persist future user input. Returns a small handle with clear().
+  function wireText(el, scope, field) {
+    if (!el) return { clear() {} };
+    const saved = loadText(scope, field);
+    if (saved != null && saved !== '' && (el.value == null || String(el.value).trim() === '')) {
+      el.value = saved;
+    }
+    const save = debounce(() => saveText(scope, field, el.value), 300);
+    el.addEventListener('input', save);
+    el.addEventListener('change', save);
+    return { clear: () => clearText(scope, field) };
+  }
+  // Session file stash (memory only — no serialization).
+  function getFiles(k) { return fileStash.get(k) || null; }
+  function setFiles(k, files) {
+    if (files && files.length) fileStash.set(k, files.slice());
+    else fileStash.delete(k);
+  }
+  function clearFiles(k) { fileStash.delete(k); }
+  return { wireText, saveText, loadText, clearText, getFiles, setFiles, clearFiles };
+})();
+
 function createDropzoneWithNotes(opts) {
   const { mount, onSubmit } = opts;
   if (!mount) throw new Error('createDropzoneWithNotes: mount is required');
@@ -941,6 +999,13 @@ function createDropzoneWithNotes(opts) {
   const submitEl = mount.querySelector('.dzn-submit');
   const statusEl = mount.querySelector('.dzn-status');
 
+  // Key for persisted drafts (notes text + in-memory staged files). Prefer the
+  // mount's id (stable per intake); fall back to an explicit opts.draftScope.
+  const stashKey = mount.id || opts.draftScope || 'dzn';
+  // Rehydrate any files staged earlier this session (survives widget re-init).
+  const stashedFiles = FreightDrafts.getFiles(stashKey);
+  if (stashedFiles && stashedFiles.length) pendingFiles = stashedFiles.slice();
+
   function status(msg, kind, spin) {
     statusEl.className = 'status-inline ' + (kind || '');
     if (spin) {
@@ -952,6 +1017,9 @@ function createDropzoneWithNotes(opts) {
   }
 
   function renderPending() {
+    // Mirror the live staged-file list into the session stash so it survives a
+    // tab switch / widget re-init (cleared here too when the list empties).
+    FreightDrafts.setFiles(stashKey, pendingFiles);
     if (pendingFiles.length === 0) {
       pendingEl.hidden = true;
       pendingEl.innerHTML = '';
@@ -1089,6 +1157,12 @@ function createDropzoneWithNotes(opts) {
     }
   });
 
+  // Restore an in-progress notes draft (localStorage) and paint any rehydrated
+  // files into the pending list. wireText only restores into an empty field, so
+  // it never clobbers a value already present.
+  const notesDraft = FreightDrafts.wireText(notesEl, stashKey, 'notes');
+  if (pendingFiles.length) renderPending();
+
   return {
     el: mount,
     notesEl,
@@ -1100,7 +1174,8 @@ function createDropzoneWithNotes(opts) {
     clear() {
       pendingFiles = [];
       notesEl.value = '';
-      renderPending();
+      renderPending(); // also clears the file stash (list is now empty)
+      notesDraft.clear(); // drop the persisted notes draft
       status('', '');
     },
   };
@@ -2010,6 +2085,16 @@ registerMisdropSurface('ocean-intake', {
   focus: () =>
     ocIntake.el.scrollIntoView({ behavior: 'smooth', block: 'center' }),
 });
+
+// Persist the visible Ocean quote inputs the user types/picks into, so a page
+// reload (or any re-init) restores an in-progress quote. These fields are the
+// standing basis of the quote — there is no destructive "clear form" step — so
+// they are restored-on-load and never auto-wiped; new input just overwrites the
+// draft. (Programmatic AI-extract prefills fire no 'input' event, by design:
+// only what the user actually typed is remembered.)
+['from', 'to', 'container', 'weight', 'commodity', 'cargo-type'].forEach((id) =>
+  FreightDrafts.wireText(document.getElementById(id), 'ocean.form', id)
+);
 
 document.getElementById('reply-copy-btn').addEventListener('click', async () => {
   const ta = document.getElementById('reply-text');
@@ -4745,6 +4830,9 @@ function formatMoney(n, cur) {
     });
   }
   function refreshDropState() {
+    // Mirror staged files into the session stash (survives tab switch / re-init;
+    // cleared automatically after a successful import sets pendingFiles = []).
+    FreightDrafts.setFiles('ship-dropzone', pendingFiles);
     parseBtn.disabled = pendingFiles.length === 0;
     parseBtn.textContent =
       pendingFiles.length > 0
@@ -4820,6 +4908,13 @@ function formatMoney(n, cur) {
     dropzone.classList.remove('is-drag');
     ingestFiles(e.dataTransfer?.files);
   });
+  // Rehydrate any shipment files staged earlier this session (survives a tab
+  // switch to Ocean/Drayage/Settings and back, and any widget re-init).
+  const shipStashed = FreightDrafts.getFiles('ship-dropzone');
+  if (shipStashed && shipStashed.length) {
+    pendingFiles = shipStashed.slice();
+    refreshDropState();
+  }
   document.addEventListener('paste', (e) => {
     const tabActive = document
       .getElementById('tab-shipments')
