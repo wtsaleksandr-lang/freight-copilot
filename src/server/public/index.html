@@ -116,6 +116,10 @@
         <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
         <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI reads it all and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
         <div id="intake-dropzone"></div>
+        <div class="row">
+          <button class="gq-generate-btn primary" type="button">📝 Generate quote from the lane fields</button>
+          <span class="muted small">Uses saved rates for this lane if we have them, otherwise builds a blank-rate email you fill in.</span>
+        </div>
       </div>
 
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
@@ -133,6 +137,7 @@
 
         <div class="row">
           <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+          <button class="gq-generate-btn" type="button">📝 Generate quote from saved rates</button>
           <label id="sheet-keep-original-label" class="keep-original-toggle" title="By default the original file is kept only when it is a carrier rate sheet; customer quote-request screenshots are parsed then discarded. Tick this to always keep the original.">
             <input id="sheet-keep-original" type="checkbox" />
             <span>📌 Always keep original</span>
@@ -141,6 +146,21 @@
         </div>
 
         <div id="sheet-progress-list" class="rec-upload-progress"></div>
+      </div>
+
+      <!-- ─── Shared output for the "Generate Quote" buttons (both cards write
+           here). Reuses the reply-text/copy pattern. Wired by wireGenerateQuote
+           in app.js. ─── -->
+      <div id="gq-card" class="card" hidden>
+        <div class="card-header">
+          <h2>Generated quote email</h2>
+          <div id="gq-status" class="status-inline"></div>
+        </div>
+        <p id="gq-note" class="muted small" hidden></p>
+        <textarea id="gq-output" rows="12" placeholder="The generated quote email will appear here…"></textarea>
+        <div class="row">
+          <button id="gq-copy-btn" class="link-btn" type="button">📋 Copy to clipboard</button>
+        </div>
       </div>
 
       <div class="card">

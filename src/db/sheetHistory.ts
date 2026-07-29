@@ -1,7 +1,8 @@
-import { desc, eq, like, or } from 'drizzle-orm';
+import { and, desc, eq, like, or } from 'drizzle-orm';
 import { createDbClient } from './client.js';
 import { sheetUploads, sheetRates } from './schema.js';
 import type { RateSheetResult } from '../llm/parseRateSheet.js';
+import type { SheetReplyRow } from '../llm/generateReply.js';
 
 export interface SheetUploadRowInput {
   carrierCode: string;
@@ -258,6 +259,88 @@ export async function getSheetUploadDetail(
     exportDeclarationFee: u.exportDeclarationFee,
     results: u.rawResultsJson,
   };
+}
+
+/** Map one free-text container type to a coarse bucket for lane matching. */
+function laneContainerBucket(containerType: string): string | null {
+  const s = (containerType || '').toLowerCase();
+  const is40 = s.includes('40');
+  const is20 = s.includes('20');
+  const isHi =
+    s.includes('hq') ||
+    s.includes('hc') ||
+    s.includes('high') ||
+    s.includes('hi-cube') ||
+    s.includes('highcube');
+  if (is40 && isHi) return '40HQ';
+  if (is40) return '40GP';
+  if (is20) return '20GP';
+  return null;
+}
+
+/**
+ * Find saved rate rows for one lane, mapped to the SheetReplyRow shape the
+ * deterministic email generator consumes. Matching is case-insensitive against
+ * the pre-lowered `search_key` (which concatenates POL name + POL code + POD
+ * name + POD code), so callers can pass either codes (preferred) or names for
+ * `pol`/`pod`. When `container` is supplied the result is narrowed to the same
+ * container bucket (20GP / 40GP / 40HQ) IF that yields any match; otherwise all
+ * lane rows are returned so the user still sees the saved rates. Returns [] when
+ * the lane has no saved rates.
+ */
+export async function findSheetRatesByLane(
+  pol: string,
+  pod: string,
+  container?: string
+): Promise<SheetReplyRow[]> {
+  const origin = (pol ?? '').trim().toLowerCase();
+  const dest = (pod ?? '').trim().toLowerCase();
+  if (!origin || !dest) return [];
+
+  const db = createDbClient();
+  const found = await db
+    .select()
+    .from(sheetRates)
+    .where(
+      and(
+        like(sheetRates.searchKey, `%${origin}%`),
+        like(sheetRates.searchKey, `%${dest}%`)
+      )
+    );
+  if (found.length === 0) return [];
+
+  // Optional container narrowing — only if it keeps at least one row.
+  let rows = found;
+  const wantBucket = container ? laneContainerBucket(container) : null;
+  if (wantBucket) {
+    const narrowed = found.filter(
+      (r) => laneContainerBucket(r.containerType) === wantBucket
+    );
+    if (narrowed.length > 0) rows = narrowed;
+  }
+
+  return rows.map(
+    (r): SheetReplyRow => ({
+      carrier: r.carrierCode,
+      pol: r.pol,
+      polCode: r.polCode,
+      pod: r.pod,
+      podCode: r.podCode,
+      containerType: r.containerType,
+      transitDays: r.transitDays,
+      detentionFreetimeDays: r.detentionFreetimeDays,
+      demurrageFreetimeDays: r.demurrageFreetimeDays,
+      freightTotal: r.freightTotal,
+      freightCurrency: r.freightCurrency,
+      freightCharges: r.freightCharges ?? [],
+      destinationTotal: r.destinationTotal,
+      destinationCurrency: r.destinationCurrency,
+      destinationCharges: r.destinationCharges ?? [],
+      validityFrom: r.validityFrom,
+      validityTo: r.validityTo,
+      serviceName: r.serviceName,
+    })
+  );
 }
 
 /**

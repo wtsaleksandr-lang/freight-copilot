@@ -10062,3 +10062,96 @@ function esc(s) {
     if (typeof toast === 'function') toast('Defaults saved.', 'success');
   });
 })();
+
+// ---- Generate quote (saved-rate → fill deterministically; else blank-rate) ----
+// One shared handler behind the "Generate Quote" buttons in the client-request
+// card and the rate-sheet card. Reads the ocean quote form fields, POSTs
+// /api/quote/generate, and renders the email in the shared #gq-card output.
+(function wireGenerateQuote() {
+  const buttons = document.querySelectorAll('.gq-generate-btn');
+  if (!buttons.length) return;
+  const card = document.getElementById('gq-card');
+  const output = document.getElementById('gq-output');
+  const note = document.getElementById('gq-note');
+  const copyBtn = document.getElementById('gq-copy-btn');
+  if (!card || !output) return;
+
+  const val = (id) => document.getElementById(id)?.value.trim() || '';
+  const joinAddr = (prefix) =>
+    ['address', 'city', 'state', 'zip', 'country']
+      .map((s) => val(`${prefix}-${s}`))
+      .filter(Boolean)
+      .join(', ');
+
+  async function generate(btn) {
+    const pol = val('from');
+    const polCode = val('oc-origin-port-code');
+    const pod = val('to');
+    const podCode = val('oc-destination-port-code');
+    card.hidden = false;
+    if ((!pol && !polCode) || (!pod && !podCode)) {
+      setStatus(
+        'gq-status',
+        'Fill in origin (POL) and destination (POD) in the quote form first.',
+        'error'
+      );
+      return;
+    }
+    const payload = {
+      pol,
+      polCode,
+      pod,
+      podCode,
+      container: val('container'),
+      clientName: val('client-name') || undefined,
+      pickupAddress: joinAddr('oc-origin') || undefined,
+      deliveryAddress: joinAddr('oc-destination') || undefined,
+    };
+    btn.disabled = true;
+    setStatus('gq-status', 'Generating…', 'info', true);
+    try {
+      const r = await fetch('/api/quote/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'generation failed');
+      output.value = data.email;
+      if (data.usedRates) {
+        note.hidden = true;
+        note.textContent = '';
+        setStatus(
+          'gq-status',
+          `Used ${data.rateCount} saved rate${data.rateCount === 1 ? '' : 's'} for this lane.`,
+          'success'
+        );
+      } else {
+        note.hidden = false;
+        note.textContent =
+          'No saved rates for this lane — fill in the ____ rate amounts manually.';
+        setStatus('gq-status', 'Blank-rate email ready.', 'success');
+      }
+      output.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      setStatus('gq-status', err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  buttons.forEach((btn) => btn.addEventListener('click', () => generate(btn)));
+
+  copyBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      copyBtn.textContent = '✓ Copied';
+      setTimeout(() => (copyBtn.textContent = '📋 Copy to clipboard'), 1500);
+    } catch {
+      output.select();
+      if (typeof toast === 'function') {
+        toast('Clipboard write failed — text is selected for manual copy.', 'error');
+      }
+    }
+  });
+})();

@@ -105,6 +105,56 @@ test('tokens outside the vocabulary are left untouched (not fabricated)', () => 
   assert.equal(out, 'keep <ETD> and <VESSEL> literal');
 });
 
+test('blank-rate mode blanks rate tokens but keeps lane/identity tokens', () => {
+  const out = substituteTokens(
+    'POL:<POL> POD:<POD> Cntr:<CONTAINER> Client:<CLIENT> | Price:<PRICE> Carrier:<CARRIER> Transit:<TRANSIT> Dest:<DEST_CHARGES> Validity:<VALIDITY> 20:<20GP_PRICE> 40:<40GP_PRICE> HQ:<40HQ_PRICE>',
+    [
+      {
+        carrier: '',
+        pol: 'Shanghai',
+        polCode: 'CNSHA',
+        pod: 'Los Angeles',
+        podCode: 'USLAX',
+        containerType: '40HQ',
+        transitDays: null,
+        detentionFreetimeDays: null,
+        demurrageFreetimeDays: null,
+        freightTotal: 0,
+        freightCurrency: 'USD',
+        freightCharges: [],
+        destinationTotal: null,
+        destinationCurrency: null,
+        destinationCharges: [],
+        validityFrom: null,
+        validityTo: null,
+        serviceName: null,
+      },
+    ],
+    { blankRates: true, clientName: 'Acme Co' }
+  );
+  assert.equal(
+    out,
+    'POL:Shanghai (CNSHA) POD:Los Angeles (USLAX) Cntr:40HQ Client:Acme Co | Price:____ Carrier:____ Transit:____ Dest:____ Validity:____ 20:____ 40:____ HQ:____'
+  );
+});
+
+test('<PICKUP> / <DELIVERY> resolve from opts (blank when absent)', () => {
+  const withAddr = substituteTokens(
+    'Pickup: <PICKUP> | Delivery: <DELIVERY>',
+    [row({})],
+    {
+      pickupAddress: '1234 Main St, Newark, NJ, 07102, US',
+      deliveryAddress: 'Kaai 500, Antwerp, BE',
+    }
+  );
+  assert.equal(
+    withAddr,
+    'Pickup: 1234 Main St, Newark, NJ, 07102, US | Delivery: Kaai 500, Antwerp, BE'
+  );
+  const without = substituteTokens('[<PICKUP>][<DELIVERY>]', [row({})], {});
+  assert.equal(without, '[][]');
+});
+
 test('<SURCHARGES> renders one line per applicable surcharge', () => {
   const out = substituteTokens('<SURCHARGES>', [row({})], {
     surcharges: [

@@ -244,6 +244,15 @@ export interface GenerateSheetReplyInput {
    * Pass an empty string to suppress it.
    */
   disclaimer?: string;
+  /**
+   * Blank-rate mode: render rate tokens as `____` (the lane has no saved rates,
+   * so the user fills the amounts in manually). See emailSubstitute.ts.
+   */
+  blankRates?: boolean;
+  /** Pickup / origin door address for the <PICKUP> token (blank if omitted). */
+  pickupAddress?: string;
+  /** Delivery / destination door address for the <DELIVERY> token. */
+  deliveryAddress?: string;
 }
 
 export async function generateSheetReply(
@@ -261,6 +270,9 @@ export async function generateSheetReply(
     markupFlat: input.markupFlat,
     clientName: input.clientName,
     surcharges: input.surcharges,
+    blankRates: input.blankRates,
+    pickupAddress: input.pickupAddress,
+    deliveryAddress: input.deliveryAddress,
   });
   return appendDisclaimer(substituted, disclaimer);
 }
