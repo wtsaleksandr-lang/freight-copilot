@@ -5203,6 +5203,7 @@ function formatMoney(n, cur) {
     wireRowDropTargets(rows);
     wireRefCopy();
     wireRowResize();
+    wireBodyColumnResize();
     // After the body + column widths are in the DOM, fit each cell's text to its
     // column (wrap→shrink-font→clip). rAF so layout is settled before measuring.
     requestAnimationFrame(fitAllCells);
@@ -5652,6 +5653,98 @@ function formatMoney(n, cur) {
     const d = new Date(s);
     return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
   }
+  // ── Created cell: display-format cycling + calendar edit ──────────────────
+  // The Created column shows the row's createdAt timestamp. A single click
+  // cycles the display format (ISO date → "Jul 27, 2026" → "2d ago"); the choice
+  // is stored per-user in localStorage and re-applied on render. A double-click
+  // opens a calendar to EDIT the creation date, persisted through the same
+  // patchField() PATCH path every other editable cell uses.
+  const CREATED_FORMATS = ['iso', 'pretty', 'relative'];
+  const CREATED_FORMAT_KEY = 'freight.shipments.createdFormat';
+  function getCreatedFormat() {
+    try {
+      const f = localStorage.getItem(CREATED_FORMAT_KEY);
+      return CREATED_FORMATS.includes(f) ? f : 'iso';
+    } catch { return 'iso'; }
+  }
+  function setCreatedFormat(f) {
+    try { localStorage.setItem(CREATED_FORMAT_KEY, f); } catch { /* quota / private mode */ }
+  }
+  function relativeCreated(d) {
+    const ms = Date.now() - d.getTime();
+    if (ms < 0) return d.toISOString().slice(0, 10);
+    const day = 86400000;
+    const days = Math.floor(ms / day);
+    if (days <= 0) {
+      const hrs = Math.floor(ms / 3600000);
+      if (hrs <= 0) {
+        const mins = Math.floor(ms / 60000);
+        return mins <= 0 ? 'just now' : `${mins}m ago`;
+      }
+      return `${hrs}h ago`;
+    }
+    if (days === 1) return 'yesterday';
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    return `${Math.floor(days / 365)}y ago`;
+  }
+  function formatCreated(raw, fmt) {
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return '';
+    if (fmt === 'pretty') {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    if (fmt === 'relative') return relativeCreated(d);
+    return d.toISOString().slice(0, 10);
+  }
+  // Set text on the cell-clip wrapper when present so the clip/fit markup survives.
+  function createdTextEl(td) {
+    return td.querySelector(':scope > .cell-clip') || td;
+  }
+  function renderCreatedCell(td, raw) {
+    const display = formatCreated(raw, getCreatedFormat());
+    createdTextEl(td).textContent = display;
+    td.classList.toggle('cell-empty', !display);
+  }
+  // Re-render every Created cell to the current format (after a format cycle).
+  function applyCreatedFormat() {
+    if (!table) return;
+    table.querySelectorAll('td[data-field="createdAt"]').forEach((td) => {
+      renderCreatedCell(td, td.getAttribute('data-iso') || '');
+    });
+  }
+  function openCreatedDatePicker(td, refId, row) {
+    closeFloatingEditor();
+    const raw = (row && row.createdAt) || td.getAttribute('data-iso') || '';
+    const box = document.createElement('div');
+    box.className = 'date-picker floating-cell-editor';
+    box.innerHTML = `<input type="date" class="date-picker-input" value="${toIsoDate(raw)}">`;
+    const input = box.querySelector('.date-picker-input');
+    async function commit(value) {
+      closeFloatingEditor();
+      if (!value) return;
+      try {
+        await patchField(refId, 'createdAt', value);
+        const isoFull = (() => { const d = new Date(value); return isNaN(d.getTime()) ? '' : d.toISOString(); })();
+        td.setAttribute('data-iso', isoFull);
+        if (row) row.createdAt = value;
+        const ref = (allRows || []).find((r) => r.refId === refId);
+        if (ref) ref.createdAt = value;
+        renderCreatedCell(td, value);
+        td.classList.add('is-saved');
+        setTimeout(() => td.classList.remove('is-saved'), 1000);
+      } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+    }
+    input.addEventListener('change', () => commit(input.value));
+    document.body.appendChild(box);
+    positionFloating(box, td);
+    installFloatingDismiss(box);
+    input.focus();
+    if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
+  }
+
   function openDatePicker(td, refId, field, currentValue) {
     closeFloatingEditor();
     const box = document.createElement('div');
@@ -5888,6 +5981,36 @@ function formatMoney(n, cur) {
 
       // Profit cell is read-only; nothing to wire.
       if (kind === 'profit') return;
+
+      // Created cell:
+      //   single click → cycle the display format (ISO → pretty → relative),
+      //     stored per-user in localStorage and re-applied to every Created cell
+      //   double click / long-press → calendar to EDIT the creation date,
+      //     persisted via the same patchField PATCH path as other cells.
+      // Scoped to this cell (stopPropagation + its own click/dblclick pair) so it
+      // never collides with the row-click handler or other cells' single-vs-double
+      // handling.
+      if (field === 'createdAt') {
+        let clickTimer = null;
+        td.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (clickTimer) return;
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            const cur = getCreatedFormat();
+            const nextIdx = (CREATED_FORMATS.indexOf(cur) + 1) % CREATED_FORMATS.length;
+            setCreatedFormat(CREATED_FORMATS[nextIdx]);
+            applyCreatedFormat();
+          }, 220);
+        });
+        td.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+          openCreatedDatePicker(td, refId, row);
+        });
+        attachLongPress(td, () => openCreatedDatePicker(td, refId, row));
+        return;
+      }
 
       // Pickup address → autosuggest via free OSM (Nominatim /api/data/geocode)
       if (field === 'loadingAddress') {
@@ -6609,6 +6732,38 @@ function formatMoney(n, cur) {
     table.querySelectorAll('tbody td[data-field]').forEach(fitCell);
   }
 
+  // Shared column-resize drag — used by BOTH the header handle and the body-cell
+  // right-edge grab (Task C). Drives the matching <col> width live, then persists
+  // and re-fits on release. `col`, `key`, `startWidth` (px) and `startX` are the
+  // caller's fixed starting values.
+  function startColumnResize(col, key, startWidth, startX) {
+    if (!col || !key) return;
+    document.body.classList.add('is-col-resizing');
+    function onMove(ev) {
+      const delta = ev.clientX - startX;
+      // 8px floor: let a column shrink to an Excel-style sliver (well below the
+      // ~38px "1cm" the user wanted) while keeping the resize target grabbable so
+      // a column can never collapse to an unrecoverable 0px.
+      const next = Math.max(8, Math.round(startWidth + delta));
+      col.style.width = `${next}px`;
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('is-col-resizing');
+      // Persist the final value (read off the col, not startWidth+delta, so any
+      // min-clamp from above is captured).
+      const final = parseInt(col.style.width, 10);
+      if (Number.isFinite(final) && final > 0) {
+        columnWidths[key] = final;
+        saveColWidths(columnWidths);
+      }
+      fitColumnByKey(key); // re-fit this column's text to its new width
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
   function wireColumnResize() {
     table.querySelectorAll('.col-resize-handle').forEach((handle) => {
       handle.addEventListener('mousedown', (e) => {
@@ -6619,33 +6774,65 @@ function formatMoney(n, cur) {
         if (!col) return;
         // Use the current rendered width as the start.
         const th = handle.parentElement;
-        const startWidth = th.getBoundingClientRect().width;
-        const startX = e.clientX;
-        document.body.classList.add('is-col-resizing');
-        function onMove(ev) {
-          const delta = ev.clientX - startX;
-          // 8px floor: let a column shrink to an Excel-style sliver (well below
-          // the ~38px "1cm" the user wanted) while keeping the resize handle
-          // grabbable so a column can never collapse to an unrecoverable 0px.
-          const next = Math.max(8, Math.round(startWidth + delta));
-          col.style.width = `${next}px`;
-        }
-        function onUp() {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          document.body.classList.remove('is-col-resizing');
-          // Persist the final value (read off the col, not startWidth+delta,
-          // so any min-clamp from above is captured).
-          const final = parseInt(col.style.width, 10);
-          if (Number.isFinite(final) && final > 0) {
-            columnWidths[key] = final;
-            saveColWidths(columnWidths);
-          }
-          fitColumnByKey(key); // re-fit this column's text to its new width
-        }
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
+        startColumnResize(col, key, th.getBoundingClientRect().width, e.clientX);
       });
+    });
+  }
+
+  // Task C — column resize initiated from within a BODY cell: a drag that starts
+  // within ~5px of a body cell's RIGHT edge resizes that cell's column, the same
+  // way row-resize (wireRowResize) works from the row's bottom edge over any body
+  // cell. Body cell → column is mapped by INDEX into the colgroup (robust to the
+  // data-field/col-key mismatch some cells have, and to reorder/hide which move
+  // header, colgroup and cells together). Mouse/pen only so it never hijacks
+  // touch scroll; the row-resize zone wins at the corner so the two never fight;
+  // only the 5px edge zone engages, so normal click-to-edit is untouched.
+  const COL_RESIZE_ZONE = 5; // px tolerance around a cell's right edge
+  function bodyColResizeTarget(clientX, target) {
+    const td = target && target.closest && target.closest('tbody td');
+    if (!td || td.classList.contains('actions-cell')) return null;
+    if (!td.closest('tr[data-ref]')) return null;
+    const r = td.getBoundingClientRect();
+    if (Math.abs(clientX - r.right) > COL_RESIZE_ZONE) return null;
+    const tr = td.parentElement;
+    const index = Array.from(tr.children).indexOf(td);
+    const colgroup = table.querySelector('colgroup');
+    const col = colgroup ? colgroup.children[index] : null;
+    if (!col) return null;
+    const key = col.getAttribute('data-col-key');
+    if (!key || key === '__actions') return null;
+    return { td, col, key };
+  }
+  function wireBodyColumnResize() {
+    if (table.__bodyColResizeDelegated) return; // install exactly once
+    table.__bodyColResizeDelegated = true;
+    let cursorTd = null;
+    function setColCursor(td) {
+      if (cursorTd === td) return;
+      if (cursorTd) cursorTd.style.cursor = '';
+      cursorTd = td;
+      if (cursorTd) cursorTd.style.cursor = 'col-resize';
+    }
+    table.addEventListener('mousemove', (e) => {
+      if (
+        document.body.classList.contains('is-col-resizing') ||
+        document.body.classList.contains('is-row-resizing')
+      ) return;
+      // Row-resize owns the corner; don't show the col cursor there.
+      const inRowZone = !!rowResizeTarget(e.clientY, e.target);
+      const hit = inRowZone ? null : bodyColResizeTarget(e.clientX, e.target);
+      setColCursor(hit ? hit.td : null);
+    });
+    table.addEventListener('mouseleave', () => setColCursor(null));
+    table.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') return; // scroll, never resize
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (rowResizeTarget(e.clientY, e.target)) return; // let row-resize win
+      const hit = bodyColResizeTarget(e.clientX, e.target);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation(); // exclude from cell click-to-edit + drag-to-pan
+      startColumnResize(hit.col, hit.key, hit.td.getBoundingClientRect().width, e.clientX);
     });
   }
 
@@ -6956,6 +7143,23 @@ function formatMoney(n, cur) {
         cls.push('cell-empty');
       }
       return `<td class="${cls.join(' ')}" data-field="profit" data-kind="profit">${esc(display)}</td>`;
+    }
+
+    // Created — informational timestamp. Rendered with data-field="createdAt"
+    // (even though it's not text-editable) so enhancements-ui assignHeaderKeys
+    // maps the header's gridKey to "createdAt" instead of falling back to
+    // "column-2" — that fallback is why the Created column couldn't be resized.
+    // No cell-editable class: the created branch in wireCellInteractions owns
+    // single-click (cycle format) + double-click (calendar) itself.
+    if (col.key === 'createdAt') {
+      const rawCreated = row.createdAt || '';
+      const isoCreated = rawCreated
+        ? (() => { const d = new Date(rawCreated); return isNaN(d.getTime()) ? '' : d.toISOString(); })()
+        : '';
+      const displayCreated = formatCreated(rawCreated, getCreatedFormat());
+      const cls = ['cell', 'when-cell', 'cell-created'];
+      if (!displayCreated) cls.push('cell-empty');
+      return `<td class="${cls.join(' ')}" data-field="createdAt" data-kind="created" data-iso="${esc(isoCreated)}" title="Click to change date format · double-click to edit">${esc(displayCreated)}</td>`;
     }
 
     // Generic
