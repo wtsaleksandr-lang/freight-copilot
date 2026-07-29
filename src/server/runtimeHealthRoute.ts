@@ -1,8 +1,10 @@
 import type { Express, Request, Response } from 'express';
 import { loadEnv } from '../config.js';
-import { getAiRoutingProfile } from './aiRoutingService.js';
+import { getAiRoutingProfile, type AiRoutingProfile } from './aiRoutingService.js';
 import { listConfiguredAiProviders, type AiProvider } from './aiProviderKeys.js';
 import { getProviderStatuses, type ProviderStatus } from './apiKeysService.js';
+import { enabledModelsFor, type RegistryProvider } from '../llm/modelRegistry.js';
+import { getLastAiError, type LastAiError } from '../llm/sharedAiExecutor.js';
 import { describeMasterKey } from './secretsCrypto.js';
 import { getDatabaseDiagnostics, type DatabaseDiagnostics } from './dbDiagnostics.js';
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
@@ -85,13 +87,94 @@ export interface StatusGroup {
   items: StatusItem[];
 }
 
+// ---- Honest AI health ---------------------------------------------------
+// The status light must never sit green while AI extraction is actually
+// failing. AI health is computed from three real inputs: which provider keys
+// are configured, whether each provider still has a currently-`enabled` model
+// id in the registry, and whether a recent task totally failed.
+export type AiOverallStatus = 'ok' | 'degraded' | 'down';
+export interface AiProviderHealth {
+  provider: AiProvider;
+  keyConfigured: boolean;
+  enabledModelCount: number;
+  /** Key present AND at least one enabled model → this provider can serve work. */
+  usable: boolean;
+}
+export interface AiHealth {
+  status: AiOverallStatus;
+  reason: string;
+  primary: AiProvider | null;
+  providers: AiProviderHealth[];
+  lastError: LastAiError;
+}
+
+// A total failure older than this is treated as stale and not surfaced.
+const AI_ERROR_RECENCY_MS = 15 * 60 * 1000;
+
+export function computeAiHealth(
+  profile: AiRoutingProfile,
+  providerStatuses: ProviderStatus[],
+  lastError: LastAiError,
+): AiHealth {
+  const providers: AiProviderHealth[] = providerStatuses.map((s) => {
+    const enabledModelCount = enabledModelsFor(s.provider as RegistryProvider).length;
+    return { provider: s.provider, keyConfigured: s.usable, enabledModelCount, usable: s.usable && enabledModelCount > 0 };
+  });
+  const usable = providers.filter((p) => p.usable);
+  const anyKey = providers.some((p) => p.keyConfigured);
+  const primaryProvider = (profile.roles.find((r) => !r.fallback) ?? profile.roles[0])?.provider ?? null;
+  const primary = primaryProvider ? providers.find((p) => p.provider === primaryProvider) ?? null : null;
+  const primaryUsable = Boolean(primary && primary.usable);
+
+  let status: AiOverallStatus;
+  let reason: string;
+  if (usable.length === 0) {
+    if (anyKey) {
+      // Keys are set but every keyed provider's models are retired/experimental.
+      // This is the surprising failure the green light used to hide → DOWN (red).
+      status = 'down';
+      reason = 'AI keys are configured but no keyed provider has a currently-enabled model. Extraction will fail until a valid model id is restored.';
+    } else {
+      // Nothing configured at all — AI is an optional add-on, so this is amber
+      // setup, not a red failure.
+      status = 'degraded';
+      reason = 'No AI provider key is configured — AI-assisted features are disabled.';
+    }
+  } else if (!primaryUsable) {
+    status = 'degraded';
+    reason = primaryProvider
+      ? `Primary provider ${primaryProvider} is unavailable (${primary && primary.keyConfigured ? 'no enabled model' : 'key missing'}) — using ${usable.map((p) => p.provider).join(', ')}.`
+      : `Running on fallback provider(s): ${usable.map((p) => p.provider).join(', ')}.`;
+  } else {
+    status = 'ok';
+    reason = `Primary provider ${primaryProvider} ready (${usable.length} usable provider${usable.length > 1 ? 's' : ''}: ${usable.map((p) => p.provider).join(', ')}).`;
+  }
+
+  // A very recent total failure means AI is broken *right now* even if the
+  // config looks fine — downgrade an otherwise-green light to amber and say why.
+  let recentError: LastAiError = null;
+  if (lastError) {
+    const ageMs = Date.now() - new Date(lastError.at).getTime();
+    if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= AI_ERROR_RECENCY_MS) {
+      recentError = lastError;
+      if (status === 'ok') {
+        status = 'degraded';
+        reason = `Recent AI failure: ${lastError.message}`;
+      }
+    }
+  }
+
+  return { status, reason, primary: primaryProvider, providers, lastError: recentError };
+}
+
 export function buildStatusGroups(input: {
   masterKey: ReturnType<typeof describeMasterKey>;
   diagnostics: DatabaseDiagnostics;
   providers: ProviderStatus[];
   env: ReturnType<typeof loadEnv>;
+  aiHealth: AiHealth;
 }): { groups: StatusGroup[]; overall: StatusGroupId } {
-  const { masterKey, diagnostics, providers, env } = input;
+  const { masterKey, diagnostics, providers, env, aiHealth } = input;
   const critical: StatusItem[] = [];
   const setup: StatusItem[] = [];
   const verify: StatusItem[] = [];
@@ -122,13 +205,18 @@ export function buildStatusGroups(input: {
     }
   }
 
-  // AI provider keys — environment-only, so a provider is simply configured or
-  // not. Nothing can be "locked".
-  const usable = providers.filter((p) => p.usable);
-  if (usable.length === 0) {
-    setup.push({ id: 'providers', name: 'AI provider keys', detail: 'No AI provider key found in the environment. AI-assisted features are disabled.', action: 'Set a provider key as a Secret (e.g. ANTHROPIC_API_KEY) and republish.' });
+  // AI provider keys + model routing — driven by the honest AI health model so
+  // the panel and the status light never disagree. `down` = keyed but no usable
+  // model (a real failure → red); `degraded` = no key / fallback-only / a recent
+  // failure (amber); `ok` = a keyed provider with an enabled model (blue-verify).
+  const keyedProviders = aiHealth.providers.filter((p) => p.keyConfigured).map((p) => p.provider);
+  if (aiHealth.status === 'down') {
+    critical.push({ id: 'ai', name: 'AI extraction', detail: aiHealth.reason, action: 'Check AI provider keys and model ids in Secrets — extraction fails until a keyed provider has a valid, enabled model.' });
+  } else if (aiHealth.status === 'degraded') {
+    const noKey = aiHealth.providers.every((p) => !p.keyConfigured);
+    setup.push({ id: 'ai', name: 'AI-assisted features', detail: aiHealth.reason, action: noKey ? 'Set a provider key as a Secret (e.g. ANTHROPIC_API_KEY) and republish.' : 'Restore the primary provider key/model to return to full AI routing.' });
   } else {
-    verify.push({ id: 'ai', name: 'AI-assisted features', detail: `Configured providers: ${usable.map((p) => p.provider).join(', ')}. Verify AI output before sending to customers.` });
+    verify.push({ id: 'ai', name: 'AI-assisted features', detail: `Configured providers: ${keyedProviders.join(', ') || 'none'}. ${aiHealth.reason} Verify AI output before sending to customers.` });
   }
 
   // Security.
@@ -184,7 +272,8 @@ export function registerRuntimeHealthRoute(app: Express): void {
         REQUIRED_TABLES.map((name) => [name, diagnostics.tableCounts[name] != null]),
       ) as Record<string, boolean>;
       const missingTables = REQUIRED_TABLES.filter((name) => !tables[name]);
-      const { groups, overall } = buildStatusGroups({ masterKey, diagnostics, providers: providerStatuses, env });
+      const aiHealth = computeAiHealth(profile, providerStatuses, getLastAiError());
+      const { groups, overall } = buildStatusGroups({ masterKey, diagnostics, providers: providerStatuses, env, aiHealth });
       const aiConfigured = providers.length > 0;
       const ready = diagnostics.connected && missingTables.length === 0 && overall !== 'critical';
       res.status(ready ? 200 : overall === 'critical' ? 503 : 200).json({
@@ -202,6 +291,7 @@ export function registerRuntimeHealthRoute(app: Express): void {
         },
         secretsKey: masterKey,
         providers: providerStatuses,
+        ai: aiHealth,
         latencyMs: Date.now() - started,
         tables,
         missingTables,
@@ -214,7 +304,12 @@ export function registerRuntimeHealthRoute(app: Express): void {
       const databaseError = conciseDatabaseError(error);
       const tables = Object.fromEntries(REQUIRED_TABLES.map((name) => [name, false]));
       const providers = await listConfiguredAiProviders().catch(() => [] as AiProvider[]);
-      res.status(503).json({ status: 'unavailable', database: 'unavailable', databaseDriver: 'postgres', latencyMs: Date.now() - started, tables: null, missingTables: [], features: featureReadiness(tables, env, providers, false), configuration: { source: 'environment fallback', aiProvider: env.AI_PROVIDER, aiConfigured: providers.length > 0, configuredProviders: providers, sharedExecutor: true, realChrome: env.USE_REAL_CHROME, delayPredict: Boolean(env.DELAYPREDICT_URL), basicAuth: Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS) }, errorCode: databaseError.code, error: databaseError.message, action: databaseError.action, checkedAt: new Date().toISOString() });
+      // AI health does not depend on the database, so still report it honestly
+      // even when the DB check failed (uses the default routing profile if the
+      // saved one can't be read).
+      const aiProfile = await getAiRoutingProfile().catch(() => null);
+      const aiHealth = aiProfile ? computeAiHealth(aiProfile, getProviderStatuses(), getLastAiError()) : null;
+      res.status(503).json({ status: 'unavailable', database: 'unavailable', databaseDriver: 'postgres', ai: aiHealth, latencyMs: Date.now() - started, tables: null, missingTables: [], features: featureReadiness(tables, env, providers, false), configuration: { source: 'environment fallback', aiProvider: env.AI_PROVIDER, aiConfigured: providers.length > 0, configuredProviders: providers, sharedExecutor: true, realChrome: env.USE_REAL_CHROME, delayPredict: Boolean(env.DELAYPREDICT_URL), basicAuth: Boolean(env.BASIC_AUTH_USER && env.BASIC_AUTH_PASS) }, errorCode: databaseError.code, error: databaseError.message, action: databaseError.action, checkedAt: new Date().toISOString() });
     }
   });
 

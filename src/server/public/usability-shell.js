@@ -790,12 +790,20 @@
       const detail = event.detail || {};
       const features = Array.isArray(detail.features) ? detail.features : [];
       const needsSetup = features.some((item) => item.state === 'setup_required' || item.state === 'unavailable');
-      const state = detail.status === 'unavailable' ? 'unavailable' : detail.status === 'ready' && !needsSetup ? 'ready' : 'degraded';
+      // Honest AI health drives the light: green only when AI is genuinely ok.
+      const ai = detail.ai && typeof detail.ai === 'object' ? detail.ai : null;
+      const aiStatus = ai && typeof ai.status === 'string' ? ai.status : null;
+      let state;
+      if (detail.status === 'unavailable') state = 'unavailable';
+      else if (aiStatus === 'down') state = 'unavailable'; // red — AI configured but broken
+      else if (detail.status === 'ready' && !needsSetup && (aiStatus === null || aiStatus === 'ok')) state = 'ready';
+      else state = 'degraded'; // amber — setup, degraded AI, or other non-critical items
       readinessButton.dataset.state = state;
+      const aiReason = ai && typeof ai.reason === 'string' ? ai.reason : '';
       const statusTitles = {
-        ready: 'System ready — core services and configured AI providers are working. Click for details.',
-        degraded: 'Attention needed — some features need setup or are degraded. Click for details.',
-        unavailable: 'Status unavailable — the readiness check could not be reached. Click for details.',
+        ready: 'System ready — core services and AI providers are working. Click for details.',
+        degraded: aiStatus && aiStatus !== 'ok' && aiReason ? `Attention needed — ${aiReason} Click for details.` : 'Attention needed — some features need setup or are degraded. Click for details.',
+        unavailable: aiStatus === 'down' && aiReason ? `AI unavailable — ${aiReason} Click for details.` : 'Status unavailable — the readiness check could not be reached. Click for details.',
       };
       readinessButton.title = statusTitles[state] || 'Checking system status…';
     });

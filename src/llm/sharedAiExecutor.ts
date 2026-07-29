@@ -5,8 +5,36 @@ import {
   supportsPromptCaching,
   supportsPdf,
   cachingModeFor,
+  defaultModelFor,
   type RegistryProvider,
 } from './modelRegistry.js';
+
+// Lightweight in-memory record of the last time a whole task found no viable
+// provider. The health route reads this so the status light can go honest-amber
+// even when the config *looks* fine but extraction is actually failing right now.
+export type LastAiError = { kind: string; message: string; at: string } | null;
+let lastAiError: LastAiError = null;
+export function getLastAiError(): LastAiError { return lastAiError; }
+export function clearLastAiError(): void { lastAiError = null; }
+
+// Errors that mean "this exact model id can't be used" (retired / renamed /
+// unknown) as opposed to a transient network or auth failure. On these we treat
+// the model as dead for this run and move on (or retry the provider default).
+export function isModelUnavailableError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return /\b404\b/.test(msg)
+    || /\b400\b/.test(msg)
+    || msg.includes('not found')
+    || msg.includes('no longer available')
+    || msg.includes('model_not_found')
+    || msg.includes('does not exist')
+    || msg.includes('decommission')
+    || msg.includes('deprecated')
+    || msg.includes('is not supported')
+    || msg.includes('unknown model')
+    || msg.includes('invalid model')
+    || msg.includes('unsupported model');
+}
 
 export type AiMedia = { mediaType: string; base64: string; filename?: string };
 export type ProviderUsage = {
@@ -28,7 +56,7 @@ export type StructuredAiResult<T> = {
   value: T;
   provider: AiProvider;
   model: string;
-  attempts: Array<{ provider: AiProvider; model: string; ok: boolean; error?: string }>;
+  attempts: Array<{ provider: AiProvider; model: string; ok: boolean; error?: string; skipped?: boolean }>;
   usage: ProviderUsage;
   caching: CachingReport;
   disagreement: boolean;
@@ -202,34 +230,75 @@ export async function executeStructuredAiTask<T>(task: StructuredAiTask<T>): Pro
   let cacheCreationTotal = 0;
   let cacheSavings = 0;
 
-  const runRole = async (role: ModelRole): Promise<{ role: ModelRole; value: T; usage: ProviderUsage } | null> => {
+  const candidates: Array<{ role: ModelRole; value: T; usage: ProviderUsage }> = [];
+
+  const runRole = async (
+    role: ModelRole,
+    opts: { ignoreBudget?: boolean } = {},
+  ): Promise<{ role: ModelRole; value: T; usage: ProviderUsage } | null> => {
     const provider = role.provider as AiProvider;
-    // Do not silently send a PDF to a provider that cannot read PDFs.
+    // Do not silently send a PDF to a provider that cannot read PDFs — skip it.
     if (isPdf && !supportsPdf(provider as RegistryProvider, role.model)) {
-      attempts.push({ provider, model: role.model, ok: false, error: 'Provider/model does not support PDF input' });
+      attempts.push({ provider, model: role.model, ok: false, skipped: true, error: 'skipped: provider/model does not support PDF input' });
       return null;
     }
+    // Skip (do not fail on) a provider whose key is not configured. A missing key
+    // must never abort the task when another provider can serve the request.
     const key = await loadAiProviderKey(provider);
-    if (!key) { attempts.push({ provider, model: role.model, ok: false, error: 'Provider key is not configured' }); return null; }
-    if (spent >= profile.maxTaskCostUsd) { attempts.push({ provider, model: role.model, ok: false, error: 'Task spending limit reached' }); return null; }
-    try {
-      const raw = await callProvider(role, key, task as StructuredAiTask<unknown>, cachingEnabled);
+    if (!key) { attempts.push({ provider, model: role.model, ok: false, skipped: true, error: 'skipped: no API key configured' }); return null; }
+    // Per-task budget guard. The final fallback (last role, still zero candidates)
+    // is allowed to run over the cap so a legitimate task is never left with zero
+    // viable providers purely because an earlier failed attempt spent the budget.
+    if (spent >= profile.maxTaskCostUsd) {
+      if (opts.ignoreBudget) {
+        console.warn(`[ai-executor] per-task cost cap $${profile.maxTaskCostUsd.toFixed(2)} reached, but no provider has succeeded for "${task.kind}" — running final fallback ${provider}/${role.model} anyway to avoid a spurious total failure.`);
+      } else {
+        attempts.push({ provider, model: role.model, ok: false, skipped: true, error: 'skipped: per-task spending limit reached' });
+        return null;
+      }
+    }
+
+    // One concrete call at a given model id. Mutates the running cost/cache
+    // totals; throws on HTTP error, budget overflow, or validation failure.
+    const attemptWith = async (model: string): Promise<{ value: T; usage: ProviderUsage }> => {
+      const raw = await callProvider({ ...role, model }, key, task as StructuredAiTask<unknown>, cachingEnabled);
       const usage: ProviderUsage = {
         inputTokens: raw.inputTokens,
         outputTokens: raw.outputTokens,
-        estimatedCostUsd: estimateCost(provider, role.model, raw.inputTokens, raw.outputTokens, raw.cacheReadTokens),
+        estimatedCostUsd: estimateCost(provider, model, raw.inputTokens, raw.outputTokens, raw.cacheReadTokens),
         cacheReadTokens: raw.cacheReadTokens,
         cacheCreationTokens: raw.cacheCreationTokens,
       };
       spent += usage.estimatedCostUsd;
       cacheReadTotal += raw.cacheReadTokens;
       cacheCreationTotal += raw.cacheCreationTokens;
-      const price = priceFor(provider, role.model);
+      const price = priceFor(provider, model);
       cacheSavings += (raw.cacheReadTokens * Math.max(0, price.input - price.cachedInput)) / 1_000_000;
-      if (spent > profile.maxTaskCostUsd) throw new Error(`Estimated task cost exceeded $${profile.maxTaskCostUsd.toFixed(2)} limit`);
+      if (!opts.ignoreBudget && spent > profile.maxTaskCostUsd) throw new Error(`Estimated task cost exceeded $${profile.maxTaskCostUsd.toFixed(2)} limit`);
       const value = task.validate(extractJson(raw.text));
-      attempts.push({ provider, model: role.model, ok: true });
-      return { role, value, usage };
+      return { value, usage };
+    };
+
+    try {
+      let modelUsed = role.model;
+      let outcome: { value: T; usage: ProviderUsage };
+      try {
+        outcome = await attemptWith(role.model);
+      } catch (err) {
+        // resolveModel() swaps deprecated ids at plan time, but an "enabled" id
+        // can still 404 in the wild. On a model-unavailable error, retry once
+        // with the provider's known-good default before giving up on the role.
+        const fallbackModel = defaultModelFor(provider as RegistryProvider);
+        if (isModelUnavailableError(err) && fallbackModel && fallbackModel !== role.model) {
+          attempts.push({ provider, model: role.model, ok: false, error: `model unavailable — retrying ${fallbackModel}: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}` });
+          modelUsed = fallbackModel;
+          outcome = await attemptWith(fallbackModel);
+        } else {
+          throw err;
+        }
+      }
+      attempts.push({ provider, model: modelUsed, ok: true });
+      return { role: modelUsed === role.model ? role : { ...role, model: modelUsed }, value: outcome.value, usage: outcome.usage };
     } catch (error) {
       attempts.push({ provider, model: role.model, ok: false, error: error instanceof Error ? error.message : String(error) });
       return null;
@@ -244,7 +313,6 @@ export async function executeStructuredAiTask<T>(task: StructuredAiTask<T>): Pro
     );
   }
 
-  const candidates: Array<{ role: ModelRole; value: T; usage: ProviderUsage }> = [];
   if (profile.mode === 'ultimate') {
     // Pre-flight budget guard: parallel roles all fire at once, so the running
     // `spent` check can't stop them mid-flight. Select, in priority order, only
@@ -260,19 +328,27 @@ export async function executeStructuredAiTask<T>(task: StructuredAiTask<T>): Pro
         attempts.push({ provider: role.provider as AiProvider, model: role.model, ok: false, error: 'Skipped to stay within the per-task budget' });
       }
     }
-    const results = await Promise.all(selected.map(runRole));
+    const results = await Promise.all(selected.map((role) => runRole(role)));
     for (const r of results) if (r) candidates.push(r);
   } else {
-    for (const role of analysisRoles) {
-      const candidate = await runRole(role);
+    for (let i = 0; i < analysisRoles.length; i++) {
+      const role = analysisRoles[i]!;
+      // The last remaining role, with nothing succeeded yet, is the final hope:
+      // let it run even if the running spend has hit the cap.
+      const isLastHope = candidates.length === 0 && i === analysisRoles.length - 1;
+      const candidate = await runRole(role, { ignoreBudget: isLastHope });
       if (candidate) candidates.push(candidate);
     }
   }
 
   if (!candidates.length) {
     const reasons = attempts.map((attempt) => `${attempt.provider}/${attempt.model}: ${attempt.error ?? 'failed'}`).join('; ');
-    throw new Error(`No configured AI provider completed ${task.kind}. ${reasons}`);
+    const message = `No configured AI provider completed ${task.kind}. ${reasons}`;
+    lastAiError = { kind: task.kind, message: message.slice(0, 500), at: new Date().toISOString() };
+    throw new Error(message);
   }
+  // A task that reached at least one usable provider clears the standing failure.
+  lastAiError = null;
 
   const distinct = new Set(candidates.map((candidate) => canonical(candidate.value)));
   let chosen = candidates[0]!;
