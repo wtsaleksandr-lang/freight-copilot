@@ -103,6 +103,45 @@ export function operationalFieldsFromBriefing(
   };
 }
 
+export type StatusItem = { label: string; state: string; detail?: string | null };
+
+/** Normalise the AI's status_items into the stored shape (drop empties). */
+export function statusItemsFromBriefing(briefing: ShipmentBriefing): StatusItem[] {
+  return (briefing.status_items ?? [])
+    .filter((s) => s && typeof s.label === 'string' && s.label.trim().length > 0)
+    .map((s) => ({
+      label: s.label.trim(),
+      state: s.state === 'done' || s.state === 'na' ? s.state : 'pending',
+      detail: s.detail ?? null,
+    }));
+}
+
+/**
+ * Merge a freshly-extracted status checklist into an existing one. Upsert by
+ * (case-insensitive) label: a newer document's read of a milestone overrides
+ * the prior state/detail for that label, while milestones only the older doc
+ * knew about are retained. Order follows first-seen. Never invents items.
+ */
+export function mergeStatusItems(
+  existing: StatusItem[] | null | undefined,
+  incoming: StatusItem[]
+): StatusItem[] {
+  const out: StatusItem[] = (existing ?? []).map((s) => ({ ...s }));
+  const indexByLabel = new Map<string, number>();
+  out.forEach((s, i) => indexByLabel.set(s.label.toLowerCase(), i));
+  for (const item of incoming) {
+    const key = item.label.toLowerCase();
+    const at = indexByLabel.get(key);
+    if (at == null) {
+      indexByLabel.set(key, out.length);
+      out.push({ ...item });
+    } else {
+      out[at] = { ...item };
+    }
+  }
+  return out;
+}
+
 function sourceFileLabel(files: RawIntakeFile[]): string | null {
   return files.map((f) => f.filename).filter(Boolean).join(', ') || null;
 }
@@ -192,6 +231,7 @@ export async function createFromBriefing(opts: ApplyOptions): Promise<ShipmentRo
     ourCostCurrency: 'USD',
     costBreakdownJson: stampedCosts.length > 0 ? stampedCosts : null,
     notes: briefing.notes ?? null,
+    statusItems: statusItemsFromBriefing(briefing),
   };
 
   const row = await createShipment({
@@ -238,6 +278,17 @@ export async function mergeFromBriefing(
     await db
       .update(shipments)
       .set({ notes: merged, updatedAt: new Date() })
+      .where(eq(shipments.refId, refId));
+  }
+
+  // Status checklist: upsert by label (newer doc's read of a milestone wins).
+  const newStatusItems = statusItemsFromBriefing(briefing);
+  if (newStatusItems.length > 0) {
+    const merged = mergeStatusItems(existing.statusItems, newStatusItems);
+    const db = createDbClient();
+    await db
+      .update(shipments)
+      .set({ statusItems: merged, updatedAt: new Date() })
       .where(eq(shipments.refId, refId));
   }
 

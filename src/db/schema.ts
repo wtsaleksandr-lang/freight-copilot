@@ -436,6 +436,14 @@ export const shipments = pgTable('shipments', {
    *  release; boot self-heal backfills this column from it. */
   operationalStatuses: jsonb('operational_statuses').$type<string[]>().default([]),
   notes: text('notes'),
+  /** AI-extracted compact milestone checklist for this shipment, derived
+   *  strictly from the uploaded documents (never invented). Rendered as a
+   *  two-column Item | Status table in the Notes cell/modal, replacing the
+   *  free-text notes blob when present. Additive jsonb column self-healed on
+   *  boot by ensureShipmentColumns (deploy runs no migrations). */
+  statusItems: jsonb('status_items').$type<
+    Array<{ label: string; state: string; detail?: string | null }>
+  >().default([]),
   /** JSON list of uploaded source files (paths under /shipments-files/...).
    *  addedAt is a server-stamped ISO timestamp; missing on legacy rows. */
   artifactsJson: jsonb('artifacts_json').$type<

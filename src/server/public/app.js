@@ -4495,6 +4495,61 @@ function truncate(s, n = 60) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+// ── Shipment status checklist (AI-extracted milestones) ──────────────────
+// Compact structured breakdown of what's DONE / PENDING, replacing the old
+// free-text notes blob when the AI extracted milestones from the documents.
+function normalizeStatusItems(items) {
+  return Array.isArray(items)
+    ? items.filter((i) => i && typeof i.label === 'string' && i.label.trim())
+    : [];
+}
+const STATUS_CHIP = {
+  done: { icon: '✓', cls: 'done', label: 'Done' },
+  pending: { icon: '⏳', cls: 'pending', label: 'Pending' },
+  na: { icon: '–', cls: 'na', label: 'N/A' },
+};
+function statusChipMeta(state) {
+  return STATUS_CHIP[state] || STATUS_CHIP.pending;
+}
+// One-line compact preview for the grid cell: "✓ 2  ⏳ 3" tally + first item.
+function statusItemsPreview(items) {
+  const list = normalizeStatusItems(items);
+  if (list.length === 0) return '';
+  const counts = { done: 0, pending: 0, na: 0 };
+  list.forEach((i) => {
+    counts[i.state] = (counts[i.state] || 0) + 1;
+  });
+  const tally = ['done', 'pending', 'na']
+    .filter((k) => counts[k] > 0)
+    .map((k) => {
+      const m = statusChipMeta(k);
+      return `<span class="si-chip si-${m.cls}">${m.icon} ${counts[k]}</span>`;
+    })
+    .join('');
+  return `<span class="si-preview">${tally}</span>`;
+}
+// Full two-column Item | Status table for the notes modal.
+function renderStatusItemsTable(items) {
+  const list = normalizeStatusItems(items);
+  if (list.length === 0) return '';
+  const rows = list
+    .map((i) => {
+      const m = statusChipMeta(i.state);
+      const detail = i.detail
+        ? ` <span class="si-detail">${esc(String(i.detail))}</span>`
+        : '';
+      return (
+        `<tr><td class="si-label">${esc(i.label)}${detail}</td>` +
+        `<td class="si-state"><span class="si-chip si-${m.cls}">${m.icon} ${m.label}</span></td></tr>`
+      );
+    })
+    .join('');
+  return (
+    `<table class="status-items-table"><thead><tr>` +
+    `<th>Item</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`
+  );
+}
+
 const CUR_SYMBOL = {
   USD: '$',
   CAD: 'C$',
@@ -5852,9 +5907,9 @@ function formatMoney(n, cur) {
           if (kind === 'cargo-modal') openCargoModal(row, refId);
           else if (kind === 'notes-modal') openTextModal('Notes', row.notes, async (v) => {
             await patchField(refId, 'notes', v);
-            td.textContent = truncate(v || '', 50);
-            td.classList.toggle('cell-empty', !v);
-          });
+            // Re-render the row so the cell reflects the checklist vs text preview.
+            await loadList();
+          }, { statusItems: row.statusItems });
           else openTextModal('Loading address', row.loadingAddress, async (v) => {
             await patchField(refId, 'loadingAddress', v);
             td.textContent = truncate(v || '', 35);
@@ -6796,9 +6851,14 @@ function formatMoney(n, cur) {
       return `<td class="${cls.join(' ')}" data-field="cargo" data-kind="cargo-modal" title="${esc(tip)} — double-click to edit">${inner}</td>`;
     }
 
-    // Notes — preview only, click/double-click for modal with full text.
+    // Notes — compact status checklist when the AI extracted milestones,
+    // otherwise a truncated text preview. Click/double-click opens the modal.
     if (col.kind === 'notes-modal') {
+      const statusItems = normalizeStatusItems(row.statusItems);
       const v = row.notes || '';
+      if (statusItems.length > 0) {
+        return `<td class="cell cell-notes cell-status" data-field="notes" data-kind="notes-modal" title="Double-click to view checklist">${statusItemsPreview(statusItems)}</td>`;
+      }
       const cls = ['cell', 'cell-notes'];
       if (!v) cls.push('cell-empty');
       return `<td class="${cls.join(' ')}" data-field="notes" data-kind="notes-modal" title="Double-click to edit">${esc(truncate(v, 50))}</td>`;
@@ -7003,11 +7063,12 @@ function formatMoney(n, cur) {
   }
 
   // ──── Modals: long-text editor + Cargo (type+name) editor ────────────
-  function openTextModal(title, value, onSave) {
+  function openTextModal(title, value, onSave, opts = {}) {
     const modal = document.getElementById('cell-edit-modal');
     const titleEl = document.getElementById('cell-edit-title');
     const ta = document.getElementById('cell-edit-textarea');
     const cargoFields = document.getElementById('cell-edit-cargo-fields');
+    const statusBox = document.getElementById('cell-edit-status');
     const saveBtn = document.getElementById('cell-edit-save');
     const cancelBtn = document.getElementById('cell-edit-cancel');
     const closeBtn = document.getElementById('cell-edit-close');
@@ -7015,6 +7076,19 @@ function formatMoney(n, cur) {
     titleEl.textContent = title;
     ta.hidden = false;
     cargoFields.hidden = true;
+    // Structured status checklist (read-only) above the editable notes text.
+    if (statusBox) {
+      const items = normalizeStatusItems(opts.statusItems);
+      if (items.length > 0) {
+        statusBox.innerHTML =
+          renderStatusItemsTable(items) +
+          '<div class="si-notes-label">Notes</div>';
+        statusBox.hidden = false;
+      } else {
+        statusBox.innerHTML = '';
+        statusBox.hidden = true;
+      }
+    }
     ta.value = value ?? '';
     modal.hidden = false;
     setTimeout(() => ta.focus(), 30);
@@ -7057,6 +7131,11 @@ function formatMoney(n, cur) {
     titleEl.textContent = 'Cargo (type + description)';
     ta.hidden = true;
     cargoFields.hidden = false;
+    const statusBox = document.getElementById('cell-edit-status');
+    if (statusBox) {
+      statusBox.innerHTML = '';
+      statusBox.hidden = true;
+    }
     cargoTypeIn.value = row.cargoType || '';
     cargoNameIn.value = row.cargoName || '';
     // Back the cargo-type field with a growing directory of common types.
