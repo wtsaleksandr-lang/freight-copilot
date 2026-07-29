@@ -124,3 +124,9 @@ export function supportsPdf(provider: RegistryProvider, modelId: string): boolea
 export function supportsVision(provider: RegistryProvider, modelId: string): boolean {
   return Boolean(getModelEntry(provider, modelId)?.vision);
 }
+
+/** All currently-`enabled` (real, callable) model ids for a provider. Empty when
+ *  the provider only has experimental/deprecated ids — i.e. nothing safe to send. */
+export function enabledModelsFor(provider: RegistryProvider): ModelEntry[] {
+  return MODEL_REGISTRY.filter((m) => m.provider === provider && m.state === 'enabled');
+}
