@@ -40,6 +40,25 @@ export function ensureShipmentColumns(): Promise<void> {
     await pool.query(
       "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS status_items jsonb DEFAULT '[]'::jsonb"
     );
+    // OPERATIONAL TRACKING columns (cut-off / SI / VGM / ETD / ETA / trucker / …).
+    // Additive text columns the AI now populates and the grid renders. Self-heal
+    // on boot like the others so a fresh Publish never 500s the board on a missing
+    // column (they were declared in schema.ts but not self-healed).
+    await pool.query(
+      `ALTER TABLE shipments
+         ADD COLUMN IF NOT EXISTS cut_off_date text,
+         ADD COLUMN IF NOT EXISTS si_date text,
+         ADD COLUMN IF NOT EXISTS sea_air_cargo text,
+         ADD COLUMN IF NOT EXISTS vgm text,
+         ADD COLUMN IF NOT EXISTS draft_date text,
+         ADD COLUMN IF NOT EXISTS loading_date text,
+         ADD COLUMN IF NOT EXISTS trucker text,
+         ADD COLUMN IF NOT EXISTS etd text,
+         ADD COLUMN IF NOT EXISTS eta text,
+         ADD COLUMN IF NOT EXISTS bol_type text,
+         ADD COLUMN IF NOT EXISTS quote_ref text,
+         ADD COLUMN IF NOT EXISTS aes text`
+    );
     await pool.query(backfillStatusesSql());
   })().catch((error) => {
     // Never rethrow — must not crash boot or a request. Reset so a later
