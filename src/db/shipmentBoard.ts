@@ -187,6 +187,10 @@ const EDITABLE_FIELDS = new Set<keyof ShipmentRow>([
   'bolType',
   'quoteRef',
   'aes',
+  // The Created date is user-editable from the board (calendar on double-click).
+  // It's a timestamp column (mode:'date'), so the incoming 'YYYY-MM-DD' string
+  // is coerced to a Date in updateShipment before it reaches Drizzle.
+  'createdAt',
 ]);
 
 export async function updateShipment(
@@ -198,8 +202,12 @@ export async function updateShipment(
   const safe: Partial<NewShipment> = {};
   for (const [k, v] of Object.entries(patch)) {
     if (EDITABLE_FIELDS.has(k as keyof ShipmentRow)) {
+      // createdAt is a timestamp column — coerce an incoming date string
+      // ('YYYY-MM-DD' from the board calendar) to a Date so Drizzle stores it.
+      const coerced =
+        k === 'createdAt' && typeof v === 'string' && v ? new Date(v) : v;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (safe as any)[k] = v;
+      (safe as any)[k] = coerced;
     }
   }
   if (Object.keys(safe).length === 0) return getShipment(refId);
