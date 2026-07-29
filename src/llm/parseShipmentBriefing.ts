@@ -55,6 +55,19 @@ Target fields (all optional — leave null if not stated):
 - our_reference_number: any reference number that already identifies THIS shipment in our system, in the S0xxxx format (e.g. S00045, S00123). Look in subject lines, email signatures, and quoted thread text. Leave null if no S0xxxx-style ref appears. Do NOT invent a reference. Do NOT use carrier booking numbers, customer POs, or any other format here.
 
 - booking_ref: the ocean carrier's booking number / BL number for this shipment, if mentioned (e.g. "MSCU2185714", "MAEU-9032111", "BKG-2024-9931"). This is the carrier's reference, NOT our internal S0xxxx ref. Leave null if not mentioned.
+- Operational milestone dates + logistics fields — extract each ONLY if the document states it; otherwise null (never guess). Keep the document's own value (a date, a time, or a short label). Use ISO YYYY-MM-DD for dates only when the day/month are unambiguous, else keep the original text:
+  - cut_off_date: the cargo / container / port cut-off (a.k.a. CY cut-off, gate cut-off, cargo closing).
+  - si_date: shipping-instructions / SI / BL-instructions deadline.
+  - vgm: the VGM (Verified Gross Mass) cut-off/deadline, or the VGM figure if that's what's given.
+  - draft_date: draft BL / draft-approval deadline.
+  - loading_date: planned loading / stuffing / pickup date.
+  - etd: estimated time of departure / sailing date from the POL.
+  - eta: estimated time of arrival at the POD (or final destination if that's what's stated).
+  - trucker: the trucking / drayage / haulage company (or driver) handling the inland leg.
+  - sea_air_cargo: sea-air routing or the sea/air indication if the document specifies it.
+  - bol_type: bill-of-lading type (e.g. "Original", "Seaway", "Telex release", "Express").
+  - quote_ref: a rate/quotation reference number tied to this shipment (distinct from booking_ref and our S0xxxx ref).
+  - aes: the AES / ITN / export-declaration number (US export filing), if present.
 
 - fpol: First Port of Loading / inland origin terminal when the shipment starts inland and rails to an ocean port. Examples: "Kansas City, MO", "Chicago, IL", "Memphis, TN", "Toronto, ON". This is DISTINCT from pol (which is the actual ocean port — Newark, Long Beach, Halifax). For pure port-to-port ocean lanes with no inland leg, leave fpol null. If the email mentions e.g. "load at Chicago, sail from Newark to Hamburg", then fpol = "Chicago, IL" and pol = "Newark".
 - fpol_code: UN/LOCODE for fpol if mentioned (USCHI, USKCK, etc.).
@@ -162,6 +175,21 @@ const ShipmentSchema = z.object({
   booking_ref: z.string().nullable().optional(),
   fpol: z.string().nullable().optional(),
   fpol_code: z.string().nullable().optional(),
+  // Operational milestone dates + logistics fields → the CUT-OFF/SI/VGM/ETD/ETA/
+  // Trucker/… columns. Free text: keep the document's own value/format (ISO date
+  // only when unambiguous). Leave null when not present — never invent.
+  cut_off_date: z.string().nullable().optional(),
+  si_date: z.string().nullable().optional(),
+  sea_air_cargo: z.string().nullable().optional(),
+  vgm: z.string().nullable().optional(),
+  draft_date: z.string().nullable().optional(),
+  loading_date: z.string().nullable().optional(),
+  trucker: z.string().nullable().optional(),
+  etd: z.string().nullable().optional(),
+  eta: z.string().nullable().optional(),
+  bol_type: z.string().nullable().optional(),
+  quote_ref: z.string().nullable().optional(),
+  aes: z.string().nullable().optional(),
   cost_items: z
     .array(
       z.object({
@@ -224,6 +252,18 @@ const TOOL_SCHEMA = {
     booking_ref: { type: ['string', 'null'] },
     fpol: { type: ['string', 'null'] },
     fpol_code: { type: ['string', 'null'] },
+    cut_off_date: { type: ['string', 'null'] },
+    si_date: { type: ['string', 'null'] },
+    sea_air_cargo: { type: ['string', 'null'] },
+    vgm: { type: ['string', 'null'] },
+    draft_date: { type: ['string', 'null'] },
+    loading_date: { type: ['string', 'null'] },
+    trucker: { type: ['string', 'null'] },
+    etd: { type: ['string', 'null'] },
+    eta: { type: ['string', 'null'] },
+    bol_type: { type: ['string', 'null'] },
+    quote_ref: { type: ['string', 'null'] },
+    aes: { type: ['string', 'null'] },
     cost_items: {
       type: 'array',
       description:
