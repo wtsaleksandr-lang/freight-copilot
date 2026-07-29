@@ -7097,9 +7097,14 @@ function formatMoney(n, cur) {
       setColCursor(hit ? hit.td : null);
     });
     table.addEventListener('mouseleave', () => setColCursor(null));
-    table.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch') return; // scroll, never resize
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // MUST be mousedown (not pointerdown): startColumnResize ends on `mouseup`,
+    // and calling preventDefault() on a pointerdown suppresses the compat mouseup
+    // — so a pointerdown start left the drag stuck ("stays clicked", follows the
+    // mouse until you click again). mousedown keeps the whole gesture in the mouse
+    // event family so mouseup fires and the drag ends on release (grab-and-hold).
+    // Touch never fires mousedown mid-scroll, so scrolling is unaffected.
+    table.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
       if (rowResizeTarget(e.clientY, e.target)) return; // let row-resize win
       const hit = bodyColResizeTarget(e.clientX, e.target);
       if (!hit) return;
