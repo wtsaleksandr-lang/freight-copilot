@@ -6325,6 +6325,22 @@ function formatMoney(n, cur) {
     profit: 110,
     carrierPreference: 110,
     bookingRef: 110,
+    // Operational tracking columns (added with the company-sheet import).
+    // Without a default here, colgroupHtml() emits a <col> with NO width and
+    // the table-layout:fixed / width:1px grid collapses it to ~0px — the column
+    // renders (and its Columns-menu checkbox works) but is invisible.
+    cutOffDate: 100,
+    siDate: 100,
+    seaAirCargo: 90,
+    vgm: 80,
+    draftDate: 100,
+    loadingDate: 100,
+    etd: 100,
+    eta: 100,
+    trucker: 120,
+    bolType: 80,
+    quoteRef: 100,
+    aes: 90,
     notes: 200,
   };
   // Column widths persist per browser. Stored as { [colKey]: pxNumber }.
