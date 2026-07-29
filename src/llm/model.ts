@@ -39,7 +39,7 @@ type AiConfig = {
 const PRESETS: Record<Exclude<AiMode, 'custom'>, Omit<AiConfig, 'mode'>> = {
   default: {
     provider: 'gemini',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-flash-latest',
     fallback: 'gemini-flash-latest',
     agentModel: 'claude-haiku-4-5-20251001',
   },

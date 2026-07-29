@@ -45,7 +45,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
 
   // --- Google Gemini (context caching uses a different API — not applied here) ---
   { provider: 'gemini', modelId: 'gemini-2.0-flash', purpose: 'DISCONTINUED by Google (404) — kept for history', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'deprecated', pricing: { inputPerMTokUsd: 0.1, outputPerMTokUsd: 0.4 }, caching: 'none', lastVerified: '2026-07-24' },
-  { provider: 'gemini', modelId: 'gemini-2.5-flash', purpose: 'Newer fast vision+text', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'enabled', pricing: { inputPerMTokUsd: 0.15, outputPerMTokUsd: 0.6 }, caching: 'none', lastVerified: '2026-07-24' },
+  { provider: 'gemini', modelId: 'gemini-2.5-flash', purpose: 'RETIRED by Google (404 "no longer available to new users") — use gemini-flash-latest', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'deprecated', pricing: { inputPerMTokUsd: 0.15, outputPerMTokUsd: 0.6 }, caching: 'none', lastVerified: '2026-07-24' },
   { provider: 'gemini', modelId: 'gemini-flash-latest', purpose: 'Always-current fast Gemini (alias) — runtime fallback', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'enabled', pricing: { inputPerMTokUsd: 0.15, outputPerMTokUsd: 0.6 }, caching: 'none', lastVerified: '2026-07-24' },
   { provider: 'gemini', modelId: 'gemini-1.5-pro', purpose: 'DISCONTINUED by Google (404) — kept for history', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'deprecated', pricing: { inputPerMTokUsd: 1.25, outputPerMTokUsd: 5 }, caching: 'none', lastVerified: '2026-07-24' },
   { provider: 'gemini', modelId: 'gemini-3.1-pro', purpose: 'Next-gen Gemini (unconfirmed id)', vision: true, pdf: true, webSearch: true, structuredOutput: true, state: 'experimental', caching: 'none', lastVerified: V },
@@ -68,7 +68,10 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
 /** Safest known-good (enabled) model per provider — the runtime fallback. */
 const DEFAULT_ENABLED: Record<RegistryProvider, string> = {
   anthropic: 'claude-haiku-4-5-20251001',
-  gemini: 'gemini-2.5-flash',
+  // gemini-flash-latest is Google's always-current fast alias; the pinned
+  // gemini-2.5-flash / 2.0-flash ids have been retired (404), so the safe
+  // per-provider default must be the alias, not a pinned id.
+  gemini: 'gemini-flash-latest',
   openai: 'gpt-4o',
   xai: 'grok-2-latest',
   deepseek: 'deepseek-chat',
