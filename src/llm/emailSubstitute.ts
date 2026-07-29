@@ -23,6 +23,15 @@ import type { SheetReplyRow } from './generateReply.js';
  *   <40GP_PRICE>    — marked-up price of the 40' GP row in scope
  *   <40HQ_PRICE>    — marked-up price of the 40' HQ/HC row in scope
  *   <SURCHARGES>    — one line per applicable surcharge (blank if none)
+ *   <PICKUP>        — pickup / origin door address (opts.pickupAddress), blank if none
+ *   <DELIVERY>      — delivery / destination door address (opts.deliveryAddress), blank if none
+ *
+ * Blank-rate mode (opts.blankRates === true): the rate-bearing tokens
+ *   (<PRICE>, <CARRIER>, <TRANSIT>, <DEST_CHARGES>, <20GP_PRICE>, <40GP_PRICE>,
+ *   <40HQ_PRICE>, <VALIDITY>) render as `____` for the user to fill in manually,
+ *   while lane/identity tokens (<POL>, <POD>, <CONTAINER>, <CLIENT>, <PICKUP>,
+ *   <DELIVERY>) still resolve from the lane-only stub. Used when no saved rate
+ *   exists for the requested lane.
  *
  * Repeating blocks (expanded, not per-token):
  *   <EACH_LANE> … </EACH_LANE>   — repeated once per lane (POL→POD group)
@@ -44,18 +53,32 @@ export interface SubstituteOpts {
     currency?: string;
     basis?: string;
   }>;
+  /**
+   * When true, render the rate-bearing tokens as `____` (blank-rate mode) so a
+   * lane with no saved rates still produces a fillable quote email. Lane/identity
+   * tokens still resolve normally. See the module header for the exact list.
+   */
+  blankRates?: boolean;
+  /** Pickup / origin door address for <PICKUP> (blank if omitted). */
+  pickupAddress?: string;
+  /** Delivery / destination door address for <DELIVERY> (blank if omitted). */
+  deliveryAddress?: string;
 }
 
 type Bucket = '20GP' | '40GP' | '40HQ';
+
+/** Placeholder emitted for every rate token in blank-rate mode. */
+const BLANK_RATE = '____';
 
 function money(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
 function priceOf(row: SheetReplyRow, opts: SubstituteOpts): number {
-  return (
-    row.freightTotal * (1 + (opts.markupPct ?? 0) / 100) + (opts.markupFlat ?? 0)
-  );
+  // Guarded so a lane-only stub (no real freight total) never throws — in
+  // blank-rate mode the caller never uses the result anyway.
+  const total = Number(row.freightTotal) || 0;
+  return total * (1 + (opts.markupPct ?? 0) / 100) + (opts.markupFlat ?? 0);
 }
 
 /** Map a free-text container type to one of the three canonical buckets. */
@@ -138,20 +161,23 @@ function replaceScalars(
   opts: SubstituteOpts
 ): string {
   const first = rows[0];
+  const blank = opts.blankRates === true;
   const map: Record<string, string> = {
     '<CLIENT>': opts.clientName?.trim() || '',
     '<POL>': first ? polLabel(first) : '',
     '<POD>': first ? podLabel(first) : '',
-    '<CARRIER>': carriersOf(rows),
-    '<TRANSIT>': transitOf(rows),
-    '<VALIDITY>': validityOf(rows),
-    '<DEST_CHARGES>': destOf(rows),
-    '<PRICE>': first ? money(priceOf(first, opts)) : '',
+    '<CARRIER>': blank ? BLANK_RATE : carriersOf(rows),
+    '<TRANSIT>': blank ? BLANK_RATE : transitOf(rows),
+    '<VALIDITY>': blank ? BLANK_RATE : validityOf(rows),
+    '<DEST_CHARGES>': blank ? BLANK_RATE : destOf(rows),
+    '<PRICE>': blank ? BLANK_RATE : first ? money(priceOf(first, opts)) : '',
     '<CONTAINER>': first ? first.containerType : '',
-    '<20GP_PRICE>': bucketPrice(rows, '20GP', opts),
-    '<40GP_PRICE>': bucketPrice(rows, '40GP', opts),
-    '<40HQ_PRICE>': bucketPrice(rows, '40HQ', opts),
+    '<20GP_PRICE>': blank ? BLANK_RATE : bucketPrice(rows, '20GP', opts),
+    '<40GP_PRICE>': blank ? BLANK_RATE : bucketPrice(rows, '40GP', opts),
+    '<40HQ_PRICE>': blank ? BLANK_RATE : bucketPrice(rows, '40HQ', opts),
     '<SURCHARGES>': surchargeLines(opts),
+    '<PICKUP>': opts.pickupAddress?.trim() || '',
+    '<DELIVERY>': opts.deliveryAddress?.trim() || '',
   };
   let out = text;
   for (const [token, value] of Object.entries(map)) {

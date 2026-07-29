@@ -87,6 +87,7 @@ import {
   searchSheetUploads,
   getSheetUploadDetail,
   ratesFromParsedResults,
+  findSheetRatesByLane,
 } from '../db/sheetHistory.js';
 import {
   getEmailTemplates,
@@ -1743,6 +1744,96 @@ export function registerApiRoutes(app: Express): void {
       res.json({ text });
     } catch (err) {
       console.error('[api/sheets/reply] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // Generate an ocean quote email for a single lane. If saved rates exist for
+  // the lane (from previously parsed rate sheets), fill them in deterministically;
+  // otherwise emit a blank-rate email (rate fields as `____`) the user completes
+  // by hand. Mirrors /api/sheets/reply's template + disclaimer reuse.
+  app.post('/api/quote/generate', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      pol?: string;
+      polCode?: string;
+      pod?: string;
+      podCode?: string;
+      container?: string;
+      clientName?: string;
+      pickupAddress?: string;
+      deliveryAddress?: string;
+      template?: string;
+      markupPct?: number | string;
+      markupFlat?: number | string;
+    };
+    const pol = (body.pol ?? '').trim();
+    const pod = (body.pod ?? '').trim();
+    const polCode = (body.polCode ?? '').trim();
+    const podCode = (body.podCode ?? '').trim();
+    const container = (body.container ?? '').trim();
+    if ((!pol && !polCode) || (!pod && !podCode)) {
+      res
+        .status(400)
+        .json({ error: 'Origin (POL) and destination (POD) are required.' });
+      return;
+    }
+    try {
+      const markupPct = Number(body.markupPct ?? 0) || 0;
+      const markupFlat = Number(body.markupFlat ?? 0) || 0;
+      // Prefer codes for the lane lookup (searchKey holds both name + code).
+      const rows = await findSheetRatesByLane(
+        polCode || pol,
+        podCode || pod,
+        container || undefined
+      );
+      const usedRates = rows.length > 0;
+
+      // Template + disclaimer come from the DB (owner-editable source of truth).
+      const { templates, disclaimer } = await getEmailTemplates();
+      const emailTemplate = (body.template ?? '').trim() || templates.concise;
+
+      const effectiveRows: SheetReplyRow[] = usedRates
+        ? rows
+        : [
+            {
+              carrier: '',
+              pol,
+              polCode: polCode || null,
+              pod,
+              podCode: podCode || null,
+              containerType: container,
+              transitDays: null,
+              detentionFreetimeDays: null,
+              demurrageFreetimeDays: null,
+              freightTotal: 0,
+              freightCurrency: 'USD',
+              freightCharges: [],
+              destinationTotal: null,
+              destinationCurrency: null,
+              destinationCharges: [],
+              validityFrom: null,
+              validityTo: null,
+              serviceName: null,
+            },
+          ];
+
+      const email = await generateSheetReply({
+        rows: effectiveRows,
+        markupPct,
+        markupFlat,
+        clientName: body.clientName,
+        emailTemplate,
+        disclaimer,
+        blankRates: !usedRates,
+        pickupAddress: body.pickupAddress,
+        deliveryAddress: body.deliveryAddress,
+      });
+
+      res.json({ email, usedRates, rateCount: rows.length });
+    } catch (err) {
+      console.error('[api/quote/generate] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });
