@@ -14,7 +14,7 @@ import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
 import { parseIntake } from '../llm/parseIntake.js';
 import { friendlyAiError, type AiContentBlock } from '../llm/callAiTool.js';
-import { normalizeUniversalFile } from '../llm/universalFileText.js';
+import { normalizeUniversalFile, isOfficeDocFile } from '../llm/universalFileText.js';
 import { normalizePostal } from '../utils/postal.js';
 import {
   generateClientReply,
@@ -114,6 +114,7 @@ import {
   parseShipmentBriefing,
   detectMediaType,
   isMsgFile,
+  officeDocToBriefingFile,
   type BriefingFile,
   type BriefingMediaType,
   type ShipmentBriefing,
@@ -472,11 +473,21 @@ export function registerApiRoutes(app: Express): void {
         return res.status(400).json({ error: 'Provide a file (fileBase64 + mediaType) or text.' });
       }
       const { parseCustomsRequest } = await import('../llm/parseCustomsRequest.js');
+      // Office documents (docx/xlsx/pptx/odt/ods/odp): decode to text via the
+      // shared extractor and send inline, since Claude can't read them visually.
+      const officeText =
+        !body.text && body.fileBase64 && isOfficeDocFile(body.filename)
+          ? normalizeUniversalFile({
+              filename: body.filename ?? 'upload',
+              mediaType: body.mediaType,
+              fileBase64: body.fileBase64,
+            }).text ?? ''
+          : undefined;
       const extract = await parseCustomsRequest({
-        fileBase64: body.fileBase64,
-        mediaType: body.mediaType as never,
+        fileBase64: officeText ? undefined : body.fileBase64,
+        mediaType: officeText ? undefined : (body.mediaType as never),
         filename: body.filename,
-        text: body.text,
+        text: officeText ?? body.text,
       });
       return res.json({ extract });
     } catch (err) {
@@ -1592,11 +1603,24 @@ export function registerApiRoutes(app: Express): void {
       const f = files[i]!;
       const filename = f.filename ?? `sheet-${i + 1}`;
       try {
-        const parsed = await parseRateSheet({
-          fileBase64: f.contentBase64,
-          mediaType: f.mediaType,
-          filename,
-        });
+        // Office documents (docx/xlsx/pptx/odt/ods/odp) carry no media type
+        // Claude can read visually — decode them to text via the shared
+        // extractor and send inline. PDFs/images still go as visual documents.
+        const parsed = isOfficeDocFile(filename)
+          ? await parseRateSheet({
+              filename,
+              text:
+                normalizeUniversalFile({
+                  filename,
+                  mediaType: f.mediaType,
+                  fileBase64: f.contentBase64,
+                }).text ?? '',
+            })
+          : await parseRateSheet({
+              fileBase64: f.contentBase64,
+              mediaType: f.mediaType,
+              filename,
+            });
         // Storage optimization: keep the ORIGINAL only when it's worth keeping
         // — a real rate sheet, or the user explicitly asked to keep it. A
         // customer quote-request screenshot / misc image is parsed for its
@@ -2292,6 +2316,15 @@ export function registerApiRoutes(app: Express): void {
                   textContent: convertMsgToEmailText(ab),
                 };
               }
+              // Office documents (docx/xlsx/pptx/odt/ods/odp): decode to text
+              // via the shared extractor and forward as text/plain, like .msg.
+              if (isOfficeDocFile(filename)) {
+                return officeDocToBriefingFile(
+                  filename,
+                  buf.toString('base64'),
+                  a.mediaType
+                );
+              }
               const inferred =
                 (a.mediaType as BriefingMediaType) ||
                 detectMediaType(filename);
@@ -2329,6 +2362,14 @@ export function registerApiRoutes(app: Express): void {
                 filename: f.filename,
                 textContent: convertMsgToEmailText(ab),
               };
+            }
+            // Office documents: decode to text via the shared extractor.
+            if (isOfficeDocFile(f.filename)) {
+              return officeDocToBriefingFile(
+                f.filename,
+                f.contentBase64,
+                f.mediaType
+              );
             }
             const inferred =
               f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
@@ -3125,6 +3166,10 @@ export function registerApiRoutes(app: Express): void {
             textContent,
           };
         }
+        // Office documents (docx/xlsx/pptx/odt/ods/odp): decode to text.
+        if (isOfficeDocFile(f.filename)) {
+          return officeDocToBriefingFile(f.filename, f.contentBase64, f.mediaType);
+        }
         const inferred =
           f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);
         if (!inferred) {
@@ -3645,6 +3690,14 @@ export function registerApiRoutes(app: Express): void {
               filename: f.filename,
               textContent: convertMsgToEmailText(ab),
             };
+          }
+          // Office documents: decode to text via the shared extractor.
+          if (isOfficeDocFile(f.filename)) {
+            return officeDocToBriefingFile(
+              f.filename,
+              f.contentBase64,
+              f.mediaType
+            );
           }
           const inferred =
             f.mediaType ?? (f.filename ? detectMediaType(f.filename) : null);

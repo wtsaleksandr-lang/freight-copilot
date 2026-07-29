@@ -5,6 +5,7 @@ import { loadEnv } from '../config.js';
 
 import { getAiConfig } from './model.js';
 import { callGeminiTool } from './geminiAdapter.js';
+import { normalizeUniversalFile } from './universalFileText.js';
 // MODEL / FALLBACK_MODEL / PROVIDER are now resolved per-call (see
 // parseShipmentBriefing) so the dashboard's secrets page can swap
 // them at runtime without a server restart.
@@ -332,6 +333,28 @@ export function detectMediaType(filename: string): BriefingMediaType | null {
 /** True when the filename indicates an Outlook .msg item we can decode. */
 export function isMsgFile(filename: string | undefined): boolean {
   return !!filename && filename.toLowerCase().endsWith('.msg');
+}
+
+/**
+ * Decode a modern office document (docx/xlsx/pptx/odt/ods/odp) to a
+ * text-content briefing file. Mirrors the .msg branch: office docs carry no
+ * media type Claude can read directly, so we extract their text via the shared
+ * `normalizeUniversalFile` decoder and send it as text/plain — exactly like
+ * .eml / .msg. Reuse this in every intake/briefing file-prep loop so office
+ * documents are never rejected as an undetectable media type.
+ */
+export function officeDocToBriefingFile(
+  filename: string | undefined,
+  fileBase64: string,
+  mediaType?: string
+): BriefingFile {
+  const name = filename ?? 'upload';
+  const norm = normalizeUniversalFile({ filename: name, mediaType, fileBase64 });
+  return {
+    mediaType: 'text/plain',
+    filename: name,
+    textContent: norm.text ?? '',
+  };
 }
 
 const TEXT_TYPES = new Set<BriefingMediaType>([
