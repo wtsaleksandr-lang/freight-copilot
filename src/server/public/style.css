@@ -2323,6 +2323,19 @@ body.is-panel-dragging * {
   border-radius: 3px;
 }
 .toast-close:hover { color: #fff; background: rgba(255,255,255,0.08); }
+.toast-action {
+  margin: 6px 22px 0 0;
+  align-self: flex-start;
+  background: rgba(88,166,255,0.14);
+  border: 1px solid rgba(88,166,255,0.5);
+  color: #58a6ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 5px;
+}
+.toast-action:hover { background: rgba(88,166,255,0.24); }
 @keyframes toast-in {
   from { transform: translateX(20px); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
