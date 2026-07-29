@@ -101,6 +101,22 @@ export function operationalFieldsFromBriefing(
     carrierPreference: briefing.carrier_preference ?? null,
     bookingRef: briefing.booking_ref ?? null,
     shipmentType: briefing.shipment_type ?? null,
+    // Operational milestone dates + logistics fields → their grid columns. These
+    // were extracted by the parser but only mapped on the drop-onto-existing-row
+    // path; adding them here fixes the create-new-shipment + fill-only-merge
+    // paths too (both flow through this mapper).
+    cutOffDate: briefing.cut_off_date ?? null,
+    siDate: briefing.si_date ?? null,
+    seaAirCargo: briefing.sea_air_cargo ?? null,
+    vgm: briefing.vgm ?? null,
+    draftDate: briefing.draft_date ?? null,
+    loadingDate: briefing.loading_date ?? null,
+    trucker: briefing.trucker ?? null,
+    etd: briefing.etd ?? null,
+    eta: briefing.eta ?? null,
+    bolType: briefing.bol_type ?? null,
+    quoteRef: briefing.quote_ref ?? null,
+    aes: briefing.aes ?? null,
   };
 }
 
