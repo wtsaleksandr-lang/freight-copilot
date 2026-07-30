@@ -443,7 +443,7 @@ export const shipments = pgTable('shipments', {
    *  status (which lives in shipment.tracking at render time). */
   operationalStatus: text('operational_status'),
   /** MULTI-STATUS: a shipment can hold several operational statuses at once
-   *  (e.g. "booking" AND "invoiced"). Stored as a jsonb array of the same
+   *  (e.g. "booking" AND "loaded"). Stored as a jsonb array of the same
    *  canonical values as `operationalStatus`. The EMPTY ARRAY is the "No status
    *  set" state — never a member — so "no status" can't coexist with a real
    *  one. `operationalStatus` (scalar) is retained for backward-compat this
