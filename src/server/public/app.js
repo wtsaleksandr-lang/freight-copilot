@@ -6465,6 +6465,20 @@ function formatMoney(n, cur) {
   // Repaint a status cell's icons from an array (empty → single ⚪). Kept as a
   // node build (not innerHTML) so it's safe if the browser relocates children
   // during focus transitions. `data-count` drives the shrink-to-fit CSS.
+  // Update the whole-row status tint LIVE when the status changes (the picker
+  // repaints the cell icon but the tint class rides on the <tr>, set at render
+  // time — without this, changing status wouldn't recolour the row until reload).
+  // Mirrors the render-time derivation in renderTable: loaded wins, else booking,
+  // else no tint. Legacy values are normalized via statusListOf.
+  function applyRowTint(td, list) {
+    const tr = td && td.closest && td.closest('tr[data-ref]');
+    if (!tr) return;
+    const st = statusListOf({ operationalStatuses: list });
+    tr.classList.remove('is-tint-booking', 'is-tint-loaded');
+    if (st.includes('loaded')) tr.classList.add('is-tint-loaded');
+    else if (st.includes('booking')) tr.classList.add('is-tint-booking');
+  }
+
   function paintStatusCell(td, list) {
     const icons = list.length === 0 ? [statusFor('')] : list.map((v) => statusFor(v));
     const wrap = document.createElement('span');
@@ -6529,6 +6543,7 @@ function formatMoney(n, cur) {
         list = list.includes(opt.value) ? [] : [opt.value];
         paintButtons();
         paintStatusCell(td, list);
+        applyRowTint(td, list); // recolour the whole row immediately
         td.classList.add('is-saved');
         setTimeout(() => td.classList.remove('is-saved'), 1200);
         if (ref) ref.operationalStatuses = list.slice();
@@ -6540,6 +6555,7 @@ function formatMoney(n, cur) {
           if (ref) ref.operationalStatuses = prev.slice();
           paintButtons();
           paintStatusCell(td, list);
+          applyRowTint(td, list); // revert the row colour too
           toast('Save failed (status reverted): ' + err.message, 'error');
         }
       });
