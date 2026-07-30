@@ -4452,13 +4452,14 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 // are mapped onto the new set in statusFor() below.
 // Icons are minimal MONOCHROME/greyscale inline SVG glyphs — the COLOR comes
 // from the whole-row status tint (see renderTable + shipment-grid-enhancements.css),
-// never from the icon. booking = clipboard outline; loaded = shipping box.
+// never from the icon. booking = delivery truck (shipment being processed /
+// pickup scheduling); loaded = banknote (loaded & invoice due — money to collect).
 const STATUS_ICON_NONE =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94a3b8" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg>';
 const STATUS_ICON_BOOKING =
-  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#64748b" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><rect x="3.5" y="3" width="9" height="11" rx="1.5"/><path d="M6 3.2v-.7A.8.8 0 0 1 6.8 1.7h2.4a.8.8 0 0 1 .8.8v.7"/><path d="M5.7 7.3h4.6M5.7 9.6h4.6M5.7 11.9h2.8"/></svg>';
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>';
 const STATUS_ICON_LOADED =
-  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#64748b" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M8 2.3 13.3 5v6L8 13.7 2.7 11V5z"/><path d="M2.7 5 8 7.7 13.3 5M8 7.7v6"/></svg>';
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>';
 const STATUS_OPTIONS = [
   { value: '',         label: '— none —',                    icon: STATUS_ICON_NONE },
   { value: 'booking',  label: 'Booking · scheduling pickup', icon: STATUS_ICON_BOOKING },
