@@ -7028,13 +7028,15 @@ function formatMoney(n, cur) {
   // slightly-off grab still lands on it. Before this, only a hair-thin 5px strip
   // on a cell's RIGHT edge resized; a grab a few px off (or exactly on a shared
   // border, which resolves to the NEXT cell) matched nothing and fell through to
-  // the wrapper's drag-to-pan — so the whole sheet panned and cells appeared to
-  // "move a few rows away". Now we test BOTH a cell's right edge (→ this column)
-  // AND its left edge (→ the previous column, i.e. the same shared border seen
-  // from the other side), mirroring rowResizeTarget's top/bottom handling. That
-  // removes the dead boundary and doubles the effective catch band around each
-  // gridline, so an edge grab reliably resizes instead of panning.
-  const COL_RESIZE_ZONE = 8; // px tolerance either side of a column border
+  // the wrapper's drag-to-pan. A later fix that ALSO matched a cell's LEFT edge
+  // (resizing the PREVIOUS column) backfired: grabbing a cell's edge then changed
+  // a NEIGHBOUR column, which is exactly the "it moves another cell" the user
+  // reported. So this is RIGHT-edge-ONLY: a grab within COL_RESIZE_ZONE of a
+  // cell's own right border resizes THAT cell's own column and nothing else. The
+  // pan handler on #ship-table-wrap independently defers to this hit-test (and to
+  // rowResizeTarget), so a resize can never be stolen by the pan even if event
+  // propagation timing changes.
+  const COL_RESIZE_ZONE = 8; // px tolerance inside a cell's right border
   // Map a body <td> to its matching <col>. Prefer the cell's own field IDENTITY
   // (stays correct after columns are hidden/shown or reordered); fall back to the
   // positional index only for the few cells whose data-field ≠ col-key (e.g. the
@@ -7065,25 +7067,19 @@ function formatMoney(n, cur) {
     const td = target && target.closest && target.closest('tbody td');
     if (!td) return null;
     if (!td.closest('tr[data-ref]')) return null;
+    if (td.classList.contains('actions-cell')) return null;
     const r = td.getBoundingClientRect();
-    // Near THIS cell's RIGHT border → resize THIS column (never the actions cell).
-    if (
-      !td.classList.contains('actions-cell') &&
-      Math.abs(clientX - r.right) <= COL_RESIZE_ZONE
-    ) {
+    // RIGHT-edge-ONLY: resizing engages solely when the pointer is within
+    // COL_RESIZE_ZONE of a cell's OWN right border, and it resizes THAT cell's
+    // OWN column (colForCell(td)). Grabbing a cell edge must NEVER resize a
+    // different column. The previous left-edge branch resized the PREVIOUS
+    // column, so grabbing a cell's edge visibly changed a NEIGHBOUR column —
+    // that was the "it moves another cell" bug. A cell's left border is simply
+    // the previous cell's right border, so the previous column is still
+    // resizable — by grabbing IT from its own right edge — with no ambiguity.
+    if (Math.abs(clientX - r.right) <= COL_RESIZE_ZONE) {
       const m = colForCell(td);
       if (m) return { td, col: m.col, key: m.key };
-    }
-    // Near THIS cell's LEFT border (== the previous cell's RIGHT border) → resize
-    // the PREVIOUS column — the same shared gridline grabbed from the other side.
-    // Excel-style: a border always resizes the column to its left. Works even when
-    // the previous cell is the frozen first column or maps by index (status).
-    if (Math.abs(clientX - r.left) <= COL_RESIZE_ZONE) {
-      const prev = td.previousElementSibling;
-      if (prev && prev.matches && prev.matches('tbody td')) {
-        const m = colForCell(prev);
-        if (m) return { td: prev, col: m.col, key: m.key };
-      }
     }
     return null;
   }
@@ -8916,6 +8912,17 @@ function formatMoney(n, cur) {
         e.target.closest(
           '.ship-delete-btn, .ship-attach-badge, .ship-source-link, button, a, input, textarea, select, [contenteditable="true"], th[draggable="true"], .shipment-column-resizer, .ship-row-resize-handle'
         )
+      ) {
+        return;
+      }
+      // Belt-and-suspenders with the table's own stopPropagation: if the press
+      // lands in a body-cell column-resize zone or a row-resize zone, this is a
+      // resize gesture, not a pan — defer to it. This makes the pan physically
+      // unable to steal a resize INDEPENDENTLY of event-propagation timing, so
+      // grabbing a cell edge can never end up panning the whole sheet.
+      if (
+        bodyColResizeTarget(e.clientX, e.target) ||
+        rowResizeTarget(e.clientY, e.target)
       ) {
         return;
       }
