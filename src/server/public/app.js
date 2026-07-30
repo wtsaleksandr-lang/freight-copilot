@@ -5685,11 +5685,6 @@ function formatMoney(n, cur) {
     td.addEventListener('dblclick', handler);
     attachLongPress(td, handler);
   }
-  function activateCell(td) {
-    // Re-use whatever the cell does on double-click (inline edit / picker /
-    // modal). Used by the frosted peek popup when it's clicked.
-    td.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-  }
 
   // ── Shared floating editor (carrier picker, date picker) ──────────────────
   let floatingEditor = null;
@@ -6092,64 +6087,11 @@ function formatMoney(n, cur) {
     input.select();
   }
 
-  // ── Frosted "peek" popup for truncated cells ──────────────────────────────
-  // When a cell's content is clipped by a narrow column, hovering shows the
-  // full value in a premium frosted popup just above the cell. It appears and
-  // vanishes fast; clicking it drops straight into edit mode for that cell.
-  let peekEl = null;
-  let peekTd = null;
-  let peekShowT = null;
-  let peekHideT = null;
-  function ensurePeek() {
-    if (peekEl) return peekEl;
-    peekEl = document.createElement('div');
-    peekEl.className = 'cell-peek';
-    peekEl.addEventListener('mouseenter', () => clearTimeout(peekHideT));
-    peekEl.addEventListener('mouseleave', hidePeekSoon);
-    peekEl.addEventListener('click', () => {
-      const td = peekTd;
-      hidePeek();
-      if (td && td.isConnected) activateCell(td);
-    });
-    document.body.appendChild(peekEl);
-    return peekEl;
-  }
-  function cellIsTruncated(td) { return td.scrollWidth - td.clientWidth > 1; }
-  function fullCellValue(row, field, td) {
-    if (row) {
-      if (field === 'cargo') return [row.cargoType, row.cargoName].filter(Boolean).join(' — ');
-      const v = row[field];
-      if (v != null && v !== '') return String(v);
-    }
-    return (td.textContent || '').trim();
-  }
-  function showPeek(td, text) {
-    const el = ensurePeek();
-    peekTd = td;
-    el.textContent = text;
-    el.classList.add('is-visible');
-    el.style.visibility = 'hidden';
-    el.style.left = '0px';
-    el.style.top = '0px';
-    const r = td.getBoundingClientRect();
-    let left = r.left;
-    if (left + el.offsetWidth + 8 > window.innerWidth) left = window.innerWidth - el.offsetWidth - 8;
-    left = Math.max(8, left);
-    let top = r.top - el.offsetHeight - 8;
-    let below = false;
-    if (top < 8) { top = r.bottom + 8; below = true; }
-    el.classList.toggle('is-below', below);
-    el.style.left = `${Math.round(left)}px`;
-    el.style.top = `${Math.round(top)}px`;
-    el.style.visibility = 'visible';
-  }
-  function hidePeek() {
-    clearTimeout(peekShowT);
-    clearTimeout(peekHideT);
-    if (peekEl) peekEl.classList.remove('is-visible');
-    peekTd = null;
-  }
-  function hidePeekSoon() { clearTimeout(peekHideT); peekHideT = setTimeout(hidePeek, 120); }
+  // The clipped-cell full-value hover reveal is owned exclusively by
+  // wireCropHoverReveal (the single `.ship-cell-reveal` element). The former
+  // frosted `.cell-peek` popup that also lived here was a SECOND, competing
+  // reveal system — both fired on the same clipped cell, so the user saw two
+  // identical tooltips at once — and has been removed.
 
   function wireCellInteractions(rows) {
     const byRef = new Map(rows.map((r) => [r.refId, r]));
@@ -6164,19 +6106,12 @@ function formatMoney(n, cur) {
       const row = byRef.get(refId);
       if (!row) return;
 
-      // Frosted "peek" popup on hover when the cell's content is clipped by a
-      // narrow column. Skipped for the status icon and the computed profit.
-      if (kind !== 'status' && kind !== 'profit') {
-        td.addEventListener('mouseenter', () => {
-          if (td.isContentEditable || floatingEditor) return;
-          if (!cellIsTruncated(td)) return;
-          const full = fullCellValue(row, field, td);
-          if (!full) return;
-          clearTimeout(peekHideT);
-          peekShowT = setTimeout(() => showPeek(td, full), 130);
-        });
-        td.addEventListener('mouseleave', () => { clearTimeout(peekShowT); hidePeekSoon(); });
-      }
+      // NOTE: the on-hover full-value reveal for clipped cells is owned solely by
+      // wireCropHoverReveal (the single `.ship-cell-reveal` element). The old
+      // per-cell frosted "peek" popup that also lived here was a SECOND reveal
+      // system — both fired for the same cell, so a clipped cell showed two
+      // identical tooltips at once. It has been removed; do not re-add a
+      // competing hover popup here.
 
       // Our Cost cell:
       //   single click → compact breakdown panel (review the audit trail)
@@ -6949,6 +6884,37 @@ function formatMoney(n, cur) {
     function hide() {
       if (tip) tip.classList.remove('is-visible');
     }
+    // A cell is "cropped" when its rendered content is wider than the space the
+    // column gives it. The plain check `td.scrollWidth > td.clientWidth` only
+    // works when the td itself is the clipping box — but a shrunk row
+    // (`is-min-height`) moves the nowrap/overflow:hidden clip onto the inner
+    // `.cell-clip` block, and icon/badge cells clip on a child too, so the td
+    // reports NO overflow and genuinely-clipped text got no reveal. Measure the
+    // actual rendered width of the content with a Range (it reports the real glyph
+    // extent regardless of which element does the clipping) and also honour any
+    // clipping descendant's own scrollWidth. Either signal ⇒ cropped.
+    function isCellClipped(td) {
+      if (td.scrollWidth - td.clientWidth > 1) return true;
+      let el = td.firstElementChild;
+      while (el) {
+        if (el.scrollWidth - el.clientWidth > 1) return true;
+        el = el.nextElementSibling;
+      }
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(td);
+        const contentW = range.getBoundingClientRect().width;
+        const cs = getComputedStyle(td);
+        const avail =
+          td.clientWidth -
+          (parseFloat(cs.paddingLeft) || 0) -
+          (parseFloat(cs.paddingRight) || 0);
+        if (contentW - avail > 1) return true;
+      } catch (_) {
+        /* Range unsupported — fall through to not-cropped. */
+      }
+      return false;
+    }
     function show(td) {
       // Skip while a cell is being edited or a resize drag is in progress.
       if (td.classList.contains('is-editing')) return;
@@ -6959,7 +6925,7 @@ function formatMoney(n, cur) {
         return;
       }
       // Not cropped → no reveal.
-      if (td.scrollWidth <= td.clientWidth + 1) return;
+      if (!isCellClipped(td)) return;
       const text = td.textContent.trim();
       if (!text) return;
       const t = ensureTip();
@@ -7055,20 +7021,27 @@ function formatMoney(n, cur) {
   // data-field/col-key mismatch some cells have, and to reorder/hide which move
   // header, colgroup and cells together). Mouse/pen only so it never hijacks
   // touch scroll; the row-resize zone wins at the corner so the two never fight;
-  // only the 5px edge zone engages, so normal click-to-edit is untouched.
-  const COL_RESIZE_ZONE = 5; // px tolerance around a cell's right edge
-  function bodyColResizeTarget(clientX, target) {
-    const td = target && target.closest && target.closest('tbody td');
+  // only the edge zone engages, so normal click-to-edit is untouched.
+  //
+  // The grab band is symmetric around every column border and wide enough that a
+  // slightly-off grab still lands on it. Before this, only a hair-thin 5px strip
+  // on a cell's RIGHT edge resized; a grab a few px off (or exactly on a shared
+  // border, which resolves to the NEXT cell) matched nothing and fell through to
+  // the wrapper's drag-to-pan — so the whole sheet panned and cells appeared to
+  // "move a few rows away". Now we test BOTH a cell's right edge (→ this column)
+  // AND its left edge (→ the previous column, i.e. the same shared border seen
+  // from the other side), mirroring rowResizeTarget's top/bottom handling. That
+  // removes the dead boundary and doubles the effective catch band around each
+  // gridline, so an edge grab reliably resizes instead of panning.
+  const COL_RESIZE_ZONE = 8; // px tolerance either side of a column border
+  // Map a body <td> to its matching <col>. Prefer the cell's own field IDENTITY
+  // (stays correct after columns are hidden/shown or reordered); fall back to the
+  // positional index only for the few cells whose data-field ≠ col-key (e.g. the
+  // status cell's data-field="operationalStatuses" vs col-key "operationalStatus").
+  function colForCell(td) {
     if (!td || td.classList.contains('actions-cell')) return null;
-    if (!td.closest('tr[data-ref]')) return null;
-    const r = td.getBoundingClientRect();
-    if (Math.abs(clientX - r.right) > COL_RESIZE_ZONE) return null;
     const colgroup = table.querySelector('colgroup');
     if (!colgroup) return null;
-    // Map the cell to its <col> by the cell's own field IDENTITY first, so it
-    // stays correct after columns are hidden/shown or reordered (a positional
-    // index shifts by one when a hidden cell is or isn't counted). Fall back to
-    // the positional index only for the few cells whose data-field ≠ col-key.
     const field = td.getAttribute('data-field');
     let col = null;
     if (field) {
@@ -7085,7 +7058,33 @@ function formatMoney(n, cur) {
     if (!col) return null;
     const key = col.getAttribute('data-col-key');
     if (!key || key === '__actions') return null;
-    return { td, col, key };
+    return { col, key };
+  }
+  function bodyColResizeTarget(clientX, target) {
+    const td = target && target.closest && target.closest('tbody td');
+    if (!td) return null;
+    if (!td.closest('tr[data-ref]')) return null;
+    const r = td.getBoundingClientRect();
+    // Near THIS cell's RIGHT border → resize THIS column (never the actions cell).
+    if (
+      !td.classList.contains('actions-cell') &&
+      Math.abs(clientX - r.right) <= COL_RESIZE_ZONE
+    ) {
+      const m = colForCell(td);
+      if (m) return { td, col: m.col, key: m.key };
+    }
+    // Near THIS cell's LEFT border (== the previous cell's RIGHT border) → resize
+    // the PREVIOUS column — the same shared gridline grabbed from the other side.
+    // Excel-style: a border always resizes the column to its left. Works even when
+    // the previous cell is the frozen first column or maps by index (status).
+    if (Math.abs(clientX - r.left) <= COL_RESIZE_ZONE) {
+      const prev = td.previousElementSibling;
+      if (prev && prev.matches && prev.matches('tbody td')) {
+        const m = colForCell(prev);
+        if (m) return { td: prev, col: m.col, key: m.key };
+      }
+    }
+    return null;
   }
   function wireBodyColumnResize() {
     if (table.__bodyColResizeDelegated) return; // install exactly once
