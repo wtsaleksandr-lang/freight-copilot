@@ -1351,7 +1351,7 @@ document.getElementById('dr-clear-btn')?.addEventListener('click', () => {
   setStatus('dr-status', 'Form cleared.', 'info');
   // Also wipe the matches table.
   renderDrayageMatches([]);
-  document.getElementById('dr-matches-count').textContent = '— click Run after editing the form';
+  document.getElementById('dr-matches-count').textContent = '';
 });
 
 // Run button — query the rate library by form fields, render matches.
@@ -10753,28 +10753,19 @@ function esc(s) {
     if (el && val != null) el.value = val;
   };
 
-  // Mirror saved prefs into the prefs fold itself so it shows current defaults.
-  function populateForm(p) {
-    setVal('pref-markup-pct', p.markupPct);
-    setVal('pref-markup-flat', p.markupFlat);
-    setVal('pref-container', p.container);
-    setVal('pref-currency-rate', p.currencyRate);
-    setVal('pref-surch-export-decl', p.surchExportDecl);
-    setVal('pref-surch-overweight', p.surchOverweight);
-    setVal('pref-surch-waiting', p.surchWaiting);
-  }
-
-  // Read the prefs fold back into a plain object for saving.
+  // The "⚙ Your defaults" fold was removed; defaults now live directly in the
+  // always-visible controls (sheet markup, surcharge fees, container, calculator
+  // FX rate). Reading them back yields the same prefs object shape.
   function readForm() {
     const g = (id) => document.getElementById(id);
     return {
-      markupPct: num(g('pref-markup-pct')?.value, HARD.markupPct),
-      markupFlat: num(g('pref-markup-flat')?.value, HARD.markupFlat),
-      container: g('pref-container')?.value || HARD.container,
-      currencyRate: num(g('pref-currency-rate')?.value, HARD.currencyRate),
-      surchExportDecl: num(g('pref-surch-export-decl')?.value, HARD.surchExportDecl),
-      surchOverweight: num(g('pref-surch-overweight')?.value, HARD.surchOverweight),
-      surchWaiting: num(g('pref-surch-waiting')?.value, HARD.surchWaiting),
+      markupPct: num(g('sheet-markup-pct')?.value, HARD.markupPct),
+      markupFlat: num(g('sheet-markup-flat')?.value, HARD.markupFlat),
+      container: g('container')?.value || HARD.container,
+      currencyRate: num(g('calc-usd-cad-rate')?.value, HARD.currencyRate),
+      surchExportDecl: num(g('surch-export-decl-fee')?.value, HARD.surchExportDecl),
+      surchOverweight: num(g('surch-overweight-fee')?.value, HARD.surchOverweight),
+      surchWaiting: num(g('surch-waiting-fee')?.value, HARD.surchWaiting),
     };
   }
 
@@ -10828,17 +10819,20 @@ function esc(s) {
   }
 
   const prefs = loadPrefs();
-  populateForm(prefs);
   applyToLiveInputs(prefs);
 
-  document.getElementById('pref-save-btn')?.addEventListener('click', () => {
-    const next = readForm();
+  // Persist whenever the user edits any of the live default controls, so
+  // "set once, applied to every quote" survives a reload without a defaults fold.
+  function saveFromLive() {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      localStorage.setItem(PREFS_KEY, JSON.stringify(readForm()));
     } catch (_) { /* private mode — nothing persists */ }
-    applyToLiveInputs(next);
-    if (typeof toast === 'function') toast('Defaults saved.', 'success');
-  });
+  }
+  ['sheet-markup-pct', 'sheet-markup-flat', 'container', 'calc-usd-cad-rate',
+   'surch-export-decl-fee', 'surch-overweight-fee', 'surch-waiting-fee']
+    .forEach((id) => {
+      document.getElementById(id)?.addEventListener('change', saveFromLive);
+    });
 })();
 
 // ---- Generate quote (saved-rate → fill deterministically; else blank-rate) ----

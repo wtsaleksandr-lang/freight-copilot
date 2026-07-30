@@ -61,71 +61,21 @@
 
   <main>
     <section id="tab-new" class="tab-pane active">
-      <!-- ─── Your defaults: set once, applied automatically to every new quote ─── -->
-      <details class="prefs-fold">
-        <summary>⚙ Your defaults <span class="muted small">— set once, applied automatically to every quote</span></summary>
-        <div class="prefs-body">
-          <div class="grid">
-            <label>Default markup %
-              <input type="number" id="pref-markup-pct" min="0" max="100" step="0.5" value="0" class="markup-num">
-            </label>
-            <label>Default flat add-on (USD)
-              <input type="number" id="pref-markup-flat" min="0" step="5" value="0" class="markup-num">
-            </label>
-            <label>Default container type
-              <select id="pref-container" class="container-select">
-                <option value="20 Dry Standard">20 Dry Standard</option>
-                <option value="40 Dry Standard">40 Dry Standard</option>
-                <option value="40 Dry High" selected>40 Dry High</option>
-                <option value="20 Reefer">20 Reefer</option>
-                <option value="40 Reefer">40 Reefer</option>
-                <option value="40 Reefer High Cube">40 Reefer High Cube</option>
-                <option value="20 Open Top">20 Open Top</option>
-                <option value="40 Open Top">40 Open Top</option>
-                <option value="20 Flat Rack">20 Flat Rack</option>
-                <option value="40 Flat Rack">40 Flat Rack</option>
-                <option value="20 Tank">20 Tank</option>
-                <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
-              </select>
-            </label>
-            <label>Default USD → CAD rate
-              <input type="number" id="pref-currency-rate" step="0.0001" min="0" value="1.37" class="markup-num">
-            </label>
-            <label>Export declaration fee ($)
-              <input type="number" id="pref-surch-export-decl" min="0" step="1" value="65" class="markup-num">
-            </label>
-            <label>Overweight surcharge ($)
-              <input type="number" id="pref-surch-overweight" min="0" step="1" value="275" class="markup-num">
-            </label>
-            <label>Loading wait time ($/hr)
-              <input type="number" id="pref-surch-waiting" min="0" step="5" value="100" class="markup-num">
-            </label>
-          </div>
-          <div class="row">
-            <button id="pref-save-btn" class="primary btn-sm">Save defaults</button>
-            <span class="muted small">Stored on this device only.</span>
-          </div>
-        </div>
-      </details>
-
       <!-- ─── Client-request intake: promoted to first-class (was buried under
            the fragile "Advanced" details). AI reads the request and fills the
            quote form below. Wired by ocIntake in app.js (#intake-dropzone). ─── -->
       <div class="card">
         <span class="intake-eyebrow is-quote">Client request</span>
-        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
-        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI reads it all and fills the form below. Confidence is shown after extraction — review before running the quote.</p>
+        <h2>Quote a client request</h2>
         <div id="intake-dropzone"></div>
         <div class="row">
           <button class="gq-generate-btn primary" type="button">📝 Generate quote from the lane fields</button>
-          <span class="muted small">Uses saved rates for this lane if we have them, otherwise builds a blank-rate email you fill in.</span>
         </div>
       </div>
 
       <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
       <div class="card">
-        <h2>Drop rate sheets <span class="muted-inline">— PDFs / screenshots from carriers</span></h2>
-        <p class="muted">Drop one or more rate sheets (PDF, PNG, JPG) or paste a screenshot with Ctrl+V. Our AI reads each one, identifies the carrier, extracts every lane and every container size separately, and surfaces freight charges in the total but keeps destination charges separate.</p>
+        <h2>Drop rate sheets</h2>
 
         <div id="sheet-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -168,7 +118,6 @@
           <h2>Past quotes</h2>
           <button id="sheet-history-refresh" class="btn-sm">Refresh</button>
         </div>
-        <p class="muted small">Search by POL or POD (e.g. "charleston", "USCHS", "ROCND", "constanta"). Empty search shows the most recent quotes. Click a row to reload the rates + email without spending any tokens.</p>
         <input id="sheet-history-search" type="search" placeholder="Filter by POL/POD..." class="full" />
         <div id="sheet-history-list" class="sheet-history-list"></div>
       </div>
@@ -223,7 +172,7 @@
         </fieldset>
 
         <details class="template-details" open>
-          <summary>Email template <span class="muted small">— edit the wording and click Save to reuse your polished version on every future quote</span></summary>
+          <summary>Email template</summary>
           <div class="template-picker">
             <label class="template-choice">
               <input type="radio" name="email-template" value="concise" id="tpl-concise" checked />
@@ -244,7 +193,7 @@
           <textarea id="sheet-email-template" rows="10" placeholder="Selected template loads here. Edit to customize, then Save so it's reused on every future quote."></textarea>
 
           <details class="token-legend">
-            <summary>Available placeholders <span class="muted small">— filled automatically from the parsed rates</span></summary>
+            <summary>Available placeholders</summary>
             <ul class="token-legend-list">
               <li><code>&lt;CLIENT&gt;</code> client name</li>
               <li><code>&lt;POL&gt;</code> port of loading (with code)</li>
@@ -260,10 +209,9 @@
               <li><code>&lt;EACH_LANE&gt;…&lt;/EACH_LANE&gt;</code> repeats per lane (POL→POD)</li>
               <li><code>&lt;EACH_RATE&gt;…&lt;/EACH_RATE&gt;</code> repeats per container in the lane</li>
             </ul>
-            <p class="muted small">Note: departure/arrival/vessel are intentionally unavailable — they can't be confirmed at quote stage.</p>
           </details>
 
-          <label class="disclaimer-field">Fine-print disclaimer <span class="muted small">— auto-appended to the bottom of every quote email</span>
+          <label class="disclaimer-field">Fine-print disclaimer
             <textarea id="sheet-email-disclaimer" rows="4" placeholder="Disclaimer text shown as fine print at the bottom of the email."></textarea>
           </label>
           <div class="disclaimer-preview-wrap">
@@ -280,7 +228,6 @@
         <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>
         <div id="sheet-email-row" class="row" hidden>
           <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
-          <span class="muted small">Tip: edit the email above before copying — your edits are preserved.</span>
         </div>
 
         <div class="table-wrap">
@@ -293,7 +240,7 @@
         <summary><strong>Advanced — live portal automation</strong> <span class="muted small">(fragile, work in progress)</span></summary>
 
       <div class="card">
-        <h2>Quote details <span class="muted-inline">— pick carriers, set your margin, hit one button</span></h2>
+        <h2>Quote details</h2>
         <label class="full" style="margin-bottom: 12px">Carriers to run
           <div id="carrier-dd"></div>
           <div class="row" style="margin-top: 6px; gap: 8px; align-items: center;">
@@ -431,7 +378,7 @@
         </label>
 
         <details class="template-details">
-          <summary>Email template (optional — the AI follows your format)</summary>
+          <summary>Email template</summary>
           <textarea id="email-template" rows="7" placeholder="Paste your typical client reply structure here. Our AI will substitute the lane and rates while keeping your tone, salutation, sign-off, layout. Saved locally — only set once."></textarea>
         </details>
 
@@ -443,7 +390,6 @@
           <h3 class="bd-title">Carrier progress</h3>
           <ul id="run-progress-list" class="bundle-progress"></ul>
         </div>
-        <p class="muted small">For each selected carrier, a Chrome window opens, Playwright drives the rate page, our AI parses + ranks, and a folder is saved with screenshots + the generated email. Inactive carriers are skipped automatically.</p>
       </div>
 
       <div id="results-card" class="card" hidden>
@@ -465,8 +411,7 @@
 
     <section id="tab-agent" class="tab-pane">
       <div class="card">
-        <h2>Web agent <span class="muted-inline">— paste a URL + describe the task</span></h2>
-        <p class="muted">Our AI drives a real Chrome window to accomplish a goal on any site. Examples: "complete this quiz", "fill this form with [details]", "find the cheapest option on this listing page". A browser window will open; feel free to watch it work. Avoid anything involving real money, payments, or account deletion — those are blocked by safety guardrails.</p>
+        <h2>Web agent</h2>
         <label class="full">Starting URL<input id="agent-url" placeholder="https://example.com/quiz"></label>
         <label class="full">Goal<textarea id="agent-goal" rows="3" placeholder="Describe what you want done, e.g. 'Answer every question in this trivia quiz, pick the best-supported answer each time, and submit at the end.'"></textarea></label>
         <div class="row">
@@ -516,8 +461,7 @@
            rate library follows). -->
       <div class="card">
         <span class="intake-eyebrow is-quote">Client request</span>
-        <h2>Quote a client request <span class="muted-inline">— drop a customer's email/screenshot → we build the quote</span></h2>
-        <p class="muted">Drop a file (PDF, screenshot, .eml/.msg email, HTML, TXT), click to browse, or press Ctrl+V to paste a screenshot — and/or type the request in the notes box. Our AI extracts the cargo type, container, addresses, ports and dates and fills the form below. Always review before clicking Run.</p>
+        <h2>Quote a client request</h2>
         <div id="dr-intake-dropzone"></div>
       </div>
 
@@ -525,8 +469,7 @@
            file and APPENDS to the database (price-history preserved). User
            filters / searches below. -->
       <details class="card dr-fold" open>
-        <summary class="dr-fold-summary"><span class="intake-eyebrow is-library">Rate library</span><h2>Save rates to your library <span class="muted-inline">— upload provider rate sheets → stored for future quotes</span></h2></summary>
-        <p class="muted">Drop, browse, or paste rate sheets / emails / screenshots. Our AI extracts every lane × container × surcharge into the database below — append-only, so you can see how a lane's price changed over time.</p>
+        <summary class="dr-fold-summary"><span class="intake-eyebrow is-library">Rate library</span><h2>Save rates to your library</h2></summary>
         <div id="dr-lib-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
             <strong>📂 Drop files here, or click to browse</strong>
@@ -558,13 +501,12 @@
           <div style="overflow: auto; max-height: 480px;">
             <table id="dr-lib-preview-table" class="ship-table"></table>
           </div>
-          <p class="muted small" style="margin-top: 6px;">Edit any field directly. Use ✕ to drop a row. Hit Save when ready — every kept row is appended to the library.</p>
         </div>
       </details>
 
       <!-- Form -->
       <div class="card">
-        <h2>Drayage details <span class="muted-inline">— review and edit anything the AI got wrong, then Save + Run</span></h2>
+        <h2>Drayage details</h2>
 
         <div class="grid">
           <label>Cargo type
@@ -674,7 +616,7 @@
            in the library above. -->
       <div class="card">
         <div class="card-header">
-          <h2>Matching rates <span class="muted-inline" id="dr-matches-count">— click Run after editing the form</span></h2>
+          <h2>Matching rates <span class="muted-inline" id="dr-matches-count"></span></h2>
           <button id="dr-matches-refresh" class="btn-sm">Refresh</button>
         </div>
         <div id="dr-matches-wrap" class="ship-table-wrap" style="max-height: 460px; overflow: auto;">
@@ -698,7 +640,6 @@
           <h2>Saved drayage rates database <span class="muted-inline" id="dr-lib-count"></span></h2>
         </summary>
         <div class="card-header" style="margin-top: 4px;">
-          <p class="muted small" style="margin: 0;">Every rate you've extracted is here. Filter any column to drill down — combine fields to find historical pricing for a specific lane.</p>
           <button id="dr-lib-refresh-btn" class="btn-sm">↻ Refresh</button>
         </div>
         <div id="dr-lib-preset-bar" class="dr-preset-bar">
@@ -717,8 +658,7 @@
 
     <section id="tab-trucking" class="tab-pane">
       <div class="card">
-        <h2>Trucking <span class="muted-inline">— FTL / LTL, dryvan / flatbed / reefer</span></h2>
-        <p class="muted">For ground freight without an ocean container. Enter the lane and load details to get a <strong>historical rate estimate</strong> when we have comparable past lanes on file. Every request is saved with a ref ID; live rate sources (DAT, Truckstop, internal rate sheets, broker quoting) plug in later.</p>
+        <h2>Trucking</h2>
 
         <div class="grid">
           <label>Cargo type
@@ -934,7 +874,6 @@
     <section id="tab-shipments" class="tab-pane">
       <div class="card">
         <h2>Shipment board <span class="muted-inline">— booked &amp; in-progress</span></h2>
-        <p class="muted">Drop email screenshots, PDFs, or booking briefings — our AI reads them and creates a new shipment row pre-filled with what it found. Every cell is click-to-edit, ref included. <strong>Ref numbers are yours</strong> (your File# / typed in) — LoadMode never assigns them. Bulk-load a whole tracking sheet with <strong>Import tracking sheet</strong>.</p>
 
         <div id="ship-dropzone" class="sheet-dropzone">
           <div class="sheet-drop-prompt">
@@ -969,9 +908,6 @@
           </div>
         </div>
         <input id="ship-search" type="search" placeholder="Filter by ref / shipper / receiver / customer / POL / POD / cargo / carrier..." class="full" />
-        <p class="muted small" style="margin: 4px 0 8px 0">
-          <strong>Tips:</strong> click a row to select · double-click any cell to edit · double-click <em>Notes</em> or <em>Cargo</em> to open a full editor · click-and-drag the table to pan when content overflows
-        </p>
         <div id="ship-table-wrap" class="ship-table-wrap">
           <table id="ship-table" class="ship-table"></table>
         </div>

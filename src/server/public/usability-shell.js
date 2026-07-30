@@ -93,7 +93,6 @@
     pane.innerHTML = `
       <div class="card clearance-intro">
         <h2>Customs clearance quote</h2>
-        <p class="muted">Build the whole quote here — pick the movement type, enter the shipment, and duty + government fees are calculated automatically. Preview or export the PDF without leaving the page.</p>
         <div class="clearance-move" role="tablist" aria-label="Movement type">
           <button type="button" class="clearance-move-btn active" data-template="import_usa" role="tab" aria-selected="true">USA import</button>
           <button type="button" class="clearance-move-btn" data-template="import_canada" role="tab" aria-selected="false">Canada import</button>
@@ -101,7 +100,7 @@
         </div>
         <div class="clearance-import-block">
           <span class="intake-eyebrow is-quote">Client request</span>
-          <div class="clearance-import-label">Import from a screenshot / email <span class="muted small">— drop the client's request (PDF · image · .eml/.msg · HTML · TXT) or paste a screenshot, and we prefill everything below</span></div>
+          <div class="clearance-import-label">Import from a screenshot / email</div>
           <div id="clearance-import-dropzone"></div>
           <span id="clearance-import-status" class="muted small" role="status" aria-live="polite"></span>
         </div>
@@ -138,7 +137,7 @@
         </div>
       </div>
       <div class="card clearance-calc">
-        <h2>Duty &amp; government charges <span class="muted small">computed from value &amp; rates · pass-through, never marked up</span></h2>
+        <h2>Duty &amp; government charges</h2>
         <table class="clearance-table clearance-stat">
           <thead><tr><th>Charge</th><th class="clearance-amt">Amount</th><th>Basis</th></tr></thead>
           <tbody id="clearance-stat-body"></tbody>
@@ -147,7 +146,7 @@
       </div>
       <div class="card clearance-services-card">
         <div class="clearance-svc-head">
-          <h2>Service charges <span class="muted small">your brokerage / handling — markup applies</span></h2>
+          <h2>Service charges</h2>
           <button type="button" class="btn-sm" id="clearance-add-line">+ Add line</button>
         </div>
         <table class="clearance-table clearance-svc">
@@ -631,33 +630,17 @@
 
   function installWorkspaceGuides() {
     const guides = {
-      shipments: {
-        title: 'Shipments',
-        description: 'Your main operational board for active and completed shipments, documents, notes, milestones and follow-ups.',
-        tip: 'Start by dropping shipment documents above the spreadsheet, or add a blank row and edit cells directly.',
-      },
-      new: {
-        title: 'Ocean freight',
-        description: 'Parse carrier rate sheets, compare ocean options, and prepare client-facing quote replies.',
-        tip: 'Uploaded and AI-extracted rates require a quick review of lane, equipment, validity and charge totals.',
-      },
-      drayage: {
-        title: 'Drayage',
-        description: 'Store drayage quotations, estimate matching lanes from history, and access occasional FTL/LTL rates.',
-        tip: 'Historical estimates are guidance only. Confirm the final rate, equipment and accessorials with the provider.',
-      },
-      clearance: {
-        title: 'Customs clearance',
-        description: 'Prepare USA import, Canada import and export-clearance quotations using dedicated templates.',
-        tip: 'Customs classification, statutory charges and duties or taxes must be verified before sending a quote.',
-      },
+      shipments: { title: 'Shipments' },
+      new: { title: 'Ocean freight' },
+      drayage: { title: 'Drayage' },
+      clearance: { title: 'Customs clearance' },
     };
     for (const [id, guide] of Object.entries(guides)) {
       const pane = document.getElementById(`tab-${id}`);
       if (!pane || pane.querySelector(':scope > .workspace-guide')) continue;
       const intro = document.createElement('div');
       intro.className = 'workspace-guide';
-      intro.innerHTML = `<div><h1>${guide.title}</h1><p>${guide.description}</p></div><div class="workspace-guide-tip"><strong>How to use this page</strong><br>${guide.tip}</div>`;
+      intro.innerHTML = `<h1>${guide.title}</h1>`;
       pane.prepend(intro);
     }
   }
