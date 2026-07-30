@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createApp } from '../server/app.js';
 import { closeDbPool } from '../db/client.js';
+import { runBootSelfHeal } from '../server/bootSelfHeal.js';
 import { networkInterfaces } from 'node:os';
 
 function localIPs(): string[] {
@@ -49,6 +50,9 @@ export function registerServeCommand(program: Command): void {
         }
         console.log('[serve] Press Ctrl+C to stop.');
         console.log('');
+        // Sync the dev database to schema.ts on boot so self-healed tables
+        // exist before any request — keeps Replit's publish diff clean.
+        void runBootSelfHeal();
       });
 
       const shutdown = (signal: string): void => {
