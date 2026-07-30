@@ -7,10 +7,13 @@
 .shipment-grid-toolbar button:hover,.shipment-grid-toolbar button:focus-visible{background:#23466f!important;color:#fff!important;border-color:#38bdf8!important;outline:2px solid rgba(56,189,248,.45)}
 .shipment-columns-menu{position:absolute;right:10px;top:calc(100% + 6px);z-index:120;display:grid;gap:7px;min-width:240px;max-height:420px;overflow:auto;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:10px;background:#0b1629;color:#f8fafc;box-shadow:0 18px 50px rgba(0,0,0,.45)}
 .shipment-columns-menu[hidden]{display:none}
-.shipment-columns-menu label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+/* flex-direction:row + explicit white override the global label{flex-direction:column;
+   color:var(--muted)} in style.css — without them the checkbox STACKS above the
+   title and the title renders slate-grey (unreadable on this dark panel). */
+.shipment-columns-menu label{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#f8fafc}
 /* Column row = visibility checkbox on the left, reorder controls on the right. */
 .shipment-column-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.shipment-column-row label{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.shipment-column-row label{display:flex;flex-direction:row;align-items:center;gap:8px;flex:1;min-width:0;color:#f8fafc}
 /* The native checkbox keeps its UA-default margins (the global reset only zeroes
    width/padding/border), which nudge it off-center from the title text. Reset the
    margin and lock its size so align-items:center leaves it inline with the label. */

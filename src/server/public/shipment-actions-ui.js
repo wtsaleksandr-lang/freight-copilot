@@ -146,6 +146,12 @@
     style.textContent = `
       .ship-row-actions{position:relative;display:inline-block}
       .ship-row-action-trigger{white-space:nowrap;border:1px solid rgba(148,163,184,.28);background:rgba(15,23,42,.72);color:#f8fafc;border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px}
+      /* Explicit hover/focus state. Without it the global \`button:hover:not(:disabled){background:#f1f5f9}\`
+         in style.css (specificity 0,2,1) flipped this dark button to a near-white
+         background while the label stayed near-white (#f8fafc) — invisible text.
+         :not(:disabled) here lifts specificity to 0,3,0 so it wins, keeping the
+         label WHITE on a lighter slate. */
+      .ship-row-action-trigger:hover:not(:disabled),.ship-row-action-trigger:focus-visible{background:#23466f;color:#fff;border-color:#38bdf8;outline:none}
       .ship-row-action-menu{position:absolute;right:0;top:calc(100% + 5px);z-index:120;min-width:205px;padding:6px;border:1px solid rgba(148,163,184,.28);border-radius:9px;background:#0f1b30;color:#f8fafc;box-shadow:0 15px 40px rgba(0,0,0,.38)}
       .ship-row-action-menu button{display:block;width:100%;border:0;background:transparent;color:#f8fafc;text-align:left;padding:9px;border-radius:6px;cursor:pointer}
       .ship-row-action-menu button:hover,.ship-row-action-menu button:focus-visible{background:rgba(56,189,248,.12);outline:none}
