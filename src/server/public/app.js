@@ -10151,7 +10151,6 @@ function esc(s) {
 (function wireDrayageRateLibrary() {
   const dropzone = document.getElementById('dr-lib-dropzone');
   const fileInput = document.getElementById('dr-lib-files');
-  const pasteZone = document.getElementById('dr-lib-paste-zone');
   const pendingList = document.getElementById('dr-lib-pending-files');
   const parseBtn = document.getElementById('dr-lib-parse-btn');
   const status = document.getElementById('dr-lib-status');
@@ -10268,8 +10267,22 @@ function esc(s) {
     focus: () => dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' }),
   });
 
-  // Paste zone
-  pasteZone?.addEventListener('paste', (e) => {
+  // Ctrl+V paste support: the dedicated contenteditable paste zone was
+  // removed as redundant — the drop zone now advertises paste and this
+  // document-level handler routes it. Gated on the Drayage tab being
+  // active AND the paste target not being a typing input (so pasting into
+  // the filter/search fields still works). Mirrors the Ocean sheet paste.
+  document.addEventListener('paste', (e) => {
+    const drayageActive = document
+      .getElementById('tab-drayage')
+      ?.classList.contains('active');
+    if (!drayageActive) return;
+    const target = e.target;
+    const isTypingInput =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (isTypingInput) return;
     const items = (e.clipboardData || {}).items || [];
     const pasted = [];
     for (const item of items) {
@@ -10280,16 +10293,9 @@ function esc(s) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       pasted.push(new File([blob], `pasted-${ts}.${ext}`, { type: item.type }));
     }
+    if (pasted.length === 0) return;
     e.preventDefault();
-    if (pasted.length > 0) ingest(pasted);
-    else setStat('Clipboard had no image — copy a screenshot first.', 'error');
-  });
-  pasteZone?.addEventListener('keydown', (e) => {
-    const isPaste = (e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V');
-    if (!isPaste) e.preventDefault();
-  });
-  pasteZone?.addEventListener('input', () => {
-    pasteZone.innerHTML = `<span class="attachments-paste-prompt">📋 Click here, then press Ctrl+V to paste a screenshot</span>`;
+    ingest(pasted);
   });
 
   // ---- Preview state ---------------------------------------------------
