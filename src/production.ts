@@ -1,5 +1,6 @@
 import { createApp } from './server/app.js';
 import { closeDbPool } from './db/client.js';
+import { runBootSelfHeal } from './server/bootSelfHeal.js';
 
 function parsePort(value: string | undefined): number {
   const port = Number.parseInt(value || '3000', 10);
@@ -16,6 +17,9 @@ const app = createApp();
 const server = app.listen(port, host, () => {
   console.log(`[production] LoadMode listening on http://${host}:${port}`);
   console.log('[production] Readiness check: /api/health/ready');
+  // Eagerly bring the database in line with schema.ts on boot (no migrations
+  // run in deploy). Non-fatal; falls back to lazy self-heal if it fails.
+  void runBootSelfHeal();
 });
 
 function shutdown(signal: string): void {
