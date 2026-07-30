@@ -96,12 +96,16 @@ export function extractShipmentUpdateProposals(
     }
   }
 
+  // Curated to the two operational statuses. Anything at or past loading /
+  // sailing / invoicing / delivery maps to `loaded` (loaded · invoice due);
+  // booking-stage language maps to `booking`. First match wins (loop breaks).
   const statusRules: Array<[string, RegExp, ProposalConfidence]> = [
-    ['delivered', /\b(?:delivered|delivery completed|proof of delivery)\b/i, 'high'],
-    ['shipped', /\b(?:vessel departed|has sailed|shipped on board|on board)\b/i, 'high'],
-    ['pending_payment', /\b(?:payment pending|awaiting payment|pending payment)\b/i, 'high'],
-    ['pending_invoice', /\b(?:invoice pending|awaiting invoice|pending invoice)\b/i, 'high'],
-    ['processing', /\b(?:booking confirmed|booking confirmation|in process|processing)\b/i, 'medium'],
+    [
+      'loaded',
+      /\b(?:delivered|delivery completed|proof of delivery|vessel departed|has sailed|shipped on board|on board|payment pending|awaiting payment|pending payment|invoice pending|awaiting invoice|pending invoice|invoiced)\b/i,
+      'high',
+    ],
+    ['booking', /\b(?:booking confirmed|booking confirmation|scheduling pickup|in process|processing)\b/i, 'medium'],
   ];
   for (const [status, pattern, confidence] of statusRules) {
     const match = pattern.exec(source);

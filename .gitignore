@@ -18,3 +18,6 @@ drayage-rates-files/
 parsed-sheets/
 shipments-files/
 scripts/audit-output/
+
+# Agent worktrees (isolated copies — never commit)
+.claude/worktrees/

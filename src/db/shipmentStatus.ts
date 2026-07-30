@@ -10,19 +10,26 @@
  * real status returns it to `[]` which renders the neutral ⚪.
  */
 
-/** Canonical status values, in lifecycle order. Keep stable — stored in the DB. */
-export const STATUS_VALUES = ['booking', 'loaded', 'sailed', 'invoiced'] as const;
+/** Canonical status values, in lifecycle order. Keep stable — stored in the DB.
+ *  Curated to two states: `booking` (booking/scheduling pickup) and `loaded`
+ *  (loaded / invoice due). Older values (`sailed`, `invoiced`) collapse into
+ *  `loaded` via STATUS_LEGACY_MAP so historical rows keep rendering. */
+export const STATUS_VALUES = ['booking', 'loaded'] as const;
 export type StatusValue = (typeof STATUS_VALUES)[number];
 
 /**
- * Pre-rename legacy scalar values → canonical value. Mirrors the front-end
+ * Pre-rename / retired scalar values → canonical value. Mirrors the front-end
  * STATUS_LEGACY_MAP so a legacy row displays and filters under the new set.
+ * `sailed` and `invoiced` were separate statuses before the collapse to two;
+ * both now resolve to `loaded` (the "loaded · invoice due" stage).
  */
 export const STATUS_LEGACY_MAP: Record<string, StatusValue> = {
   processing: 'booking',
-  shipped: 'sailed',
-  pending_invoice: 'sailed',
-  pending_payment: 'invoiced',
+  shipped: 'loaded',
+  pending_invoice: 'loaded',
+  pending_payment: 'loaded',
+  sailed: 'loaded',
+  invoiced: 'loaded',
 };
 
 /**
@@ -83,6 +90,66 @@ export function toggleStatus(list: readonly string[], value: string): string[] {
     const ib = STATUS_VALUES.indexOf(b as StatusValue);
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
   });
+}
+
+/** Relative lifecycle rank of the two curated statuses (higher = further along).
+ *  Used to auto-assign the FURTHEST-along status and to never downgrade. */
+const STATUS_RANK: Record<string, number> = { booking: 1, loaded: 2 };
+
+/** Milestone labels (lower-cased, matched by `includes`) that imply the shipment
+ *  has reached the LOADED · invoice-due stage. */
+const LOADED_TIER_MILESTONES = [
+  'cargo loaded',
+  'vgm filed',
+  'vessel departed',
+  'vessel arrived',
+  'customs cleared',
+  'invoiced',
+  'payment received',
+];
+/** Milestone labels that imply the earlier BOOKING · scheduling-pickup stage. */
+const BOOKING_TIER_MILESTONES = ['booking confirmed', 'si submitted', 'docs received'];
+
+/**
+ * PURE: derive an operational status from the AI's extracted milestone checklist
+ * (`statusItems`). Only milestones whose `state` is 'done' count. Returns the
+ * FURTHEST-along status the document evidences, or null when nothing maps (never
+ * invent a status). This is what lets a dropped file auto-set the row's status.
+ */
+export function deriveStatusFromMilestones(
+  items: ReadonlyArray<{ label?: string | null; state?: string | null }> | null | undefined
+): StatusValue | null {
+  if (!Array.isArray(items)) return null;
+  let booking = false;
+  let loaded = false;
+  for (const it of items) {
+    if (!it || String(it.state ?? '').trim().toLowerCase() !== 'done') continue;
+    const label = String(it.label ?? '').trim().toLowerCase();
+    if (!label) continue;
+    if (LOADED_TIER_MILESTONES.some((m) => label.includes(m))) loaded = true;
+    else if (BOOKING_TIER_MILESTONES.some((m) => label.includes(m))) booking = true;
+  }
+  if (loaded) return 'loaded';
+  if (booking) return 'booking';
+  return null;
+}
+
+/**
+ * PURE: merge an auto-derived status into the shipment's current status array,
+ * upgrading to the FURTHEST-along state without ever downgrading or wiping. A
+ * null derived (document evidences nothing) leaves the current status untouched.
+ * Returns a single-element array (or `[]`) — the curated model is one status per
+ * shipment. Legacy stored values are normalized first.
+ */
+export function mergeAutoStatus(
+  current: readonly string[] | null | undefined,
+  derived: StatusValue | null
+): string[] {
+  const cur = toStatusArray(current ?? []);
+  const curBest = cur.reduce((best, s) => Math.max(best, STATUS_RANK[s] ?? 0), 0);
+  const derivedRank = derived ? STATUS_RANK[derived] ?? 0 : 0;
+  if (derived && derivedRank > curBest) return [derived];
+  return cur;
 }
 
 /** The sentinel filter value meaning "show only shipments with no status set". */

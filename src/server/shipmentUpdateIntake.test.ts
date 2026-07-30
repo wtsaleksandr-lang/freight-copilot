@@ -10,7 +10,7 @@ test('extracts booking, carrier, status and container changes', () => {
   const byField = Object.fromEntries(proposals.map((item) => [item.field, item.proposedValue]));
   assert.equal(byField.bookingRef, 'MSCU1234567');
   assert.equal(byField.carrierPreference, 'MSC');
-  assert.equal(byField.operationalStatus, 'processing');
+  assert.equal(byField.operationalStatus, 'booking');
   assert.equal(byField.containerType, '40HC');
   assert.equal(byField.containerQuantity, 2);
 });

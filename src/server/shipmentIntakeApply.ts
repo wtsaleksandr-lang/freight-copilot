@@ -17,6 +17,11 @@ import {
 } from '../llm/parseShipmentBriefing.js';
 import { convertMsgToEmailText } from '../llm/msgToText.js';
 import { recordShipmentCompanies } from '../db/companies.js';
+import {
+  deriveStatusFromMilestones,
+  mergeAutoStatus,
+  toStatusArray,
+} from '../db/shipmentStatus.js';
 import { toUsd, conversionAnnotation } from './fxRates.js';
 
 /** Raw upload as received from the dashboard. */
@@ -313,6 +318,7 @@ export async function createFromBriefing(opts: ApplyOptions): Promise<ShipmentRo
   const initialSoldRate =
     stampedSold.length > 0 ? initialSoldFromItems : (briefing.sold_rate ?? null);
 
+  const initialStatusItems = statusItemsFromBriefing(briefing);
   const fields = {
     ...operationalFieldsFromBriefing(briefing),
     soldRate: initialSoldRate,
@@ -322,7 +328,10 @@ export async function createFromBriefing(opts: ApplyOptions): Promise<ShipmentRo
     ourCostCurrency: 'USD',
     costBreakdownJson: stampedCosts.length > 0 ? stampedCosts : null,
     notes: briefing.notes ?? null,
-    statusItems: statusItemsFromBriefing(briefing),
+    statusItems: initialStatusItems,
+    // Auto-assign operational status from the document's milestones (empty →
+    // "no status"). The AI's read of the file drives the status; no manual step.
+    operationalStatuses: mergeAutoStatus([], deriveStatusFromMilestones(initialStatusItems)),
   };
 
   const row = await createShipment({
@@ -415,6 +424,21 @@ export async function mergeFromBriefing(
       .update(shipments)
       .set({ statusItems: merged, updatedAt: new Date() })
       .where(eq(shipments.refId, refId));
+
+    // Auto-assign operational status from the merged milestones — UPGRADE only
+    // (booking → loaded as later docs arrive), never downgrade a manually-set
+    // or already-advanced status, never wipe.
+    const autoStatuses = mergeAutoStatus(
+      existing.operationalStatuses,
+      deriveStatusFromMilestones(merged)
+    );
+    const prevStatuses = toStatusArray(existing.operationalStatuses);
+    if (JSON.stringify(autoStatuses) !== JSON.stringify(prevStatuses)) {
+      await db
+        .update(shipments)
+        .set({ operationalStatuses: autoStatuses, updatedAt: new Date() })
+        .where(eq(shipments.refId, refId));
+    }
   }
 
   // Cost breakdown: append, preserving any prior manual override as a snapshot.
