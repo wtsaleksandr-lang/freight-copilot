@@ -44,18 +44,21 @@ test('deadlineUrgencyClass maps proximity to the right tier', () => {
   assert.equal(DU.deadlineUrgencyClass('2026-07-28', TODAY), 'is-date-urgent'); // +1
   assert.equal(DU.deadlineUrgencyClass('2026-07-29', TODAY), 'is-date-urgent'); // +2 boundary
 
-  // soon — +3 through +7 (inclusive)
+  // soon — +3 through +5 (inclusive)
   assert.equal(DU.deadlineUrgencyClass('2026-07-30', TODAY), 'is-date-soon'); // +3 boundary
-  assert.equal(DU.deadlineUrgencyClass('2026-08-03', TODAY), 'is-date-soon'); // +7 boundary
+  assert.equal(DU.deadlineUrgencyClass('2026-08-01', TODAY), 'is-date-soon'); // +5 boundary
 
-  // far / none — beyond +7 or no date
-  assert.equal(DU.deadlineUrgencyClass('2026-08-04', TODAY), ''); // +8
-  assert.equal(DU.deadlineUrgencyClass('2026-08-26', TODAY), ''); // +30
+  // safe — 6+ days out (green, safe to postpone)
+  assert.equal(DU.deadlineUrgencyClass('2026-08-02', TODAY), 'is-date-safe'); // +6 boundary
+  assert.equal(DU.deadlineUrgencyClass('2026-08-26', TODAY), 'is-date-safe'); // +30
+
+  // none — only when there's no parseable date
   assert.equal(DU.deadlineUrgencyClass('', TODAY), '');
   assert.equal(DU.deadlineUrgencyClass(null, TODAY), '');
+  assert.equal(DU.deadlineUrgencyClass('not-a-date', TODAY), '');
 });
 
 test('threshold constants are the documented defaults', () => {
   assert.equal(DU.DATE_URGENT_DAYS, 2);
-  assert.equal(DU.DATE_SOON_DAYS, 7);
+  assert.equal(DU.DATE_SOON_DAYS, 5);
 });
