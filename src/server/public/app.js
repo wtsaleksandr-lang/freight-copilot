@@ -5377,11 +5377,6 @@ function formatMoney(n, cur) {
     wireFilterInputs();
     updateClearFiltersButton();
     wireColumnResize();
-    // The enhancements-ui column resizer lives in another file; it fires this
-    // event on resize-end so we can re-fit that column's text to its new width.
-    table.addEventListener('ship:colfit', (e) =>
-      fitColumnByKey(e.detail && e.detail.key)
-    );
     headerMounted = true;
   }
 
@@ -5422,11 +5417,7 @@ function formatMoney(n, cur) {
     wireRefCopy();
     wireRowResize();
     wireBodyColumnResize();
-    wirePreviewExpand();
-    previewTr = null; // the old expanded <tr> was just replaced by this re-render
-    // After the body + column widths are in the DOM, fit each cell's text to its
-    // column (wrap→shrink-font→clip). rAF so layout is settled before measuring.
-    requestAnimationFrame(fitAllCells);
+    wireCropHoverReveal();
   }
 
   // Single-click on a Ref cell copies the ref to the clipboard. The
@@ -6911,157 +6902,81 @@ function formatMoney(n, cur) {
     );
   }
 
-  // ── Column-narrowing text auto-fit ──────────────────────────────────────────
-  // As a column shrinks, each cell in an AUTO-height row degrades gracefully:
-  //   1) wrap and let the row grow — capped at ~2x a single text line;
-  //   2) if it still overflows, step the font DOWN to a readable floor;
-  //   3) at the floor, stop and let the cell clip.
-  // Manually-resized rows (is-min-height / is-custom-height) are left untouched —
-  // they own their height via --row-h and the existing clamp. Runs on resize-end
-  // and after each render (rAF); never mid-drag so dragging stays smooth.
-  const FIT_BASE_FONT = 13; // px — the board's base cell font
-  const FIT_MIN_FONT = 9; // px — smallest still-readable size before clipping
-  // The cap/clip must be applied to the inner `.cell-clip` BLOCK, not the <td>:
-  // a table cell treats height/max-height as a MINIMUM and can't clip vertically,
-  // whereas a block child can (mirrors the is-min-height row-shrink mechanism).
-  function clearFit(td, clip) {
-    td.style.removeProperty('font-size');
-    if (clip) {
-      clip.style.removeProperty('display');
-      clip.style.removeProperty('max-height');
-      clip.style.removeProperty('overflow');
-      clip.style.removeProperty('white-space');
-      clip.style.removeProperty('text-overflow');
+  // ── Crop-only hover reveal ───────────────────────────────────────────────────
+  // Cell font size is STATIC (the CSS single-line nowrap + ellipsis on
+  // #ship-table td owns the clipping). When — and ONLY when — a cell's content is
+  // actually cropped by its column width, hovering it pops a lightweight,
+  // non-interactive tooltip with the FULL text. Crop is measured live per-cell
+  // (scrollWidth > clientWidth, reliable with nowrap+ellipsis) so a cell that
+  // fits shows nothing. The reveal is pointer-events:none, so it never blocks a
+  // click, the double-click-to-edit, or the resize-edge grab. Delegation on the
+  // table survives every tbody re-render, so it wires exactly once.
+  function wireCropHoverReveal() {
+    if (!table || table.__cropHoverWired) return;
+    table.__cropHoverWired = true;
+    let tip = null;
+    let hoverTd = null;
+    function ensureTip() {
+      if (tip) return tip;
+      tip = document.createElement('div');
+      tip.className = 'ship-cell-reveal';
+      document.body.appendChild(tip);
+      return tip;
     }
-  }
-  function fitCell(td) {
-    const clip = td.querySelector(':scope > .cell-clip');
-    if (!clip) return; // only wrapped cells participate
-    const tr = td.parentElement;
-    // A manually-resized row owns its height via the is-min-height CSS — leave it.
-    if (
-      tr &&
-      (tr.classList.contains('is-min-height') ||
-        tr.classList.contains('is-custom-height'))
-    ) {
-      clearFit(td, clip);
-      return;
+    function hide() {
+      if (tip) tip.classList.remove('is-visible');
     }
-    // Baseline: make the clip a measurable single-line block at base font.
-    td.style.fontSize = '';
-    clip.style.display = 'block';
-    clip.style.maxHeight = '';
-    clip.style.overflow = 'hidden';
-    clip.style.whiteSpace = 'nowrap';
-    clip.style.textOverflow = 'ellipsis';
-    // Fits on one line? Revert to the default look (single line, CSS ellipsis).
-    if (clip.scrollWidth <= clip.clientWidth + 1) {
-      clearFit(td, clip);
-      return;
-    }
-    // Phase 1: wrap, cap growth at ~2 lines of the BASE font (a fixed px box).
-    const cs = getComputedStyle(td);
-    const lineH = parseFloat(cs.lineHeight) || 18;
-    const cap = Math.ceil(lineH * 2);
-    clip.style.whiteSpace = 'normal';
-    clip.style.textOverflow = 'clip';
-    clip.style.maxHeight = `${cap}px`;
-    // Phase 2: step the font down so more text fits the fixed 2-line box — until
-    // it fits or we hit the readable floor.
-    let font = FIT_BASE_FONT;
-    td.style.fontSize = `${font}px`;
-    let guard = 0;
-    while (
-      font > FIT_MIN_FONT &&
-      clip.scrollHeight > clip.clientHeight + 1 &&
-      guard++ < 8
-    ) {
-      font -= 1;
-      td.style.fontSize = `${font}px`;
-    }
-    // Phase 3: any remaining overflow at the floor clips (overflow:hidden above).
-  }
-  function fitColumnByKey(key) {
-    if (!key || !table) return;
-    let sel;
-    try {
-      sel = `td[data-field="${CSS.escape(key)}"]`;
-    } catch {
-      return;
-    }
-    table.querySelectorAll(sel).forEach(fitCell);
-  }
-  function fitAllCells() {
-    if (!table) return;
-    table.querySelectorAll('tbody td[data-field]').forEach(fitCell);
-  }
-
-  // ── Click-to-preview row expand ─────────────────────────────────────────────
-  // Click a cell to temporarily reveal a row's FULL content (the width auto-fit
-  // otherwise wraps/shrinks/clips it). The row grows to fit; as soon as the user
-  // clicks anywhere else it snaps back to its normal fitted height. Never
-  // persisted, never touches saved row heights, and skipped for manually-resized
-  // rows (they own their height).
-  let previewTr = null;
-  function collapseRowPreview() {
-    if (!previewTr) return;
-    const tr = previewTr;
-    previewTr = null;
-    tr.classList.remove('is-row-preview');
-    // Restore the width-fit (re-clips / re-scales the cells).
-    tr.querySelectorAll(':scope > td[data-field]').forEach(fitCell);
-  }
-  function expandRowPreview(tr) {
-    if (!tr || previewTr === tr) return;
-    collapseRowPreview();
-    if (
-      tr.classList.contains('is-min-height') ||
-      tr.classList.contains('is-custom-height')
-    ) {
-      return; // a manually-sized row keeps its chosen height
-    }
-    // Clear the fit's inline caps so the cells show everything.
-    tr.querySelectorAll(':scope > td[data-field]').forEach((td) => {
-      td.style.removeProperty('font-size');
-      const clip = td.querySelector(':scope > .cell-clip');
-      if (clip) {
-        ['display', 'max-height', 'overflow', 'white-space', 'text-overflow'].forEach(
-          (p) => clip.style.removeProperty(p)
-        );
+    function show(td) {
+      // Skip while a cell is being edited or a resize drag is in progress.
+      if (td.classList.contains('is-editing')) return;
+      if (
+        document.body.classList.contains('is-col-resizing') ||
+        document.body.classList.contains('is-row-resizing')
+      ) {
+        return;
       }
+      // Not cropped → no reveal.
+      if (td.scrollWidth <= td.clientWidth + 1) return;
+      const text = td.textContent.trim();
+      if (!text) return;
+      const t = ensureTip();
+      t.textContent = text;
+      t.classList.add('is-visible');
+      // Position under the cell, then clamp to the viewport (mobile-safe).
+      const r = td.getBoundingClientRect();
+      const margin = 6;
+      let left = Math.min(r.left, window.innerWidth - t.offsetWidth - margin);
+      left = Math.max(margin, left);
+      let top = r.bottom + 4;
+      if (top + t.offsetHeight + margin > window.innerHeight) {
+        top = r.top - t.offsetHeight - 4; // flip above if it would run off-screen
+      }
+      if (top < margin) top = margin;
+      t.style.left = `${left}px`;
+      t.style.top = `${top}px`;
+    }
+    // mouseover/mouseout bubble (unlike mouseenter/leave) so delegation works.
+    table.addEventListener('mouseover', (e) => {
+      const td = e.target.closest ? e.target.closest('td[data-field]') : null;
+      if (td === hoverTd) return; // same cell (moved over a child) — ignore
+      hoverTd = td;
+      hide();
+      if (td) show(td);
     });
-    tr.classList.add('is-row-preview');
-    previewTr = tr;
-  }
-  function wirePreviewExpand() {
-    if (table.__previewWired) return;
-    table.__previewWired = true;
-    // Expand the clicked row (skip while editing / on the resize edge zones).
-    table.addEventListener('click', (e) => {
-      if (document.body.classList.contains('is-row-resizing')) return;
-      const td = e.target.closest('td[data-field]');
-      const tr = td && td.closest('tr.ship-body-row');
-      if (!tr || td.classList.contains('is-editing')) return;
-      if (e.target.closest('input,textarea,select,button')) return;
-      expandRowPreview(tr);
-    });
-    // Any click outside the expanded row collapses it (capture so it runs first).
-    document.addEventListener(
-      'click',
-      (e) => {
-        if (previewTr && !previewTr.contains(e.target)) collapseRowPreview();
-      },
-      true
-    );
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') collapseRowPreview();
+    table.addEventListener('mouseout', (e) => {
+      const to = e.relatedTarget;
+      if (to && table.contains(to) && to.closest && to.closest('td[data-field]')) {
+        return; // still inside a cell — the mouseover will handle the switch
+      }
+      hoverTd = null;
+      hide();
     });
   }
 
   // Shared column-resize drag — used by BOTH the header handle and the body-cell
   // right-edge grab (Task C). Drives the matching <col> width live, then persists
-  // and re-fits on release. `col`, `key`, `startWidth` (px) and `startX` are the
-  // caller's fixed starting values.
+  // on release. `col`, `key`, `startWidth` (px) and `startX` are the caller's
+  // fixed starting values. Cell font is static; narrowing simply clips + ellipsis.
   function startColumnResize(col, key, startWidth, startX) {
     if (!col || !key) return;
     document.body.classList.add('is-col-resizing');
@@ -7069,7 +6984,6 @@ function formatMoney(n, cur) {
     // to stop the wrapper's drag-to-pan; preventDefault on pointerdown suppresses
     // the compat MOUSE events, so ending on `mouseup` left the drag stuck. `pointerup`
     // is unaffected, so the drag ends cleanly on release AND the sheet never pans.
-    let fitScheduled = false;
     function onMove(ev) {
       const delta = ev.clientX - startX;
       // 8px floor: let a column shrink to an Excel-style sliver (well below the
@@ -7077,15 +6991,6 @@ function formatMoney(n, cur) {
       // a column can never collapse to an unrecoverable 0px.
       const next = Math.max(8, Math.round(startWidth + delta));
       col.style.width = `${next}px`;
-      // Live-fit EVERY cell in the column as it narrows (wrap → shrink font →
-      // clip), not just on release — rAF-throttled so it stays smooth.
-      if (!fitScheduled) {
-        fitScheduled = true;
-        requestAnimationFrame(() => {
-          fitScheduled = false;
-          fitColumnByKey(key);
-        });
-      }
     }
     function onUp() {
       document.removeEventListener('pointermove', onMove);
@@ -7098,7 +7003,6 @@ function formatMoney(n, cur) {
         columnWidths[key] = final;
         saveColWidths(columnWidths);
       }
-      fitColumnByKey(key); // final re-fit at the released width
     }
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);

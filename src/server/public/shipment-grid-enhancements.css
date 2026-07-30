@@ -198,8 +198,12 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
   color:#7f1d1d;font-weight:600;
 }
 
-/* Click-to-preview: temporarily reveal a row's full content (see wirePreviewExpand
-   in app.js). Overrides the width auto-fit caps so wrapped/clipped/scaled cells
-   show everything; the row grows to fit and snaps back on the next outside click. */
-#ship-table tbody tr.is-row-preview>td{white-space:normal!important;max-height:none!important;height:auto;overflow:visible;vertical-align:middle;background:rgba(56,189,248,.06)}
-#ship-table tbody tr.is-row-preview>td .cell-clip{display:block!important;max-height:none!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important}
+/* Crop-only hover reveal: a lightweight, NON-interactive tooltip (built in
+   wireCropHoverReveal in app.js) that shows a cell's FULL text on hover, but only
+   when the cell is actually cropped by its column width. Cell font stays static
+   (single-line nowrap + ellipsis owns the clip). position:fixed + JS clamps it to
+   the viewport so it never overflows the page on desktop or mobile (375px).
+   pointer-events:none keeps it from ever blocking a click, the double-click edit,
+   or the resize-edge grab. Light board only — no dark surface exists here. */
+.ship-cell-reveal{position:fixed;left:0;top:0;z-index:1000;max-width:min(360px,90vw);padding:6px 9px;border:1px solid rgba(148,163,184,.4);border-radius:7px;background:#fff;color:#0f172a;font-size:13px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;box-shadow:0 8px 24px rgba(15,23,42,.18);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .06s ease}
+.ship-cell-reveal.is-visible{opacity:1;visibility:visible}
