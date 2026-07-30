@@ -58,7 +58,8 @@ Target fields (all optional — leave null if not stated):
 - Operational milestone dates + logistics fields — extract each ONLY if the document states it; otherwise null (never guess). Keep the document's own value (a date, a time, or a short label). Use ISO YYYY-MM-DD for dates only when the day/month are unambiguous, else keep the original text:
   - cut_off_date: the cargo / container / port cut-off (a.k.a. CY cut-off, gate cut-off, cargo closing).
   - si_date: shipping-instructions / SI / BL-instructions deadline.
-  - vgm: the VGM (Verified Gross Mass) cut-off/deadline, or the VGM figure if that's what's given.
+  - vgm: the VGM (Verified Gross Mass) cut-off DEADLINE DATE. Prefer the date; only give the VGM figure if no deadline date is present.
+  - customs_cutoff_date: the customs / export-declaration cut-off DEADLINE DATE — a.k.a. proof of export cut-off, AES cut-off, CERS cut-off, export filing deadline. Extract the DATE only. This is DISTINCT from the aes field (which is the AES/ITN filing number).
   - draft_date: draft BL / draft-approval deadline.
   - loading_date: planned loading / stuffing / pickup date.
   - etd: estimated time of departure / sailing date from the POL.
@@ -190,6 +191,7 @@ const ShipmentSchema = z.object({
   bol_type: z.string().nullable().optional(),
   quote_ref: z.string().nullable().optional(),
   aes: z.string().nullable().optional(),
+  customs_cutoff_date: z.string().nullable().optional(),
   cost_items: z
     .array(
       z.object({
@@ -264,6 +266,7 @@ const TOOL_SCHEMA = {
     bol_type: { type: ['string', 'null'] },
     quote_ref: { type: ['string', 'null'] },
     aes: { type: ['string', 'null'] },
+    customs_cutoff_date: { type: ['string', 'null'] },
     cost_items: {
       type: 'array',
       description:

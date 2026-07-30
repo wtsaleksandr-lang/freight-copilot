@@ -57,6 +57,7 @@ function baseRow(): ShipmentRow {
     bolType: null,
     quoteRef: null,
     aes: null,
+    customsCutoffDate: null,
   } as ShipmentRow;
 }
 

@@ -484,6 +484,10 @@ export const shipments = pgTable('shipments', {
   bolType: text('bol_type'),
   quoteRef: text('quote_ref'),
   aes: text('aes'),
+  /** Customs / export-declaration cut-off DEADLINE DATE (a.k.a. proof of
+   *  export cut-off, AES/CERS cut-off, export-filing deadline). This is a
+   *  DATE and is DISTINCT from `aes` (the AES/ITN filing NUMBER). */
+  customsCutoffDate: text('customs_cutoff_date'),
 });
 
 /**

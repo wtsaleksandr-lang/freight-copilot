@@ -2528,6 +2528,7 @@ export function registerApiRoutes(app: Express): void {
           ['bolType', briefing.bol_type ?? null],
           ['quoteRef', briefing.quote_ref ?? null],
           ['aes', briefing.aes ?? null],
+          ['customsCutoffDate', briefing.customs_cutoff_date ?? null],
           ['soldRate', briefing.sold_rate ?? null],
           ['soldCurrency', briefing.sold_currency ?? null],
         ];

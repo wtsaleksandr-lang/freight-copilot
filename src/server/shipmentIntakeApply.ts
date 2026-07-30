@@ -5,6 +5,7 @@ import {
   createShipment,
   getShipment,
   mergeShipmentFillOnly,
+  updateShipment,
   type ShipmentRow,
 } from '../db/shipmentBoard.js';
 import {
@@ -117,7 +118,80 @@ export function operationalFieldsFromBriefing(
     bolType: briefing.bol_type ?? null,
     quoteRef: briefing.quote_ref ?? null,
     aes: briefing.aes ?? null,
+    customsCutoffDate: briefing.customs_cutoff_date ?? null,
   };
+}
+
+/**
+ * Operational cut-off / milestone DATE fields where a NEWER document must WIN:
+ * carriers re-issue revised booking confirmations, and a later doc's changed
+ * cut-off / sailing date has to update the row rather than be silently ignored
+ * by the fill-only merge. Everything NOT in this set (seaAirCargo, trucker,
+ * bolType, quoteRef, aes, plus the identity/party/cargo fields) stays fill-only.
+ */
+export const NEWER_WINS_FIELDS = [
+  'cutOffDate',
+  'siDate',
+  'vgm',
+  'customsCutoffDate',
+  'etd',
+  'eta',
+  'draftDate',
+  'loadingDate',
+] as const satisfies readonly (keyof ShipmentRow)[];
+
+/** Human labels for the change-note appended when a tracked date is revised. */
+const NEWER_WINS_NOTE_LABELS: Record<(typeof NEWER_WINS_FIELDS)[number], string> = {
+  cutOffDate: 'Cargo cut-off',
+  siDate: 'SI cut-off',
+  vgm: 'VGM cut-off',
+  customsCutoffDate: 'Customs cut-off',
+  etd: 'ETD',
+  eta: 'ETA',
+  draftDate: 'Draft cut-off',
+  loadingDate: 'Loading date',
+};
+
+/**
+ * PURE newer-doc-wins decision. Given the stored row values and the incoming
+ * operational fields, return the subset of NEWER_WINS_FIELDS to UPDATE — only
+ * fields whose incoming value is non-null/non-empty (NEVER wipe an existing
+ * date because a later doc omitted it) AND differs from the stored value. Kept
+ * pure (no DB) so the rule is unit-testable in isolation. Fill-only fields are
+ * handled separately by mergeShipmentFillOnly.
+ */
+export function newerWinsDatePatch(
+  existing: Partial<ShipmentRow>,
+  incoming: Partial<ShipmentRow>
+): Partial<ShipmentRow> {
+  const patch: Record<string, unknown> = {};
+  for (const key of NEWER_WINS_FIELDS) {
+    const next = (incoming as Record<string, unknown>)[key];
+    if (next == null || next === '') continue; // never wipe an existing value
+    const prev = (existing as Record<string, unknown>)[key] ?? null;
+    if (next !== prev) patch[key] = next;
+  }
+  return patch as Partial<ShipmentRow>;
+}
+
+/**
+ * Build a concise change-note for tracked dates that were actually REVISED on
+ * re-drop (old value non-null → new different value). Returns null when the
+ * patch only fills previously-empty cells (a first value isn't an "update").
+ */
+export function buildCutoffChangeNote(
+  existing: Partial<ShipmentRow>,
+  patch: Partial<ShipmentRow>
+): string | null {
+  const lines: string[] = [];
+  for (const key of NEWER_WINS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    const prev = (existing as Record<string, unknown>)[key];
+    if (prev == null || prev === '') continue; // empty → filled, not a change
+    const next = (patch as Record<string, unknown>)[key];
+    lines.push(`${NEWER_WINS_NOTE_LABELS[key]} updated: ${String(prev)} → ${String(next)}`);
+  }
+  return lines.length > 0 ? lines.join('; ') : null;
 }
 
 export type StatusItem = { label: string; state: string; detail?: string | null };
@@ -287,20 +361,44 @@ export async function mergeFromBriefing(
   if (!existing) return null;
   const briefingFiles = buildBriefingFiles(files);
 
-  // Fill-only operational fields.
+  // Operational fields split into two merge policies:
+  //  • Fill-only (identity/party/cargo + label-ish logistics fields): never
+  //    overwrite a populated cell.
+  //  • Newer-doc-wins (cut-off / milestone DATE fields): a revised confirmation
+  //    must UPDATE a changed date. See NEWER_WINS_FIELDS.
   const opFields = operationalFieldsFromBriefing(briefing);
-  await mergeShipmentFillOnly(refId, opFields);
+  const newerWinsSet = new Set<string>(NEWER_WINS_FIELDS);
+  const fillOnlyFields: Record<string, unknown> = {};
+  const newerWinsIncoming: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(opFields)) {
+    if (newerWinsSet.has(k)) newerWinsIncoming[k] = v;
+    else fillOnlyFields[k] = v;
+  }
+  await mergeShipmentFillOnly(refId, fillOnlyFields as Partial<ShipmentRow>);
+
+  // Newer-doc-wins: overwrite tracked date fields when the new doc gives a
+  // non-null value that differs from what's stored (never wipes on omission).
+  const datePatch = newerWinsDatePatch(existing, newerWinsIncoming as Partial<ShipmentRow>);
+  if (Object.keys(datePatch).length > 0) {
+    await updateShipment(refId, datePatch);
+  }
 
   // Auto-add any company names seen in this briefing to the directory, even
   // when fill-only skips writing them to an already-populated cell — a NEW
   // company should still be captured. Fire-and-forget, non-fatal.
   recordShipmentCompanies(opFields as Record<string, unknown>);
 
-  // Append notes (don't overwrite).
+  // Append notes (don't overwrite) — the doc's own notes plus a concise
+  // change-note for any tracked cut-off date that was actually REVISED.
+  const changeNote = buildCutoffChangeNote(existing, datePatch);
+  const noteParts: string[] = [];
   if (briefing.notes && briefing.notes.trim().length > 0) {
-    const merged = existing.notes
-      ? `${existing.notes}\n\n${briefing.notes.trim()}`
-      : briefing.notes.trim();
+    noteParts.push(briefing.notes.trim());
+  }
+  if (changeNote) noteParts.push(changeNote);
+  if (noteParts.length > 0) {
+    const addition = noteParts.join('\n');
+    const merged = existing.notes ? `${existing.notes}\n\n${addition}` : addition;
     const db = createDbClient();
     await db
       .update(shipments)

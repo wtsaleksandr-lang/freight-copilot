@@ -58,7 +58,8 @@ export function ensureShipmentColumns(): Promise<void> {
          ADD COLUMN IF NOT EXISTS eta text,
          ADD COLUMN IF NOT EXISTS bol_type text,
          ADD COLUMN IF NOT EXISTS quote_ref text,
-         ADD COLUMN IF NOT EXISTS aes text`
+         ADD COLUMN IF NOT EXISTS aes text,
+         ADD COLUMN IF NOT EXISTS customs_cutoff_date text`
     );
     await pool.query(backfillStatusesSql());
   })().catch((error) => {
@@ -168,6 +169,7 @@ export async function createShipment(
     bolType: patch.bolType ?? null,
     quoteRef: patch.quoteRef ?? null,
     aes: patch.aes ?? null,
+    customsCutoffDate: patch.customsCutoffDate ?? null,
     artifactsJson: patch.artifactsJson ?? null,
   };
   const [row] = await db.insert(shipments).values(insert).returning();
@@ -214,6 +216,7 @@ const EDITABLE_FIELDS = new Set<keyof ShipmentRow>([
   'bolType',
   'quoteRef',
   'aes',
+  'customsCutoffDate',
   // The Created date is user-editable from the board (calendar on double-click).
   // It's a timestamp column (mode:'date'), so the incoming 'YYYY-MM-DD' string
   // is coerced to a Date in updateShipment before it reaches Drizzle.
@@ -373,6 +376,24 @@ export const MERGE_MUTABLE_COLUMNS = [
   'carrierPreference',
   'bookingRef',
   'shipmentType',
+  // Operational milestone dates + logistics fields. The intake merge writes
+  // these two ways: fill-only for the label-ish fields, and NEWER-DOC-WINS
+  // overwrite for the cut-off/milestone DATE fields (a revised confirmation
+  // must update a changed date). Snapshot them so an "undo import" reverts
+  // both a fill AND an overwrite.
+  'cutOffDate',
+  'siDate',
+  'seaAirCargo',
+  'vgm',
+  'customsCutoffDate',
+  'draftDate',
+  'loadingDate',
+  'trucker',
+  'etd',
+  'eta',
+  'bolType',
+  'quoteRef',
+  'aes',
   // Appended free-text notes + AI milestone checklist.
   'notes',
   'statusItems',
