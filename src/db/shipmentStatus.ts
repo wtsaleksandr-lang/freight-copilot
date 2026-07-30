@@ -188,3 +188,36 @@ export function backfillStatusesSql(): string {
        AND operational_status IS NOT NULL
        AND operational_status <> ''`;
 }
+
+/**
+ * The idempotent SQL that collapses any legacy MULTI-status row to a single
+ * furthest-along status, matching the curated single-status model. Before the
+ * two-status collapse a shipment could hold several statuses at once (e.g.
+ * ['booking','loaded'] or ['sailed','booking']); such a row rendered multiple
+ * icons AND took the `loaded`-green row tint while still showing a booking
+ * icon — the inconsistency the user reported. Any row with >1 stored status
+ * (or one still holding a retired value) is reduced to `['loaded']` when it
+ * contains ANY loaded-tier value, else `['booking']`. Only rows that actually
+ * need collapsing are touched, so it is idempotent (a 1-element canonical array
+ * is left alone). Runs alongside {@link backfillStatusesSql} in the boot heal.
+ */
+export function collapseMultiStatusSql(): string {
+  // Values that map to `loaded` (STATUS_LEGACY_MAP targets + the canonical
+  // `loaded` itself); everything booking-side maps to `booking`.
+  const loadedTier = ['loaded', 'sailed', 'invoiced', 'shipped', 'pending_invoice', 'pending_payment'];
+  const bookingTier = ['booking', 'processing'];
+  const contains = (vals: string[]) =>
+    vals.map((v) => `operational_statuses @> '["${v}"]'::jsonb`).join(' OR ');
+  return `UPDATE shipments
+     SET operational_statuses =
+       CASE
+         WHEN ${contains(loadedTier)} THEN '["loaded"]'::jsonb
+         WHEN ${contains(bookingTier)} THEN '["booking"]'::jsonb
+         ELSE operational_statuses
+       END
+     WHERE operational_statuses IS NOT NULL
+       AND (
+         jsonb_array_length(operational_statuses) > 1
+         OR ${contains(['sailed', 'invoiced', 'shipped', 'pending_invoice', 'pending_payment', 'processing'])}
+       )`;
+}

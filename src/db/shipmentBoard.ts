@@ -1,7 +1,7 @@
 import { desc, eq, like, or, sql } from 'drizzle-orm';
 import { createDbClient, getPostgresPool } from './client.js';
 import { shipments } from './schema.js';
-import { backfillStatusesSql } from './shipmentStatus.js';
+import { backfillStatusesSql, collapseMultiStatusSql } from './shipmentStatus.js';
 import { recordShipmentCompanies } from './companies.js';
 
 export type ShipmentRow = typeof shipments.$inferSelect;
@@ -62,6 +62,10 @@ export function ensureShipmentColumns(): Promise<void> {
          ADD COLUMN IF NOT EXISTS customs_cutoff_date text`
     );
     await pool.query(backfillStatusesSql());
+    // Collapse any legacy multi-status rows to a single furthest-along status
+    // so the row tint and the status icon always agree (no booking icon on a
+    // loaded-green row). Idempotent — only rows needing it are touched.
+    await pool.query(collapseMultiStatusSql());
   })().catch((error) => {
     // Never rethrow — must not crash boot or a request. Reset so a later
     // call can retry the heal (e.g. after a transient DB blip).
