@@ -207,3 +207,35 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    or the resize-edge grab. Light board only — no dark surface exists here. */
 .ship-cell-reveal{position:fixed;left:0;top:0;z-index:1000;max-width:min(360px,90vw);padding:6px 9px;border:1px solid rgba(148,163,184,.4);border-radius:7px;background:#fff;color:#0f172a;font-size:13px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;box-shadow:0 8px 24px rgba(15,23,42,.18);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .06s ease}
 .ship-cell-reveal.is-visible{opacity:1;visibility:visible}
+
+/* ── Whole-row status tint (2-status set) ─────────────────────────────────────
+   The operational status colours the WHOLE shipment row with a SUBTLE, muted
+   wash (effortel style — same visual weight as the pastel cut-off fills like
+   #ecfdf5 / #fef3c7), so the board scans by status at a glance:
+     • booking → soft slate grey
+     • loaded  → soft sage green
+   The wash rides on the <tr> (specificity 1,1,2) so it sits BEHIND every <td>.
+   Regular cells are transparent → the tint shows through; the four cut-off cells
+   (#ship-table tbody tr td.is-date-*, 1,1,3) are OPAQUE pastel fills declared
+   later, so they paint over the tr wash and keep their own urgency colours
+   UNCHANGED on tinted and untinted rows. Nothing here reaches td-level
+   specificity ≥ (1,1,3) on a non-frozen cell, so the cut-off rules always win.
+   Hover (#ship-table tbody tr:hover td, 1,1,3) and selected
+   (#ship-table tbody tr.is-selected td, 1,2,3) use semi-transparent td fills, so
+   they composite OVER the tr wash — the overlays still read on a tinted row. */
+#ship-table tbody tr.is-tint-booking{background:#eaeef4}
+#ship-table tbody tr.is-tint-loaded{background:#e9f3ec}
+/* Frozen/pinned cells are OPAQUE (white / #f6f6f7 even rows) so the <tr> wash
+   can't show through them — re-paint the SAME tint onto the frozen cells of a
+   tinted row. `:not([class*="is-date-"])` EXCLUDES any cut-off cell that might be
+   pinned, so such a cell keeps its is-date-* colour (its 1,1,3 rule wins over the
+   opaque frozen base, exactly as today). By default no cut-off column is frozen. */
+#ship-table tbody tr.is-tint-booking td.is-frozen-col:not([class*="is-date-"]){background:#eaeef4}
+#ship-table tbody tr.is-tint-loaded td.is-frozen-col:not([class*="is-date-"]){background:#e9f3ec}
+/* Re-assert the hover / selected overlay on a tinted frozen cell (opaque tint
+   base + the same translucent accent used elsewhere) so the pinned column still
+   gives hover/selection feedback and never bleeds scrolled text through. */
+#ship-table tbody tr.is-tint-booking:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
+#ship-table tbody tr.is-tint-loaded:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
+#ship-table tbody tr.is-tint-booking.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
+#ship-table tbody tr.is-tint-loaded.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}

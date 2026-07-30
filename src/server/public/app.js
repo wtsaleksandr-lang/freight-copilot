@@ -4450,18 +4450,29 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 // booking → loaded → sailed → invoiced. Keep values stable; legacy
 // pre-rename values (processing/shipped/pending_invoice/pending_payment)
 // are mapped onto the new set in statusFor() below.
+// Icons are minimal MONOCHROME/greyscale inline SVG glyphs — the COLOR comes
+// from the whole-row status tint (see renderTable + shipment-grid-enhancements.css),
+// never from the icon. booking = clipboard outline; loaded = shipping box.
+const STATUS_ICON_NONE =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94a3b8" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg>';
+const STATUS_ICON_BOOKING =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#64748b" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><rect x="3.5" y="3" width="9" height="11" rx="1.5"/><path d="M6 3.2v-.7A.8.8 0 0 1 6.8 1.7h2.4a.8.8 0 0 1 .8.8v.7"/><path d="M5.7 7.3h4.6M5.7 9.6h4.6M5.7 11.9h2.8"/></svg>';
+const STATUS_ICON_LOADED =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#64748b" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M8 2.3 13.3 5v6L8 13.7 2.7 11V5z"/><path d="M2.7 5 8 7.7 13.3 5M8 7.7v6"/></svg>';
 const STATUS_OPTIONS = [
-  { value: '',         label: '— none —',                 icon: '⚪' },
-  { value: 'booking',  label: 'Booking in progress',      icon: '📝' },
-  { value: 'loaded',   label: 'Loaded — awaiting sailing', icon: '⚓' },
-  { value: 'sailed',   label: 'Sailed — invoice due',     icon: '🚢' },
-  { value: 'invoiced', label: 'Invoiced — awaiting payment', icon: '🧾' },
+  { value: '',         label: '— none —',                    icon: STATUS_ICON_NONE },
+  { value: 'booking',  label: 'Booking · scheduling pickup', icon: STATUS_ICON_BOOKING },
+  { value: 'loaded',   label: 'Loaded · invoice due',        icon: STATUS_ICON_LOADED },
 ];
+// Every non-booking legacy value resolves to `loaded` (sailed/invoiced/shipped/
+// pending_* all collapse into the 2-status set). processing → booking.
 const STATUS_LEGACY_MAP = {
   processing: 'booking',
-  shipped: 'sailed',
-  pending_invoice: 'sailed',
-  pending_payment: 'invoiced',
+  shipped: 'loaded',
+  pending_invoice: 'loaded',
+  pending_payment: 'loaded',
+  sailed: 'loaded',
+  invoiced: 'loaded',
 };
 function statusFor(value) {
   const v = value || '';
@@ -5401,12 +5412,22 @@ function formatMoney(n, cur) {
             ? `<button type="button" class="ship-attach-badge" data-action="attachments" title="${arts.length} attachment${arts.length === 1 ? '' : 's'}">📎 ${arts.length}</button>`
             : '';
         const rh = rowHeightAttrs(row.refId);
+        // Whole-row status tint (effortel-style muted wash). Single-select →
+        // at most one status; loaded wins if both ever coexist on a legacy row.
+        // The tint rides on the <tr> so opaque cut-off <td>s paint over it and
+        // keep their own is-date-* urgency colours (see enhancements.css).
+        const st = statusListOf(row);
+        const tint = st.includes('loaded')
+          ? ' is-tint-loaded'
+          : st.includes('booking')
+            ? ' is-tint-booking'
+            : '';
         // The actions cell is wrapped too (its buttons would otherwise floor a
         // shrunk row's height — every cell must be clippable for a row to go tiny).
         const actionsTd = wrapCellClip(
           `<td class="actions-cell">${badge}<button class="ship-delete-btn" data-action="delete" title="Delete">✕</button></td>`
         );
-        return `<tr data-ref="${esc(row.refId)}" class="ship-body-row${rh.cls}"${rh.style}>${cells}${actionsTd}</tr>`;
+        return `<tr data-ref="${esc(row.refId)}" class="ship-body-row${rh.cls}${tint}"${rh.style}>${cells}${actionsTd}</tr>`;
       })
       .join('');
     wireRowSelection();
@@ -6516,7 +6537,7 @@ function formatMoney(n, cur) {
     for (const s of icons) {
       const i = document.createElement('span');
       i.className = 'status-icon';
-      i.textContent = s.icon;
+      i.innerHTML = s.icon; // trusted constant SVG glyph
       wrap.appendChild(i);
     }
     try {
@@ -6552,8 +6573,8 @@ function formatMoney(n, cur) {
       });
       hint.textContent =
         list.length === 0
-          ? 'No status set — click an icon to add one.'
-          : `${list.length} status${list.length === 1 ? '' : 'es'} set — click to toggle.`;
+          ? 'No status set — pick one.'
+          : 'Status set — click it again to clear.';
     }
 
     for (const opt of STATUS_OPTIONS) {
@@ -6567,7 +6588,9 @@ function formatMoney(n, cur) {
       btn.innerHTML = `<span class="status-toggle-icon" aria-hidden="true">${opt.icon}</span><span class="status-toggle-label">${esc(opt.label)}</span>`;
       btn.addEventListener('click', async () => {
         const prev = list.slice();
-        list = toggleStatusList(list, opt.value);
+        // SINGLE-select: pick → [that] (replaces any prior); click the active
+        // one → [] (clears). One status per shipment → one row colour.
+        list = list.includes(opt.value) ? [] : [opt.value];
         paintButtons();
         paintStatusCell(td, list);
         td.classList.add('is-saved');
@@ -7211,11 +7234,13 @@ function formatMoney(n, cur) {
       if (c.kind === 'status') {
         // '' = All (no filter). NO_STATUS_FILTER matches the empty-array
         // ("No status set") rows. Each real status matches via array-contains.
+        // <option>s render text only (no inline SVG), so use the plain labels —
+        // the status icons are the greyscale SVG glyphs shown in the grid cells.
         const opts = [
           `<option value="">All</option>`,
-          `<option value="${esc(NO_STATUS_FILTER)}">${statusFor('').icon}  No status set</option>`,
+          `<option value="${esc(NO_STATUS_FILTER)}">No status set</option>`,
           ...STATUS_OPTIONS.filter((o) => o.value !== '').map(
-            (o) => `<option value="${esc(o.value)}">${o.icon}  ${esc(o.label)}</option>`
+            (o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`
           ),
         ].join('');
         c.filter = 'select';
