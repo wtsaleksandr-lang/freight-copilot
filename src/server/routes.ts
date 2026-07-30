@@ -9,6 +9,7 @@ import {
   sessions as sessionsTable,
 } from '../db/schema.js';
 import { getCarrier, listCarriers } from '../carriers/registry.js';
+import { mergeBreakdownLines } from './mergeBreakdown.js';
 import { parseRates } from '../llm/parseRates.js';
 import { rankRates } from '../ranker/rankRates.js';
 import { persistQuote } from '../db/persistQuote.js';
@@ -2591,48 +2592,33 @@ export function registerApiRoutes(app: Express): void {
         const newCostItems = (briefing.cost_items ?? []).filter(
           (c) => Number.isFinite(c.amount) && c.amount !== 0
         );
-        const oldCostSum = (existing.costBreakdownJson ?? []).reduce(
-          (s, c) => s + (c.amount || 0),
-          0
-        );
-        const oldOurCost =
-          typeof existing.ourCost === 'number' ? existing.ourCost : oldCostSum;
-        const orphanCost = oldOurCost - oldCostSum;
-        let costBreakdown = (existing.costBreakdownJson ?? []).slice();
-        let costCurrency = existing.ourCostCurrency ?? null;
-        if (
-          costBreakdown.length > 0 &&
-          Math.abs(orphanCost) > 0.005 &&
+        const costSourceFile =
+          files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+        const stampedCost =
           newCostItems.length > 0
-        ) {
-          costBreakdown.push({
-            name: 'Previous adjustment',
-            amount: Math.round(orphanCost * 100) / 100,
-            currency: costCurrency || 'USD',
-            sourceFile: 'reconciled',
-            addedAt: new Date().toISOString(),
-          });
-        }
-        if (newCostItems.length > 0) {
-          const sourceFile = files.map((f) => f.filename).filter(Boolean).join(', ') || null;
-          const stamped = newCostItems.map((c) => {
-            const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
-            const note = conversionAnnotation(conv);
-            return {
-              name: note ? `${c.name} ${note}` : c.name,
-              amount: conv.amount,
-              currency: 'USD',
-              sourceFile,
-              addedAt: new Date().toISOString(),
-            };
-          });
-          costBreakdown = [...costBreakdown, ...stamped];
-          costCurrency = 'USD';
-        }
-        const ourCost = costBreakdown.reduce(
-          (s, c) => s + (c.amount || 0),
-          0
-        );
+            ? newCostItems.map((c) => {
+                const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+                const note = conversionAnnotation(conv);
+                return {
+                  name: note ? `${c.name} ${note}` : c.name,
+                  amount: conv.amount,
+                  currency: 'USD',
+                  sourceFile: costSourceFile,
+                  addedAt: new Date().toISOString(),
+                };
+              })
+            : [];
+        // Idempotent merge: re-uploading the same file replaces its prior
+        // lines instead of stacking duplicate charges. See mergeBreakdownLines.
+        const { items: costBreakdown, total: ourCost } = mergeBreakdownLines({
+          existing: existing.costBreakdownJson,
+          incoming: stampedCost,
+          incomingSourceFile: costSourceFile,
+          priorTotalOverride:
+            typeof existing.ourCost === 'number' ? existing.ourCost : null,
+          adjustmentCurrency: existing.ourCostCurrency ?? null,
+        });
+        const costCurrency = newCostItems.length > 0 ? 'USD' : existing.ourCostCurrency ?? null;
         if (newCostItems.length > 0) {
           // Direct DB write — these aren't on EDITABLE_FIELDS allow-list.
           const db = createDbClient();
@@ -2653,49 +2639,32 @@ export function registerApiRoutes(app: Express): void {
         const newSoldItems = (briefing.sold_items ?? []).filter(
           (c) => Number.isFinite(c.amount) && c.amount !== 0
         );
-        const oldSoldSum = (existing.soldBreakdownJson ?? []).reduce(
-          (s, c) => s + (c.amount || 0),
-          0
-        );
-        const oldSoldRate =
-          typeof existing.soldRate === 'number' ? existing.soldRate : oldSoldSum;
-        const orphanSold = oldSoldRate - oldSoldSum;
-        let soldBreakdown = (existing.soldBreakdownJson ?? []).slice();
-        let soldCurrency = existing.soldCurrency ?? null;
-        if (
-          soldBreakdown.length > 0 &&
-          Math.abs(orphanSold) > 0.005 &&
+        const soldSourceFile =
+          files.map((f) => f.filename).filter(Boolean).join(', ') || null;
+        const stampedSold =
           newSoldItems.length > 0
-        ) {
-          soldBreakdown.push({
-            name: 'Previous adjustment',
-            amount: Math.round(orphanSold * 100) / 100,
-            currency: soldCurrency || 'USD',
-            sourceFile: 'reconciled',
-            addedAt: new Date().toISOString(),
-          });
-        }
-        if (newSoldItems.length > 0) {
-          const sourceFile =
-            files.map((f) => f.filename).filter(Boolean).join(', ') || null;
-          const stamped = newSoldItems.map((c) => {
-            const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
-            const note = conversionAnnotation(conv);
-            return {
-              name: note ? `${c.name} ${note}` : c.name,
-              amount: conv.amount,
-              currency: 'USD',
-              sourceFile,
-              addedAt: new Date().toISOString(),
-            };
-          });
-          soldBreakdown = [...soldBreakdown, ...stamped];
-          soldCurrency = 'USD';
-        }
-        const newSoldRate = soldBreakdown.reduce(
-          (s, c) => s + (c.amount || 0),
-          0
-        );
+            ? newSoldItems.map((c) => {
+                const conv = toUsd(c.amount, c.currency || 'USD', fxRates);
+                const note = conversionAnnotation(conv);
+                return {
+                  name: note ? `${c.name} ${note}` : c.name,
+                  amount: conv.amount,
+                  currency: 'USD',
+                  sourceFile: soldSourceFile,
+                  addedAt: new Date().toISOString(),
+                };
+              })
+            : [];
+        // Idempotent merge: same guard as the cost side above.
+        const { items: soldBreakdown, total: newSoldRate } = mergeBreakdownLines({
+          existing: existing.soldBreakdownJson,
+          incoming: stampedSold,
+          incomingSourceFile: soldSourceFile,
+          priorTotalOverride:
+            typeof existing.soldRate === 'number' ? existing.soldRate : null,
+          adjustmentCurrency: existing.soldCurrency ?? null,
+        });
+        const soldCurrency = newSoldItems.length > 0 ? 'USD' : existing.soldCurrency ?? null;
         if (newSoldItems.length > 0) {
           const db = createDbClient();
           const { shipments: shipmentsTbl } = await import('../db/schema.js');
