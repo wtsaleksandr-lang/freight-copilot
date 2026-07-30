@@ -32,7 +32,13 @@
       <details class="dr-matrix-acc"><summary>Optional accessorials</summary><div id="dr-mx-acc-list" class="dr-mx-acc-grid"></div></details>
       <div class="row" style="margin-top:12px"><button id="dr-mx-run" class="primary" type="button">💵 Generate matrix rate</button><span id="dr-mx-status" class="status-inline"></span></div>
       <div id="dr-mx-result"></div>`;
-    p.appendChild(card);
+    // Insert the primary matrix-rate calculator directly under the Drayage
+    // form (above Matching rates / Past requests / Saved DB) so it leads the
+    // results stack. Anchor on the Matching-rates card via #dr-matches-wrap;
+    // fall back to append if the layout changes.
+    const anchor = el('dr-matches-wrap')?.closest('.card');
+    if (anchor && anchor.parentElement === p) p.insertBefore(card, anchor);
+    else p.appendChild(card);
     el('dr-mx-run').addEventListener('click', run);
     loadAccessorials();
   }

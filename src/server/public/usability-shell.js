@@ -91,18 +91,18 @@
     pane.id = 'tab-clearance';
     pane.className = 'tab-pane';
     pane.innerHTML = `
+      <div class="card">
+        <span class="intake-eyebrow is-quote">Client request</span>
+        <h2>Quote a client request</h2>
+        <div id="clearance-import-dropzone"></div>
+        <span id="clearance-import-status" class="muted small" role="status" aria-live="polite"></span>
+      </div>
       <div class="card clearance-intro">
         <h2>Customs clearance quote</h2>
         <div class="clearance-move" role="tablist" aria-label="Movement type">
           <button type="button" class="clearance-move-btn active" data-template="import_usa" role="tab" aria-selected="true">USA import</button>
           <button type="button" class="clearance-move-btn" data-template="import_canada" role="tab" aria-selected="false">Canada import</button>
           <button type="button" class="clearance-move-btn" data-template="export_clearance" role="tab" aria-selected="false">Export</button>
-        </div>
-        <div class="clearance-import-block">
-          <span class="intake-eyebrow is-quote">Client request</span>
-          <div class="clearance-import-label">Import from a screenshot / email</div>
-          <div id="clearance-import-dropzone"></div>
-          <span id="clearance-import-status" class="muted small" role="status" aria-live="polite"></span>
         </div>
       </div>
       <div class="card">
@@ -127,14 +127,19 @@
           <label id="clearance-confirm-wrap" class="clearance-confirm full" hidden><input type="checkbox" id="clearance-origin-confirmed"> <span>Goods qualify for the trade-agreement (preferential) rate — apply it</span></label>
           <div class="full clearance-hs-status" id="clearance-hs-status" hidden></div>
           <div class="full clearance-adcvd" id="clearance-adcvd" hidden></div>
-          <label>Importer / exporter<input id="clearance-party" placeholder="Company name"></label>
-          <label>POL / origin<input id="clearance-pol" placeholder="Optional"></label>
-          <label>POD / destination<input id="clearance-pod" placeholder="Optional"></label>
-          <label>Place of delivery<input id="clearance-delivery" placeholder="Optional"></label>
-          <label>Rate validity<input id="clearance-validity" placeholder="e.g. 14 days"></label>
           <label class="full">Customs examination note<input id="clearance-exam" placeholder="Exam risk / hold conditions (optional)"></label>
           <label class="full">Operational notes<textarea id="clearance-notes" rows="3" placeholder="Entry type, bond, PGA/permit, delivery terms, special documents…"></textarea></label>
         </div>
+        <details class="clearance-optional-fold">
+          <summary>Optional details <span class="muted small">— parties, routing &amp; validity</span></summary>
+          <div class="grid clearance-grid">
+            <label>Importer / exporter<input id="clearance-party" placeholder="Company name"></label>
+            <label>POL / origin<input id="clearance-pol" placeholder="Optional"></label>
+            <label>POD / destination<input id="clearance-pod" placeholder="Optional"></label>
+            <label>Place of delivery<input id="clearance-delivery" placeholder="Optional"></label>
+            <label>Rate validity<input id="clearance-validity" placeholder="e.g. 14 days"></label>
+          </div>
+        </details>
       </div>
       <div class="card clearance-calc">
         <h2>Duty &amp; government charges</h2>

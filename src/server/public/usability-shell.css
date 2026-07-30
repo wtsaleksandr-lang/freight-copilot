@@ -169,4 +169,13 @@ header.shell-active{flex-wrap:wrap;gap:12px 20px}
 /* Customs: import-from-document dropzone block (matches other tabs' intake) */
 .clearance-import-block{margin-top:14px}
 .clearance-import-label{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:8px}
-.clearance-import-block #clearance-import-status{display:block;margin-top:8px}
+#clearance-import-status{display:block;margin-top:8px}
+
+/* Customs: collapsed fold for the optional (parties / routing / validity)
+   fields, so the required duty inputs lead the classification card. */
+.clearance-optional-fold{margin-top:12px;border-top:1px solid var(--border,#e5e7eb);padding-top:8px}
+.clearance-optional-fold>summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--ink);list-style:none;user-select:none;padding:4px 0}
+.clearance-optional-fold>summary::-webkit-details-marker{display:none}
+.clearance-optional-fold>summary::before{content:"▸ ";color:var(--muted,#64748b)}
+.clearance-optional-fold[open]>summary::before{content:"▾ "}
+.clearance-optional-fold .clearance-grid{margin-top:10px}
