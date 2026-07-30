@@ -4566,6 +4566,10 @@ const SHIP_COLS = [
   { key: 'siDate', label: 'SI', editable: true },
   { key: 'seaAirCargo', label: 'Sea-Air', editable: true },
   { key: 'vgm', label: 'VGM', editable: true },
+  // Customs / export-declaration cut-off (a.k.a. proof-of-export / CERS / AES
+  // filing deadline). Distinct from the `aes` column, which holds the filing
+  // NUMBER, not the deadline. Sits with its sibling cut-off dates.
+  { key: 'customsCutoffDate', label: 'Customs', editable: true },
   { key: 'draftDate', label: 'Draft', editable: true },
   { key: 'loadingDate', label: 'Loading', editable: true },
   { key: 'etd', label: 'ETD', editable: true },
@@ -5726,7 +5730,7 @@ function formatMoney(n, cur) {
   const CARRIER_SEED = ['Maersk', 'MSC', 'CMA CGM', 'Hapag-Lloyd', 'COSCO', 'Evergreen', 'ONE', 'ZIM'];
   const CARRIER_KEY = 'loadmode.carriers.learned.v1';
   const MAX_CARRIERS = 2;
-  const DATE_FIELDS = new Set(['etd', 'eta', 'cutOffDate', 'siDate', 'draftDate', 'loadingDate']);
+  const DATE_FIELDS = new Set(['etd', 'eta', 'cutOffDate', 'siDate', 'vgm', 'customsCutoffDate', 'draftDate', 'loadingDate']);
   function learnedCarriers() {
     try {
       const arr = JSON.parse(localStorage.getItem(CARRIER_KEY) || '[]');
@@ -5976,7 +5980,7 @@ function formatMoney(n, cur) {
         td.classList.toggle('cell-empty', !value);
         // Refresh deadline urgency coloring live, without a full re-render.
         const du = globalThis.LoadModeDeadlineUrgency;
-        td.classList.remove('is-date-overdue', 'is-date-urgent', 'is-date-soon');
+        td.classList.remove('is-date-overdue', 'is-date-urgent', 'is-date-soon', 'is-date-safe');
         if (value && DATE_FIELDS.has(field) && du) {
           const uc = du.deadlineUrgencyClass(value);
           if (uc) td.classList.add(uc);
@@ -6770,6 +6774,7 @@ function formatMoney(n, cur) {
     siDate: 100,
     seaAirCargo: 90,
     vgm: 80,
+    customsCutoffDate: 100,
     draftDate: 100,
     loadingDate: 100,
     etd: 100,
