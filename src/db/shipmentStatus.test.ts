@@ -4,6 +4,7 @@ import {
   NO_STATUS_FILTER,
   STATUS_VALUES,
   backfillStatusesSql,
+  collapseMultiStatusSql,
   deriveStatusFromMilestones,
   legacyScalarToArray,
   mergeAutoStatus,
@@ -105,6 +106,26 @@ test('backfillStatusesSql maps every legacy value and guards already-set rows', 
   assert.match(sql, /operational_statuses IS NULL OR operational_statuses = '\[\]'::jsonb/);
   assert.match(sql, /operational_status IS NOT NULL/);
   assert.match(sql, /operational_status <> ''/);
+});
+
+// (d2) the multi-status collapse backfill
+test('collapseMultiStatusSql collapses multi/legacy rows to a single status', () => {
+  const sql = collapseMultiStatusSql();
+  assert.match(sql, /UPDATE shipments/);
+  // A loaded-tier member anywhere → single ['loaded'].
+  assert.match(sql, /operational_statuses @> '\["loaded"\]'::jsonb/);
+  assert.match(sql, /operational_statuses @> '\["sailed"\]'::jsonb/);
+  assert.match(sql, /THEN '\["loaded"\]'::jsonb/);
+  // Otherwise a booking-tier member → single ['booking'].
+  assert.match(sql, /operational_statuses @> '\["booking"\]'::jsonb/);
+  assert.match(sql, /THEN '\["booking"\]'::jsonb/);
+  // Only rows that need it: length > 1, or still holding a retired value.
+  assert.match(sql, /jsonb_array_length\(operational_statuses\) > 1/);
+  // Loaded is checked before booking, so a ['booking','loaded'] row → ['loaded'].
+  assert.ok(
+    sql.indexOf(`'["loaded"]'::jsonb`) < sql.indexOf(`THEN '["booking"]'`),
+    'loaded-tier branch must precede booking-tier so loaded wins'
+  );
 });
 
 // (e) AI auto-assign from milestones
