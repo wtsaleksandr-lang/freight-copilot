@@ -126,7 +126,7 @@
     const details = document.createElement('details');
     details.id = 'shipment-tools-details';
     details.className = 'shipment-tools-details';
-    details.innerHTML = '<summary><strong>Shipment tools</strong><span>Containers, follow-ups, updates, emails and reports</span></summary><div class="shipment-tools-body"></div>';
+    details.innerHTML = '<summary><strong>Shipment tools</strong></summary><div class="shipment-tools-body"></div>';
     const body = details.querySelector('.shipment-tools-body');
     const anchor = entries[0].el;
     anchor.parentNode.insertBefore(details, anchor);
