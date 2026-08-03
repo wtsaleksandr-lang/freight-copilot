@@ -228,6 +228,12 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    they composite OVER the tr wash — the overlays still read on a tinted row. */
 #ship-table tbody tr.is-tint-booking{background:#eaeef4}
 #ship-table tbody tr.is-tint-loaded{background:#e9f3ec}
+/* invoiced → SOLID green (invoice issued · payment due — the closing/paid row).
+   Deliberately far stronger than the loaded sage wash so it reads as a filled
+   "solid green" at a glance. #86e0a3 keeps the board's dark primary text
+   (#0f172a) at 11.2:1 — WCAG AAA — and stays light enough that inline blue
+   links and semantic money colours still read (contrast-benchmark rule). */
+#ship-table tbody tr.is-tint-invoiced{background:#86e0a3}
 /* Frozen/pinned cells are OPAQUE (white / #f6f6f7 even rows) so the <tr> wash
    can't show through them — re-paint the SAME tint onto the frozen cells of a
    tinted row. `:not([class*="is-date-"])` EXCLUDES any cut-off cell that might be
@@ -235,10 +241,13 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    opaque frozen base, exactly as today). By default no cut-off column is frozen. */
 #ship-table tbody tr.is-tint-booking td.is-frozen-col:not([class*="is-date-"]){background:#eaeef4}
 #ship-table tbody tr.is-tint-loaded td.is-frozen-col:not([class*="is-date-"]){background:#e9f3ec}
+#ship-table tbody tr.is-tint-invoiced td.is-frozen-col:not([class*="is-date-"]){background:#86e0a3}
 /* Re-assert the hover / selected overlay on a tinted frozen cell (opaque tint
    base + the same translucent accent used elsewhere) so the pinned column still
    gives hover/selection feedback and never bleeds scrolled text through. */
 #ship-table tbody tr.is-tint-booking:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
 #ship-table tbody tr.is-tint-loaded:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
+#ship-table tbody tr.is-tint-invoiced:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#86e0a3;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
 #ship-table tbody tr.is-tint-booking.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
 #ship-table tbody tr.is-tint-loaded.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
+#ship-table tbody tr.is-tint-invoiced.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#86e0a3;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
