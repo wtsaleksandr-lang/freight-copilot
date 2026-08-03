@@ -14,19 +14,21 @@ import {
   toggleStatus,
 } from './shipmentStatus.js';
 
-test('the curated set is exactly the two statuses', () => {
-  assert.deepEqual([...STATUS_VALUES], ['booking', 'loaded']);
+test('the curated set is exactly the three statuses', () => {
+  assert.deepEqual([...STATUS_VALUES], ['booking', 'loaded', 'invoiced']);
 });
 
 // (a) legacy scalar → single-element array mapping. The retired statuses
-// (sailed / invoiced / pending_* / shipped) all collapse into `loaded`.
+// (sailed / pending_* / shipped) collapse into `loaded`; `invoiced` is now its
+// own canonical value and passes through unchanged.
 test('legacyScalarToArray maps a legacy scalar to a canonical single-element array', () => {
   assert.deepEqual(legacyScalarToArray('processing'), ['booking']);
   assert.deepEqual(legacyScalarToArray('shipped'), ['loaded']);
   assert.deepEqual(legacyScalarToArray('pending_invoice'), ['loaded']);
   assert.deepEqual(legacyScalarToArray('pending_payment'), ['loaded']);
   assert.deepEqual(legacyScalarToArray('sailed'), ['loaded']);
-  assert.deepEqual(legacyScalarToArray('invoiced'), ['loaded']);
+  // `invoiced` is a canonical status now — NOT collapsed to loaded.
+  assert.deepEqual(legacyScalarToArray('invoiced'), ['invoiced']);
   // A current canonical value passes through unchanged.
   assert.deepEqual(legacyScalarToArray('booking'), ['booking']);
   assert.deepEqual(legacyScalarToArray('loaded'), ['loaded']);
@@ -41,7 +43,7 @@ test('legacyScalarToArray maps a legacy scalar to a canonical single-element arr
 test('normalizeStatus trims and maps; blanks → null', () => {
   assert.equal(normalizeStatus('  shipped '), 'loaded');
   assert.equal(normalizeStatus('sailed'), 'loaded');
-  assert.equal(normalizeStatus('invoiced'), 'loaded');
+  assert.equal(normalizeStatus('invoiced'), 'invoiced');
   assert.equal(normalizeStatus('booking'), 'booking');
   assert.equal(normalizeStatus(''), null);
   assert.equal(normalizeStatus('   '), null);
@@ -84,7 +86,10 @@ test('statusListMatchesFilter uses array-contains semantics', () => {
   // '' (All) always matches.
   assert.equal(statusListMatchesFilter(['booking'], ''), true);
   // Legacy value in the filter still resolves via normalization (sailed → loaded).
-  assert.equal(statusListMatchesFilter(['sailed'], 'invoiced'), true);
+  assert.equal(statusListMatchesFilter(['sailed'], 'loaded'), true);
+  // `invoiced` is its own status: a loaded row does NOT match the invoiced filter.
+  assert.equal(statusListMatchesFilter(['loaded'], 'invoiced'), false);
+  assert.equal(statusListMatchesFilter(['invoiced'], 'invoiced'), true);
 });
 
 test('statusListMatchesFilter — NO_STATUS_FILTER matches only the empty array', () => {
@@ -102,7 +107,9 @@ test('backfillStatusesSql maps every legacy value and guards already-set rows', 
   assert.match(sql, /WHEN 'pending_invoice' THEN 'loaded'/);
   assert.match(sql, /WHEN 'pending_payment' THEN 'loaded'/);
   assert.match(sql, /WHEN 'sailed' THEN 'loaded'/);
-  assert.match(sql, /WHEN 'invoiced' THEN 'loaded'/);
+  // `invoiced` is no longer a legacy alias — it must NOT be remapped to loaded,
+  // so a legacy `invoiced` scalar backfills to ['invoiced'] via the ELSE branch.
+  assert.doesNotMatch(sql, /WHEN 'invoiced'/);
   assert.match(sql, /operational_statuses IS NULL OR operational_statuses = '\[\]'::jsonb/);
   assert.match(sql, /operational_status IS NOT NULL/);
   assert.match(sql, /operational_status <> ''/);
@@ -112,6 +119,8 @@ test('backfillStatusesSql maps every legacy value and guards already-set rows', 
 test('collapseMultiStatusSql collapses multi/legacy rows to a single status', () => {
   const sql = collapseMultiStatusSql();
   assert.match(sql, /UPDATE shipments/);
+  // An invoiced-tier member anywhere → single ['invoiced'] (furthest along).
+  assert.match(sql, /THEN '\["invoiced"\]'::jsonb/);
   // A loaded-tier member anywhere → single ['loaded'].
   assert.match(sql, /operational_statuses @> '\["loaded"\]'::jsonb/);
   assert.match(sql, /operational_statuses @> '\["sailed"\]'::jsonb/);
@@ -121,11 +130,22 @@ test('collapseMultiStatusSql collapses multi/legacy rows to a single status', ()
   assert.match(sql, /THEN '\["booking"\]'::jsonb/);
   // Only rows that need it: length > 1, or still holding a retired value.
   assert.match(sql, /jsonb_array_length\(operational_statuses\) > 1/);
-  // Loaded is checked before booking, so a ['booking','loaded'] row → ['loaded'].
+  // Invoiced is checked FIRST so ['loaded','invoiced'] → ['invoiced']; loaded
+  // is checked before booking so ['booking','loaded'] → ['loaded'].
+  assert.ok(
+    sql.indexOf(`THEN '["invoiced"]'`) < sql.indexOf(`THEN '["loaded"]'`),
+    'invoiced-tier branch must precede loaded-tier so invoiced wins'
+  );
   assert.ok(
     sql.indexOf(`'["loaded"]'::jsonb`) < sql.indexOf(`THEN '["booking"]'`),
     'loaded-tier branch must precede booking-tier so loaded wins'
   );
+  // CRITICAL: `invoiced` must NOT appear in the force-collapse WHERE list, else
+  // the boot self-heal would re-collapse a clean ['invoiced'] row every restart.
+  // The `@> '["invoiced"]'` guard therefore appears EXACTLY ONCE — in the CASE
+  // WHEN only — proving the WHERE clause never forces a clean invoiced row.
+  const invoicedGuards = sql.match(/@> '\["invoiced"\]'::jsonb/g) || [];
+  assert.equal(invoicedGuards.length, 1, 'invoiced must be guarded once (CASE only, not WHERE)');
 });
 
 // (e) AI auto-assign from milestones
@@ -142,10 +162,21 @@ test('deriveStatusFromMilestones: a loaded-tier milestone → loaded', () => {
   assert.equal(deriveStatusFromMilestones([done('Vessel departed')]), 'loaded');
 });
 
-test('deriveStatusFromMilestones: furthest-along wins when both present', () => {
+test('deriveStatusFromMilestones: an invoiced-tier milestone → invoiced', () => {
+  assert.equal(deriveStatusFromMilestones([done('Invoiced')]), 'invoiced');
+  assert.equal(deriveStatusFromMilestones([done('Invoice issued')]), 'invoiced');
+  assert.equal(deriveStatusFromMilestones([done('Payment received')]), 'invoiced');
+});
+
+test('deriveStatusFromMilestones: furthest-along wins when several present', () => {
   assert.equal(
     deriveStatusFromMilestones([done('Booking confirmed'), done('Cargo loaded')]),
     'loaded'
+  );
+  // invoiced outranks loaded
+  assert.equal(
+    deriveStatusFromMilestones([done('Cargo loaded'), done('Invoiced')]),
+    'invoiced'
   );
 });
 
@@ -167,8 +198,16 @@ test('mergeAutoStatus: upgrades booking → loaded', () => {
   assert.deepEqual(mergeAutoStatus(['booking'], 'loaded'), ['loaded']);
 });
 
+test('mergeAutoStatus: upgrades loaded → invoiced (invoiced is furthest along)', () => {
+  assert.deepEqual(mergeAutoStatus(['loaded'], 'invoiced'), ['invoiced']);
+});
+
 test('mergeAutoStatus: never downgrades loaded → booking', () => {
   assert.deepEqual(mergeAutoStatus(['loaded'], 'booking'), ['loaded']);
+});
+
+test('mergeAutoStatus: never downgrades invoiced → loaded', () => {
+  assert.deepEqual(mergeAutoStatus(['invoiced'], 'loaded'), ['invoiced']);
 });
 
 test('mergeAutoStatus: null derived leaves current untouched', () => {

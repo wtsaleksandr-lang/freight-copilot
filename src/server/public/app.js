@@ -4447,33 +4447,39 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 // available via the row-detail modal (separate concern).
 // Operational status — icon-driven so the user can scan the column at
 // a glance without learning a colour code. Order = lifecycle order:
-// booking → loaded → sailed → invoiced. Keep values stable; legacy
-// pre-rename values (processing/shipped/pending_invoice/pending_payment)
-// are mapped onto the new set in statusFor() below.
+// booking → loaded → invoiced. Keep values stable; legacy pre-rename values
+// (processing/shipped/pending_invoice/pending_payment/sailed) are mapped onto
+// the new set in statusFor() below. `invoiced` is its own furthest-along state.
 // Icons are minimal MONOCHROME/greyscale inline SVG glyphs — the COLOR comes
 // from the whole-row status tint (see renderTable + shipment-grid-enhancements.css),
 // never from the icon. booking = delivery truck (shipment being processed /
-// pickup scheduling); loaded = banknote (loaded & invoice due — money to collect).
+// pickup scheduling); loaded = banknote (loaded & invoice due — money to collect);
+// invoiced = receipt (invoice issued · payment due — the solid-green closing row).
 const STATUS_ICON_NONE =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94a3b8" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg>';
 const STATUS_ICON_BOOKING =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>';
 const STATUS_ICON_LOADED =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>';
+// Receipt glyph — reads as "invoice issued". Monochrome like the others; the
+// row's solid-green tint carries the colour meaning.
+const STATUS_ICON_INVOICED =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>';
 const STATUS_OPTIONS = [
   { value: '',         label: '— none —',                    icon: STATUS_ICON_NONE },
   { value: 'booking',  label: 'Booking · scheduling pickup', icon: STATUS_ICON_BOOKING },
   { value: 'loaded',   label: 'Loaded · invoice due',        icon: STATUS_ICON_LOADED },
+  { value: 'invoiced', label: 'Invoiced · payment due',      icon: STATUS_ICON_INVOICED },
 ];
-// Every non-booking legacy value resolves to `loaded` (sailed/invoiced/shipped/
-// pending_* all collapse into the 2-status set). processing → booking.
+// Legacy values fold into the canonical set: sailed/shipped/pending_* → loaded,
+// processing → booking. `invoiced` is ABSENT here — it is its own canonical
+// value now (kept as-is, rendered as the solid-green row).
 const STATUS_LEGACY_MAP = {
   processing: 'booking',
   shipped: 'loaded',
   pending_invoice: 'loaded',
   pending_payment: 'loaded',
   sailed: 'loaded',
-  invoiced: 'loaded',
 };
 function statusFor(value) {
   const v = value || '';
@@ -5413,16 +5419,19 @@ function formatMoney(n, cur) {
             ? `<button type="button" class="ship-attach-badge" data-action="attachments" title="${arts.length} attachment${arts.length === 1 ? '' : 's'}">📎 ${arts.length}</button>`
             : '';
         const rh = rowHeightAttrs(row.refId);
-        // Whole-row status tint (effortel-style muted wash). Single-select →
-        // at most one status; loaded wins if both ever coexist on a legacy row.
-        // The tint rides on the <tr> so opaque cut-off <td>s paint over it and
+        // Whole-row status tint. Single-select → at most one status; the
+        // FURTHEST-along wins if several ever coexist on a legacy row
+        // (invoiced > loaded > booking). Invoiced paints a SOLID green row;
+        // the tint rides on the <tr> so opaque cut-off <td>s paint over it and
         // keep their own is-date-* urgency colours (see enhancements.css).
         const st = statusListOf(row);
-        const tint = st.includes('loaded')
-          ? ' is-tint-loaded'
-          : st.includes('booking')
-            ? ' is-tint-booking'
-            : '';
+        const tint = st.includes('invoiced')
+          ? ' is-tint-invoiced'
+          : st.includes('loaded')
+            ? ' is-tint-loaded'
+            : st.includes('booking')
+              ? ' is-tint-booking'
+              : '';
         // The actions cell is wrapped too (its buttons would otherwise floor a
         // shrunk row's height — every cell must be clippable for a row to go tiny).
         const actionsTd = wrapCellClip(
@@ -6468,14 +6477,15 @@ function formatMoney(n, cur) {
   // Update the whole-row status tint LIVE when the status changes (the picker
   // repaints the cell icon but the tint class rides on the <tr>, set at render
   // time — without this, changing status wouldn't recolour the row until reload).
-  // Mirrors the render-time derivation in renderTable: loaded wins, else booking,
-  // else no tint. Legacy values are normalized via statusListOf.
+  // Mirrors the render-time derivation in renderTable: invoiced wins, else
+  // loaded, else booking, else no tint. Legacy values normalized via statusListOf.
   function applyRowTint(td, list) {
     const tr = td && td.closest && td.closest('tr[data-ref]');
     if (!tr) return;
     const st = statusListOf({ operationalStatuses: list });
-    tr.classList.remove('is-tint-booking', 'is-tint-loaded');
-    if (st.includes('loaded')) tr.classList.add('is-tint-loaded');
+    tr.classList.remove('is-tint-booking', 'is-tint-loaded', 'is-tint-invoiced');
+    if (st.includes('invoiced')) tr.classList.add('is-tint-invoiced');
+    else if (st.includes('loaded')) tr.classList.add('is-tint-loaded');
     else if (st.includes('booking')) tr.classList.add('is-tint-booking');
   }
 

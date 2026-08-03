@@ -11,17 +11,22 @@
  */
 
 /** Canonical status values, in lifecycle order. Keep stable — stored in the DB.
- *  Curated to two states: `booking` (booking/scheduling pickup) and `loaded`
- *  (loaded / invoice due). Older values (`sailed`, `invoiced`) collapse into
- *  `loaded` via STATUS_LEGACY_MAP so historical rows keep rendering. */
-export const STATUS_VALUES = ['booking', 'loaded'] as const;
+ *  Three states: `booking` (booking/scheduling pickup), `loaded` (loaded /
+ *  invoice due), and `invoiced` (invoice issued · payment due — the paid/closing
+ *  stage, rendered as a solid-green row). Older values (`sailed`, `shipped`,
+ *  `pending_*`) collapse via STATUS_LEGACY_MAP so historical rows keep rendering.
+ *  `invoiced` is NO LONGER a legacy alias — it is its own furthest-along state. */
+export const STATUS_VALUES = ['booking', 'loaded', 'invoiced'] as const;
 export type StatusValue = (typeof STATUS_VALUES)[number];
 
 /**
  * Pre-rename / retired scalar values → canonical value. Mirrors the front-end
  * STATUS_LEGACY_MAP so a legacy row displays and filters under the new set.
- * `sailed` and `invoiced` were separate statuses before the collapse to two;
- * both now resolve to `loaded` (the "loaded · invoice due" stage).
+ * `sailed`/`shipped` resolve to `loaded`. `pending_invoice`/`pending_payment`
+ * are kept on `loaded` (conservative: only the literal `invoiced` scalar becomes
+ * the new distinct status — we do not silently re-classify historical rows).
+ * NOTE: `invoiced` is intentionally ABSENT here so it passes through as its own
+ * canonical value (the ELSE branch of the backfill CASE restores such rows).
  */
 export const STATUS_LEGACY_MAP: Record<string, StatusValue> = {
   processing: 'booking',
@@ -29,7 +34,6 @@ export const STATUS_LEGACY_MAP: Record<string, StatusValue> = {
   pending_invoice: 'loaded',
   pending_payment: 'loaded',
   sailed: 'loaded',
-  invoiced: 'loaded',
 };
 
 /**
@@ -92,9 +96,9 @@ export function toggleStatus(list: readonly string[], value: string): string[] {
   });
 }
 
-/** Relative lifecycle rank of the two curated statuses (higher = further along).
+/** Relative lifecycle rank of the curated statuses (higher = further along).
  *  Used to auto-assign the FURTHEST-along status and to never downgrade. */
-const STATUS_RANK: Record<string, number> = { booking: 1, loaded: 2 };
+const STATUS_RANK: Record<string, number> = { booking: 1, loaded: 2, invoiced: 3 };
 
 /** Milestone labels (lower-cased, matched by `includes`) that imply the shipment
  *  has reached the LOADED · invoice-due stage. */
@@ -104,9 +108,10 @@ const LOADED_TIER_MILESTONES = [
   'vessel departed',
   'vessel arrived',
   'customs cleared',
-  'invoiced',
-  'payment received',
 ];
+/** Milestone labels that imply the furthest-along INVOICED · payment-due stage
+ *  (invoice issued / payment collected). Ranks above LOADED. */
+const INVOICED_TIER_MILESTONES = ['invoiced', 'invoice issued', 'invoice sent', 'payment received'];
 /** Milestone labels that imply the earlier BOOKING · scheduling-pickup stage. */
 const BOOKING_TIER_MILESTONES = ['booking confirmed', 'si submitted', 'docs received'];
 
@@ -122,13 +127,16 @@ export function deriveStatusFromMilestones(
   if (!Array.isArray(items)) return null;
   let booking = false;
   let loaded = false;
+  let invoiced = false;
   for (const it of items) {
     if (!it || String(it.state ?? '').trim().toLowerCase() !== 'done') continue;
     const label = String(it.label ?? '').trim().toLowerCase();
     if (!label) continue;
-    if (LOADED_TIER_MILESTONES.some((m) => label.includes(m))) loaded = true;
+    if (INVOICED_TIER_MILESTONES.some((m) => label.includes(m))) invoiced = true;
+    else if (LOADED_TIER_MILESTONES.some((m) => label.includes(m))) loaded = true;
     else if (BOOKING_TIER_MILESTONES.some((m) => label.includes(m))) booking = true;
   }
+  if (invoiced) return 'invoiced';
   if (loaded) return 'loaded';
   if (booking) return 'booking';
   return null;
@@ -197,20 +205,29 @@ export function backfillStatusesSql(): string {
  * icons AND took the `loaded`-green row tint while still showing a booking
  * icon — the inconsistency the user reported. Any row with >1 stored status
  * (or one still holding a retired value) is reduced to `['loaded']` when it
- * contains ANY loaded-tier value, else `['booking']`. Only rows that actually
- * need collapsing are touched, so it is idempotent (a 1-element canonical array
+ * contains an invoiced-tier value, else `['loaded']` for any loaded-tier value,
+ * else `['booking']`. Only rows that actually need collapsing are touched, so it
+ * is idempotent (a 1-element canonical array — including a clean `['invoiced']` —
  * is left alone). Runs alongside {@link backfillStatusesSql} in the boot heal.
+ *
+ * IMPORTANT: `invoiced` is its own furthest-along tier and is checked FIRST, and
+ * it is NOT in the force-collapse WHERE list — otherwise the boot self-heal would
+ * re-collapse every freshly-set `['invoiced']` row back to `['loaded']` on the
+ * next server start (the trap that made `invoiced` un-settable before this).
  */
 export function collapseMultiStatusSql(): string {
-  // Values that map to `loaded` (STATUS_LEGACY_MAP targets + the canonical
+  // Furthest-along tier — the literal canonical `invoiced`.
+  const invoicedTier = ['invoiced'];
+  // Values that map to `loaded` (STATUS_LEGACY_MAP loaded-targets + canonical
   // `loaded` itself); everything booking-side maps to `booking`.
-  const loadedTier = ['loaded', 'sailed', 'invoiced', 'shipped', 'pending_invoice', 'pending_payment'];
+  const loadedTier = ['loaded', 'sailed', 'shipped', 'pending_invoice', 'pending_payment'];
   const bookingTier = ['booking', 'processing'];
   const contains = (vals: string[]) =>
     vals.map((v) => `operational_statuses @> '["${v}"]'::jsonb`).join(' OR ');
   return `UPDATE shipments
      SET operational_statuses =
        CASE
+         WHEN ${contains(invoicedTier)} THEN '["invoiced"]'::jsonb
          WHEN ${contains(loadedTier)} THEN '["loaded"]'::jsonb
          WHEN ${contains(bookingTier)} THEN '["booking"]'::jsonb
          ELSE operational_statuses
@@ -218,6 +235,6 @@ export function collapseMultiStatusSql(): string {
      WHERE operational_statuses IS NOT NULL
        AND (
          jsonb_array_length(operational_statuses) > 1
-         OR ${contains(['sailed', 'invoiced', 'shipped', 'pending_invoice', 'pending_payment', 'processing'])}
+         OR ${contains(['sailed', 'shipped', 'pending_invoice', 'pending_payment', 'processing'])}
        )`;
 }
