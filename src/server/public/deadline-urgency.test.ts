@@ -34,23 +34,20 @@ test('daysUntil returns null for empty / unparseable values', () => {
   assert.equal(DU.daysUntil('not-a-date', TODAY), null);
 });
 
-test('deadlineUrgencyClass maps proximity to the right tier', () => {
-  // overdue — anything in the past
-  assert.equal(DU.deadlineUrgencyClass('2026-07-26', TODAY), 'is-date-overdue'); // -1
-  assert.equal(DU.deadlineUrgencyClass('2026-07-20', TODAY), 'is-date-overdue'); // -7
+test('deadlineUrgencyClass = ONE red band at <= 5 days (incl. today + overdue), plain beyond', () => {
+  // overdue — anything in the past folds into the single urgent band
+  assert.equal(DU.deadlineUrgencyClass('2026-07-26', TODAY), 'is-date-urgent'); // -1
+  assert.equal(DU.deadlineUrgencyClass('2026-07-20', TODAY), 'is-date-urgent'); // -7
 
-  // urgent — today through +2 (inclusive)
+  // today through +5 (inclusive) — the urgency window
   assert.equal(DU.deadlineUrgencyClass('2026-07-27', TODAY), 'is-date-urgent'); // 0 (today)
-  assert.equal(DU.deadlineUrgencyClass('2026-07-28', TODAY), 'is-date-urgent'); // +1
-  assert.equal(DU.deadlineUrgencyClass('2026-07-29', TODAY), 'is-date-urgent'); // +2 boundary
+  assert.equal(DU.deadlineUrgencyClass('2026-07-29', TODAY), 'is-date-urgent'); // +2
+  assert.equal(DU.deadlineUrgencyClass('2026-07-30', TODAY), 'is-date-urgent'); // +3
+  assert.equal(DU.deadlineUrgencyClass('2026-08-01', TODAY), 'is-date-urgent'); // +5 boundary
 
-  // soon — +3 through +5 (inclusive)
-  assert.equal(DU.deadlineUrgencyClass('2026-07-30', TODAY), 'is-date-soon'); // +3 boundary
-  assert.equal(DU.deadlineUrgencyClass('2026-08-01', TODAY), 'is-date-soon'); // +5 boundary
-
-  // safe — 6+ days out (green, safe to postpone)
-  assert.equal(DU.deadlineUrgencyClass('2026-08-02', TODAY), 'is-date-safe'); // +6 boundary
-  assert.equal(DU.deadlineUrgencyClass('2026-08-26', TODAY), 'is-date-safe'); // +30
+  // > 5 days out — PLAIN, no wash (no more safe/soon bands)
+  assert.equal(DU.deadlineUrgencyClass('2026-08-02', TODAY), ''); // +6 boundary
+  assert.equal(DU.deadlineUrgencyClass('2026-08-26', TODAY), ''); // +30
 
   // none — only when there's no parseable date
   assert.equal(DU.deadlineUrgencyClass('', TODAY), '');

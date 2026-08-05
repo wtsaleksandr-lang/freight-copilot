@@ -45,7 +45,7 @@
 /* Center cell content vertically (Alex: "content always centred, by height too"). */
 #ship-table tbody td{vertical-align:middle}
 #ship-table tbody tr:hover td{background-color:rgba(56,189,248,.055)}
-#ship-table tbody tr.is-selected td{background-color:rgba(56,189,248,.1)}
+#ship-table tbody tr.is-selected td{background-color:rgba(56,189,248,.12)}
 @media(max-width:900px){.shipment-grid-toolbar{align-items:flex-start;flex-direction:column}.shipment-grid-toolbar-actions{width:100%}.shipment-grid-toolbar-actions button{flex:1}.shipment-columns-menu{left:0;right:auto;width:min(320px,92vw)}}
 
 /* The toolbar sits on a dark slate bar; the .muted subtitle resolved to a dark
@@ -97,7 +97,7 @@
 }
 #ship-table tbody tr.is-selected td.is-frozen-col{
   background-color:#fff;
-  background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1));
+  background-image:linear-gradient(rgba(56,189,248,.12),rgba(56,189,248,.12));
 }
 #ship-table td.is-active-cell.is-frozen-col,
 #ship-table td[data-field]:focus.is-frozen-col{
@@ -170,35 +170,22 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    AI. This board renders light only (no data-theme dark surface), so the tints
    are tuned for a light background.
 
-   Four bands, meaning kept consistent across every cut-off column:
-     • overdue (past due)  → red, strongest (deeper fill + colored, bold text)
-     • urgent  (≤2 days)   → red  — act now
-     • soon    (3–5 days)  → amber — coming up
-     • safe    (6+ days)   → green — safe to postpone
-   A non-date value (e.g. a VGM figure) or an empty cell gets no class → plain.
+   ONE urgency band — a single red wash so an approaching or missed cut-off is
+   obvious at a glance, with nothing else competing:
+     • ≤ 5 days out (incl. today AND overdue) → red — act now
+     • > 5 days out, or a non-date cell        → plain (no wash)
+   The old safe/soon/overdue bands (green / amber / deeper red) are gone: exactly
+   one urgency colour lives on the board.
 
-   Each tier = a SUBTLE opaque pastel fill plus a 3px left accent bar painted as
-   a background-image stripe (not border/box-shadow): the date text stays fully
+   The tier = a SUBTLE opaque red fill plus a 3px left accent bar painted as a
+   background-image stripe (not border/box-shadow): the date text stays fully
    readable, the fill is opaque so a frozen deadline cell can't bleed through the
    pinned column, and the stripe coexists with the focus ring's inset box-shadow.
    The `tbody tr td.<class>` selector matches the hover rule's specificity and is
    declared later here, so the color stays visible even while a row is hovered. */
-#ship-table tbody tr td.is-date-safe{
-  background-color:#ecfdf5;
-  background-image:linear-gradient(90deg,#16a34a 0,#16a34a 3px,transparent 3px);
-}
-#ship-table tbody tr td.is-date-soon{
-  background-color:#fef3c7;
-  background-image:linear-gradient(90deg,#d97706 0,#d97706 3px,transparent 3px);
-}
 #ship-table tbody tr td.is-date-urgent{
   background-color:#fee2e2;
   background-image:linear-gradient(90deg,#ef4444 0,#ef4444 3px,transparent 3px);
-}
-#ship-table tbody tr td.is-date-overdue{
-  background-color:#fbdcdc;
-  background-image:linear-gradient(90deg,#dc2626 0,#dc2626 3px,transparent 3px);
-  color:#7f1d1d;font-weight:600;
 }
 
 /* Crop-only hover reveal: a lightweight, NON-interactive tooltip (built in
@@ -215,8 +202,8 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    The operational status colours the WHOLE shipment row with a SUBTLE, muted
    wash (effortel style — same visual weight as the pastel cut-off fills like
    #ecfdf5 / #fef3c7), so the board scans by status at a glance:
-     • booking → soft slate grey
-     • loaded  → soft sage green
+     • booking → soft grey-blue
+     • loaded  → soft lavender
    The wash rides on the <tr> (specificity 1,1,2) so it sits BEHIND every <td>.
    Regular cells are transparent → the tint shows through; the four cut-off cells
    (#ship-table tbody tr td.is-date-*, 1,1,3) are OPAQUE pastel fills declared
@@ -227,7 +214,7 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    (#ship-table tbody tr.is-selected td, 1,2,3) use semi-transparent td fills, so
    they composite OVER the tr wash — the overlays still read on a tinted row. */
 #ship-table tbody tr.is-tint-booking{background:#eaeef4}
-#ship-table tbody tr.is-tint-loaded{background:#e9f3ec}
+#ship-table tbody tr.is-tint-loaded{background:#ece9f5}
 /* invoiced → SOLID green (invoice issued · payment due — the closing/paid row).
    Deliberately far stronger than the loaded sage wash so it reads as a filled
    "solid green" at a glance. #86e0a3 keeps the board's dark primary text
@@ -240,14 +227,14 @@ body.is-row-resizing{cursor:row-resize!important;user-select:none}
    pinned, so such a cell keeps its is-date-* colour (its 1,1,3 rule wins over the
    opaque frozen base, exactly as today). By default no cut-off column is frozen. */
 #ship-table tbody tr.is-tint-booking td.is-frozen-col:not([class*="is-date-"]){background:#eaeef4}
-#ship-table tbody tr.is-tint-loaded td.is-frozen-col:not([class*="is-date-"]){background:#e9f3ec}
+#ship-table tbody tr.is-tint-loaded td.is-frozen-col:not([class*="is-date-"]){background:#ece9f5}
 #ship-table tbody tr.is-tint-invoiced td.is-frozen-col:not([class*="is-date-"]){background:#86e0a3}
 /* Re-assert the hover / selected overlay on a tinted frozen cell (opaque tint
    base + the same translucent accent used elsewhere) so the pinned column still
    gives hover/selection feedback and never bleeds scrolled text through. */
 #ship-table tbody tr.is-tint-booking:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
-#ship-table tbody tr.is-tint-loaded:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
+#ship-table tbody tr.is-tint-loaded:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#ece9f5;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
 #ship-table tbody tr.is-tint-invoiced:hover td.is-frozen-col:not([class*="is-date-"]){background-color:#86e0a3;background-image:linear-gradient(rgba(56,189,248,.055),rgba(56,189,248,.055))}
-#ship-table tbody tr.is-tint-booking.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
-#ship-table tbody tr.is-tint-loaded.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#e9f3ec;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
-#ship-table tbody tr.is-tint-invoiced.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#86e0a3;background-image:linear-gradient(rgba(56,189,248,.1),rgba(56,189,248,.1))}
+#ship-table tbody tr.is-tint-booking.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#eaeef4;background-image:linear-gradient(rgba(56,189,248,.12),rgba(56,189,248,.12))}
+#ship-table tbody tr.is-tint-loaded.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#ece9f5;background-image:linear-gradient(rgba(56,189,248,.12),rgba(56,189,248,.12))}
+#ship-table tbody tr.is-tint-invoiced.is-selected td.is-frozen-col:not([class*="is-date-"]){background-color:#86e0a3;background-image:linear-gradient(rgba(56,189,248,.12),rgba(56,189,248,.12))}

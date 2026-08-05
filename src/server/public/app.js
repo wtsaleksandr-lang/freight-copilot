@@ -4603,14 +4603,11 @@ const SHIPMENT_TYPE_OPTIONS = [
   '', 'FCL', 'LCL', 'RORO', 'BreakBulk', 'LTL', 'FTL', 'AIR',
 ];
 
-// Cargo icons stay — those are short categorical tags (general/hazmat/
-// reefer/high_value/oog) where an icon reads faster than the word.
+// Cargo icon — hazmat ONLY. Hazmat is the one cargo flag that carries a real
+// safety signal worth surfacing at a glance; every other cargo type reads from
+// its name, so no icon (keeps the Cargo column clean — one icon, one meaning).
 const CARGO_ICON = {
-  general: '📦',
   hazmat: '⚠️',
-  reefer: '❄️',
-  high_value: '💎',
-  oog: '🚧',
 };
 
 function truncate(s, n = 60) {
@@ -7356,7 +7353,7 @@ function formatMoney(n, cur) {
     if (col.kind === 'cargo-modal') {
       const t = (row.cargoType || '').toLowerCase();
       const n = row.cargoName || '';
-      const icon = CARGO_ICON[t] || '';
+      const icon = t === 'hazmat' ? CARGO_ICON.hazmat : '';
       const cls = ['cell', 'cell-cargo'];
       if (!t && !n) cls.push('cell-empty');
       const tip = [t, n].filter(Boolean).join(' — ');
