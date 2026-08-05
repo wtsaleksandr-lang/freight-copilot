@@ -1413,20 +1413,23 @@ body.is-col-resizing * {
 .ship-table tbody tr:nth-child(even) td {
   background: rgba(17, 24, 39, 0.025);
 }
+/* Selection/hover use the SAME #38bdf8 family as the shipment-grid
+   enhancements layer — one active-row colour on the whole board (no second
+   selection blue). */
 .ship-table tbody tr:hover td {
-  background: rgba(88, 166, 255, 0.06);
+  background: rgba(56, 189, 248, 0.05);
 }
 .ship-table tbody tr.is-selected td {
-  background: rgba(88, 166, 255, 0.14);
+  background: rgba(56, 189, 248, 0.12);
 }
 .ship-table tbody tr.is-selected {
-  box-shadow: inset 3px 0 0 #58a6ff;
+  box-shadow: inset 3px 0 0 #38bdf8;
 }
 /* Subtle per-cell hover — slightly stronger than the row tint, so the
    active cell stands out under the mouse without pulling attention
    away from the rest of the row. */
 .ship-table tbody td:hover {
-  background: rgba(88, 166, 255, 0.10);
+  background: rgba(56, 189, 248, 0.10);
 }
 /* By default cells inherit the table-wrap's grab cursor — typing
    cursor shows up only after a double-click puts the cell into edit
@@ -1447,9 +1450,9 @@ body.is-col-resizing * {
   transition: background 0.6s ease-out;
 }
 /* Active cell — last clicked, target of Cmd/Ctrl+C copy. Distinct
-   blue inset border so it's clearly the focused cell. */
+   blue inset border so it's clearly the focused cell (same #38bdf8 family). */
 .ship-table tbody td.is-active-cell {
-  box-shadow: inset 0 0 0 2px #58a6ff;
+  box-shadow: inset 0 0 0 2px #38bdf8;
 }
 /* Copy flash — quick green pulse confirms a successful copy. */
 .ship-table tbody td.is-copied {

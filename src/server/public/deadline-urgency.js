@@ -18,11 +18,11 @@
   'use strict';
 
   // Day windows — small named constants so the thresholds are easy to tune.
-  // daysUntil < 0                     → overdue   (red,   strongest — past due)
-  // 0 .. URGENT_DAYS                  → urgent    (red,   act now, incl. today)
-  // (URGENT_DAYS+1) .. SOON_DAYS      → soon      (amber, coming up)
-  // beyond SOON_DAYS                  → safe      (green, safe to postpone)
-  // no / unparseable date             → no class  (plain cell)
+  // ONE urgency band, nothing else:
+  //   daysUntil <= SOON_DAYS (incl. overdue/negative and today) → urgent (red)
+  //   beyond SOON_DAYS, or no / unparseable date                → no class (plain)
+  // DATE_URGENT_DAYS is retained (unused by the mapping now) only so existing
+  // callers/tests that read the constant keep working.
   var DATE_URGENT_DAYS = 2;
   var DATE_SOON_DAYS = 5;
   var MS_PER_DAY = 86400000;
@@ -54,16 +54,15 @@
     return Math.ceil((d.getTime() - t0.getTime()) / MS_PER_DAY);
   }
 
-  // Deadline value → urgency CSS class ('' only when there's no parseable date).
-  // A parseable future date always lands in a band; 6+ days out is the green
-  // "safe to postpone" band rather than an absent color.
+  // Deadline value → urgency CSS class. Exactly one band: an approaching or
+  // missed cut-off (<= SOON_DAYS days out, including today and overdue) returns
+  // the single 'is-date-urgent' red class; a comfortably-future date (> SOON_DAYS)
+  // or a non-date / unparseable value returns '' (plain, no wash).
   function deadlineUrgencyClass(v, today) {
     var n = daysUntil(v, today);
     if (n === null) return '';
-    if (n < 0) return 'is-date-overdue';
-    if (n <= DATE_URGENT_DAYS) return 'is-date-urgent';
-    if (n <= DATE_SOON_DAYS) return 'is-date-soon';
-    return 'is-date-safe';
+    if (n <= DATE_SOON_DAYS) return 'is-date-urgent';
+    return '';
   }
 
   root.LoadModeDeadlineUrgency = {
