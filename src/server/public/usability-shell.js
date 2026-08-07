@@ -251,7 +251,14 @@
 
       $('#clearance-sum-stat').textContent = CLR_USD(statTotal);
       $('#clearance-sum-svc').textContent = CLR_USD(svcSell);
-      $('#clearance-sum-profit').textContent = CLR_USD(svcSell - svcCost);
+      const clrProfit = svcSell - svcCost;
+      const profitEl = $('#clearance-sum-profit');
+      profitEl.textContent = CLR_USD(clrProfit);
+      // Hover reveals the CAD equivalent (CAD = USD × LoadModeCad.USD_TO_CAD).
+      if (window.LoadModeCad) {
+        profitEl.classList.add('cad-tip');
+        profitEl.setAttribute('data-cad', window.LoadModeCad.hint(clrProfit));
+      }
       $('#clearance-sum-total').textContent = CLR_USD(statTotal + svcSell);
     }
 

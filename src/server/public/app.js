@@ -7444,14 +7444,22 @@ function formatMoney(n, cur) {
       const cost = typeof row.ourCost === 'number' ? row.ourCost : null;
       const cls = ['cell', 'cell-profit'];
       let display = '';
+      let cadAttr = '';
       if (sold != null && cost != null) {
         const p = sold - cost;
         cls.push(p > 0 ? 'profit-positive' : p < 0 ? 'profit-negative' : 'profit-zero');
         display = formatMoney(p, 'USD');
+        // Hover reveals the CAD equivalent (CAD = USD × LoadModeCad.USD_TO_CAD).
+        // Derived from the underlying numeric profit, so it always matches.
+        const cadHint = window.LoadModeCad ? window.LoadModeCad.hint(p) : '';
+        if (cadHint) {
+          cls.push('cad-tip');
+          cadAttr = ` data-cad="${esc(cadHint)}"`;
+        }
       } else {
         cls.push('cell-empty');
       }
-      return `<td class="${cls.join(' ')}" data-field="profit" data-kind="profit">${esc(display)}</td>`;
+      return `<td class="${cls.join(' ')}" data-field="profit" data-kind="profit"${cadAttr}>${esc(display)}</td>`;
     }
 
     // Created — informational timestamp. Rendered with data-field="createdAt"
