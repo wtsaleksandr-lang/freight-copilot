@@ -40,6 +40,10 @@ const CLIENT_SCRIPTS = [
   // Publishes the LoadModeUndoStack global; must load before app.js,
   // which reads it when opening the breakdown editor.
   'undo-stack.js',
+  // Publishes the LoadModeCad global (USD→CAD hover conversion); must
+  // load before app.js and usability-shell.js, which read it while
+  // rendering the profit amounts.
+  'cad-convert.js',
   'app.js',
   'progressive-disclosure-ui.js',
   'universal-rate-ingestion-ui.js',

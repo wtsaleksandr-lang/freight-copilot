@@ -1626,6 +1626,36 @@ body.is-col-resizing * {
 .ship-table .cell-profit.profit-negative { color: #f85149; font-weight: 700; }
 .ship-table .cell-profit.profit-zero     { color: var(--muted); }
 
+/* USD → CAD hover conversion. Reusable affordance applied to any profit
+   AMOUNT (shipments grid profit cell + clearance "Your profit"): hovering
+   reveals the CAD equivalent. The affordance below (cursor:help + faint
+   dotted underline) hints it is interactive; the actual label is a single
+   floating tooltip appended to <body> by cad-convert.js (position:fixed,
+   so it escapes the grid's overflow clipping and never shifts layout). */
+.cad-tip { cursor: help; }
+/* Beat the more specific `.ship-table .cell-profit { cursor: default }`. */
+.ship-table .cell-profit.cad-tip { cursor: help; }
+.cad-tip:hover {
+  text-decoration: underline dotted rgba(139, 148, 158, 0.55);
+  text-underline-offset: 3px;
+}
+.cad-tip-pop {
+  position: fixed;
+  display: none;
+  z-index: 4000;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, #e6edf3);
+  background: var(--panel, #1c2128);
+  border: 1px solid var(--border, rgba(139, 148, 158, 0.30));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
 /* Per-row drop target — file/email dragged onto a shipment row.
    Green tint = full extraction (default).
    Amber tint = money-only extraction (cursor over Sell/Cost/Profit).
