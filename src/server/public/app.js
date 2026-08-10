@@ -1422,76 +1422,135 @@ function drayageContainerLabelToCode(label) {
   return map[label] || '';
 }
 
+// Build the structured lane the estimator needs (origin/destination as typed
+// CY/DOOR + container), instead of the old whole-string substring blob.
+function drayageEstimatePayload() {
+  const val = (id) => (document.getElementById(id)?.value || '').trim();
+  const originType = document.querySelector('input[name="dr-origin-type"]:checked')?.value || 'CY';
+  const destType = document.querySelector('input[name="dr-destination-type"]:checked')?.value || 'DOOR';
+  return {
+    containerType: drayageContainerLabelToCode(document.getElementById('dr-container').value),
+    origin: {
+      type: originType,
+      portCode: val('dr-origin-port-code'),
+      city: val('dr-origin-city'),
+      state: val('dr-origin-state'),
+      zip: val('dr-origin-zip'),
+      country: val('dr-origin-country') || 'US',
+    },
+    destination: {
+      type: destType,
+      portCode: val('dr-destination-port-code'),
+      city: val('dr-destination-city'),
+      state: val('dr-destination-state'),
+      zip: val('dr-destination-zip'),
+      country: val('dr-destination-country') || 'US',
+    },
+  };
+}
+
+function drayageTierLabel(t) {
+  return t === 'exact_zip' ? 'exact ZIP' : t === 'city_state' ? 'same city' : 'same state';
+}
+
 window.runDrayageMatchSearch = runDrayageMatchSearch;
 async function runDrayageMatchSearch() {
-  const { params, from, to, cntrCode } = drayageMatchParams();
-  const summaryBits = [];
-  if (from) summaryBits.push(`from "${from}"`);
-  if (to) summaryBits.push(`to "${to}"`);
-  if (cntrCode) summaryBits.push(`cntr ${cntrCode}`);
-  const summary = summaryBits.length ? summaryBits.join(' · ') : 'all rates';
-  setStatus('dr-status', `Searching library — ${summary}…`, 'info');
+  const payload = drayageEstimatePayload();
+  setStatus('dr-status', 'Searching library + estimating this lane…', 'info');
   try {
-    const r = await fetch('/api/drayage-rate-library?' + params.toString());
+    const r = await fetch('/api/drayage-rate-library/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'search failed');
-    const rates = data.rates || [];
+    if (!r.ok) throw new Error(data.error || 'estimate failed');
+    const rows = data.rows || [];
+    const est = data.estimate;
     const cnt = document.getElementById('dr-matches-count');
     if (cnt) {
-      cnt.textContent =
-        rates.length > 0
-          ? `— ${rates.length} match${rates.length === 1 ? '' : 'es'} (${summary})`
-          : `— no matches (${summary})`;
+      cnt.textContent = rows.length
+        ? `— ${rows.length} usable rate${rows.length === 1 ? '' : 's'}`
+        : '— no same-state rates for this port/container';
     }
-    renderDrayageMatches(rates);
-    setStatus('dr-status', `${rates.length} matching rate(s).`, 'success');
+    renderDrayageMatches(data);
+    if (est) {
+      setStatus(
+        'dr-status',
+        `Estimated ${formatMoney(est.estimatedTotal, 'USD')} for this lane — $${est.perMileMedian.toFixed(2)}/mi from ${est.sampleSize} ${drayageTierLabel(est.tier)} rate(s).`,
+        'success'
+      );
+    } else {
+      setStatus(
+        'dr-status',
+        rows.length
+          ? `${rows.length} matching rate(s) — need lane miles to derive a $/mi estimate.`
+          : 'No same-state rates for this port + container yet.',
+        rows.length ? 'info' : 'error'
+      );
+    }
   } catch (err) {
     setStatus('dr-status', err.message, 'error');
   }
 }
 
-function renderDrayageMatches(rates) {
+function renderDrayageMatches(data) {
   const table = document.getElementById('dr-matches-table');
   if (!table) return;
-  if (rates.length === 0) {
+  const rows = (data && data.rows) || [];
+  const est = data && data.estimate;
+  if (rows.length === 0 && !est) {
     table.innerHTML =
-      `<tbody><tr><td class="empty">No matching rates yet — refine the form fields and click Run, or upload more rate sheets above.</td></tr></tbody>`;
+      `<tbody><tr><td class="empty">No same-state rates for this port + container yet — upload more Draymaster sheets above, or widen the lane.</td></tr></tbody>`;
     return;
   }
+  let banner = '';
+  if (est) {
+    const warn =
+      est.tier === 'state'
+        ? ' <span style="color:#b45309;font-weight:600;">directional — state-level $/mi, verify before quoting firm</span>'
+        : '';
+    banner =
+      `<caption style="caption-side:top;text-align:left;padding:10px 12px;margin-bottom:8px;background:#eef6ff;border:1px solid #cfe3ff;border-radius:8px;color:#0b3b66;">` +
+      `Estimated <strong>${formatMoney(est.estimatedTotal, 'USD')}</strong> for this lane` +
+      `${data.targetMiles ? ` (~${data.targetMiles} mi)` : ''} — ` +
+      `<strong>$${est.perMileMedian.toFixed(2)}/mi</strong> from ${est.sampleSize} ${drayageTierLabel(est.tier)} rate(s).${warn}</caption>`;
+  }
   const head = `<thead><tr>
+    <th>Match</th>
     <th>Rate date</th>
     <th>Pickup</th>
     <th>Delivery</th>
     <th>Miles</th>
+    <th>$/mi</th>
     <th>Cntr</th>
-    <th>Max wt (kg)</th>
     <th>Total rate</th>
     <th>Provider</th>
-    <th>Uploaded</th>
   </tr></thead>`;
-  const body = rates
+  const body = rows
     .map((r) => {
       const date = r.rateDate || '—';
-      const uploaded = r.createdAt
-        ? new Date(r.createdAt).toISOString().slice(0, 10)
-        : '—';
       const total = r.totalRate != null ? formatMoney(r.totalRate, 'USD') : '—';
-      const miles = r.totalMiles != null ? r.totalMiles : '—';
-      const wt = r.maxWeightKg != null ? Math.round(r.maxWeightKg) : '—';
+      const miles = r._miles != null ? r._miles : r.totalMiles != null ? Math.round(r.totalMiles) : '—';
+      const perMile = r._perMile != null ? '$' + Number(r._perMile).toFixed(2) : '—';
+      const tierColor = r._tier === 'exact_zip' ? '#166534' : r._tier === 'city_state' ? '#1d4ed8' : '#b45309';
+      const tier = r._tier
+        ? `<span style="font-size:11px;font-weight:700;color:${tierColor};">${drayageTierLabel(r._tier)}</span>`
+        : '—';
       return `<tr data-id="${r.id}">
+        <td>${tier}</td>
         <td>${esc(date)}</td>
         <td title="${esc(r.pickupLabel || '')}">${esc(r.pickupLabel || '—')}</td>
         <td title="${esc(r.deliveryLabel || '')}">${esc(r.deliveryLabel || '—')}</td>
         <td>${esc(String(miles))}</td>
+        <td>${esc(perMile)}</td>
         <td>${esc(r.containerType || '—')}</td>
-        <td>${esc(String(wt))}</td>
         <td class="cell-money">${esc(total)}</td>
         <td>${esc(r.providerName || '—')}</td>
-        <td class="when-cell">${esc(uploaded)}</td>
       </tr>`;
     })
     .join('');
-  table.innerHTML = head + `<tbody>${body}</tbody>`;
+  table.innerHTML = banner + head + `<tbody>${body}</tbody>`;
 }
 
 document.getElementById('dr-refresh-btn').addEventListener('click', loadDrayageList);
