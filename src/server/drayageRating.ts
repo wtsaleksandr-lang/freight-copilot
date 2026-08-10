@@ -13,7 +13,7 @@
 export type DrayageCurrency = 'USD' | 'CAD';
 
 // ── Bundled port coordinates (anchors for the tariff zones) ─────────────────
-const PORT_COORDS: Record<string, { lat: number; lng: number; city: string }> = {
+export const PORT_COORDS: Record<string, { lat: number; lng: number; city: string }> = {
   USLAX: { lat: 33.7361, lng: -118.2922, city: 'Los Angeles' },
   USLGB: { lat: 33.7544, lng: -118.2169, city: 'Long Beach' },
   USNYC: { lat: 40.6815, lng: -74.1483, city: 'Newark' },

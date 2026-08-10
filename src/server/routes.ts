@@ -66,7 +66,12 @@ import {
   searchUsHs as searchUsHsCode,
   calculateUsCustoms as calculateUsCustomsQuote,
 } from './customsCalc.js';
-import { computeDrayageMatrix, DRAYAGE_ACCESSORIALS, tariffPortCodes } from './drayageRating.js';
+import { computeDrayageMatrix, DRAYAGE_ACCESSORIALS, tariffPortCodes, PORT_COORDS, haversineMiles } from './drayageRating.js';
+import {
+  scoreDeliveryMatch,
+  matchesOriginPort,
+  computeLibraryEstimate,
+} from '../db/drayageLibraryEstimate.js';
 import {
   getCachedProbeResults,
   probeCarrierSession,
@@ -4091,6 +4096,132 @@ export function registerApiRoutes(app: Express): void {
         res.status(500).json({
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+    }
+  );
+
+  /**
+   * Quote a NEW drayage lane from the uploaded rate library — even when no exact
+   * city/ZIP rate exists. Matching degrades: exact ZIP → city+state → STATE-only
+   * (Alex: "as long as the state matches, reuse the old $/mile"). Derives a
+   * median $/mile from the tightest tier that has samples and applies it to the
+   * new lane's miles. Miles are self-healed (geocode + haversine, persisted to
+   * total_miles) so repeat lookups are instant.
+   */
+  app.post(
+    '/api/drayage-rate-library/estimate',
+    async (req: Request, res: Response) => {
+      try {
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const containerType = String(b.containerType ?? '').trim().toUpperCase();
+        const origin = (b.origin ?? {}) as Record<string, unknown>;
+        const destination = (b.destination ?? {}) as Record<string, unknown>;
+        const ROAD = 1.18; // straight-line → driving-mile factor (matrix engine)
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+        const normState = (s: unknown) => String(s ?? '').trim().toUpperCase();
+        const S = (v: unknown) => String(v ?? '').trim();
+
+        // Geocode with an in-request cache (never re-hit the same query).
+        const geocache = new Map<string, { lat: number; lng: number } | null>();
+        const geo = async (q: string, country?: unknown): Promise<{ lat: number; lng: number } | null> => {
+          const key = q.trim().toLowerCase();
+          if (key.length < 3) return null;
+          if (geocache.has(key)) return geocache.get(key)!;
+          let out: { lat: number; lng: number } | null = null;
+          try {
+            const cc = ['us', 'ca'].includes(String(country ?? '').toLowerCase()) ? String(country).toLowerCase() : 'us,ca';
+            const results = await geocodeSearch({ q, ccFilter: cc, apiKey: process.env.GEOAPIFY_API_KEY });
+            const hit = results.find((r) => r.lat != null && r.lng != null);
+            if (hit) out = { lat: hit.lat as number, lng: hit.lng as number };
+          } catch { out = null; }
+          geocache.set(key, out);
+          return out;
+        };
+        const doorQuery = (city: unknown, state: unknown, zip: unknown) =>
+          [S(city), S(state), S(zip)].filter(Boolean).join(', ');
+        // A pickup row that names a known port → its bundled coords (free, no geocode).
+        const portCoordsFromPickup = (r: { pickupLabel?: string | null; pickupCity?: string | null; pickupZip?: string | null }) => {
+          const hay = [r.pickupLabel, r.pickupCity, r.pickupZip].map((x) => String(x ?? '').toLowerCase()).join(' ');
+          for (const [code, p] of Object.entries(PORT_COORDS)) {
+            if (hay.includes(code.toLowerCase()) || hay.includes(p.city.toLowerCase())) return { lat: p.lat, lng: p.lng };
+          }
+          return null;
+        };
+
+        // Resolve the TARGET origin (port coords if CY, else geocode).
+        let originCoords: { lat: number; lng: number } | null = null;
+        let originPortCode = '';
+        let originPortCity = '';
+        const oPort = normState(origin.portCode);
+        if (S(origin.type).toUpperCase() === 'CY' && PORT_COORDS[oPort]) {
+          originCoords = { lat: PORT_COORDS[oPort].lat, lng: PORT_COORDS[oPort].lng };
+          originPortCode = oPort;
+          originPortCity = PORT_COORDS[oPort].city;
+        } else {
+          originCoords = await geo(doorQuery(origin.city, origin.state, origin.zip), origin.country);
+        }
+        // Resolve the TARGET destination.
+        let destCoords: { lat: number; lng: number } | null = null;
+        const dPort = normState(destination.portCode);
+        if (S(destination.type).toUpperCase() === 'CY' && PORT_COORDS[dPort]) {
+          destCoords = { lat: PORT_COORDS[dPort].lat, lng: PORT_COORDS[dPort].lng };
+        } else {
+          destCoords = await geo(doorQuery(destination.city, destination.state, destination.zip), destination.country);
+        }
+        const targetMiles = originCoords && destCoords ? haversineMiles(originCoords, destCoords) * ROAD : null;
+
+        // Candidate rows: same container type, then delivery-tier + origin match.
+        const db = createDbClient();
+        const { drayageRateLibrary } = await import('../db/schema.js');
+        let rows = await db.select().from(drayageRateLibrary).orderBy(desc(drayageRateLibrary.createdAt));
+        if (containerType) rows = rows.filter((r) => (r.containerType ?? '').toUpperCase() === containerType);
+
+        const destTarget = { city: S(destination.city), state: S(destination.state), zip: S(destination.zip) };
+        const scored: Array<{ row: (typeof rows)[number]; tier: 'exact_zip' | 'city_state' | 'state' }> = [];
+        for (const r of rows) {
+          const tier = scoreDeliveryMatch(destTarget, { deliveryCity: r.deliveryCity, deliveryState: r.deliveryState, deliveryZip: r.deliveryZip });
+          if (!tier) continue;
+          let originOk = true;
+          if (originPortCode) originOk = matchesOriginPort(originPortCode, originPortCity, { pickupLabel: r.pickupLabel, pickupCity: r.pickupCity, pickupZip: r.pickupZip });
+          else if (S(origin.state)) originOk = normState(origin.state) === normState(r.pickupState);
+          if (!originOk) continue;
+          scored.push({ row: r, tier });
+        }
+
+        // Ensure each candidate has lane miles (stored, else geocode+haversine and PERSIST).
+        const candidates: Array<{ row: (typeof rows)[number]; tier: 'exact_zip' | 'city_state' | 'state'; miles: number | null }> = [];
+        for (const s of scored) {
+          const r = s.row;
+          let miles = typeof r.totalMiles === 'number' && r.totalMiles > 0 ? r.totalMiles : null;
+          if (miles == null) {
+            const cOrigin = portCoordsFromPickup(r) ?? (await geo(doorQuery(r.pickupCity, r.pickupState, r.pickupZip), r.pickupCountry));
+            const cDest = await geo(doorQuery(r.deliveryCity, r.deliveryState, r.deliveryZip), r.deliveryCountry);
+            if (cOrigin && cDest) {
+              miles = haversineMiles(cOrigin, cDest) * ROAD;
+              try { await db.update(drayageRateLibrary).set({ totalMiles: miles }).where(eq(drayageRateLibrary.id, r.id)); } catch { /* best-effort */ }
+            }
+          }
+          candidates.push({ row: r, tier: s.tier, miles });
+        }
+
+        const estimate = targetMiles
+          ? computeLibraryEstimate(targetMiles, candidates.map((c) => ({ totalRate: c.row.totalRate, miles: c.miles, tier: c.tier })))
+          : null;
+
+        res.json({
+          targetMiles: targetMiles != null ? Math.round(targetMiles) : null,
+          estimate,
+          matchCount: candidates.length,
+          rows: candidates.map((c) => ({
+            ...c.row,
+            _tier: c.tier,
+            _miles: c.miles != null ? Math.round(c.miles) : null,
+            _perMile: typeof c.row.totalRate === 'number' && c.miles && c.miles > 0 ? round2(c.row.totalRate / c.miles) : null,
+          })),
+        });
+      } catch (err) {
+        console.error('[api/drayage-rate-library/estimate] error:', err);
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
