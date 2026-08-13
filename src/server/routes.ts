@@ -1726,9 +1726,11 @@ export function registerApiRoutes(app: Express): void {
         webp: 'image/webp', gif: 'image/gif', txt: 'text/plain; charset=utf-8',
         html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', eml: 'message/rfc822',
       };
+      // The stored type is unreliable (R2 echoes whatever was sent at upload,
+      // which can be a generic/non-canonical value), so for a KNOWN previewable
+      // extension the extension WINS — that's what makes the browser render it.
       const ext = (key.split('.').pop() ?? '').toLowerCase();
-      const generic = !file.contentType || file.contentType === 'application/octet-stream';
-      res.setHeader('Content-Type', (generic && extMime[ext]) ? extMime[ext] : file.contentType);
+      res.setHeader('Content-Type', extMime[ext] ?? file.contentType);
       res.setHeader('Content-Disposition', 'inline');
       res.setHeader('Cache-Control', 'private, max-age=300');
       res.send(file.bytes);
