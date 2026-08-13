@@ -1716,7 +1716,20 @@ export function registerApiRoutes(app: Express): void {
         res.status(404).json({ error: 'not found' });
         return;
       }
-      res.setHeader('Content-Type', file.contentType);
+      // Serve with the correct inline type so previews RENDER instead of
+      // downloading. R2 sometimes returns a generic 'application/octet-stream'
+      // (or a missing type) — force the right MIME by file extension for the
+      // previewable types, and mark the response inline so nothing forces a
+      // download.
+      const extMime: Record<string, string> = {
+        pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        webp: 'image/webp', gif: 'image/gif', txt: 'text/plain; charset=utf-8',
+        html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', eml: 'message/rfc822',
+      };
+      const ext = (key.split('.').pop() ?? '').toLowerCase();
+      const generic = !file.contentType || file.contentType === 'application/octet-stream';
+      res.setHeader('Content-Type', (generic && extMime[ext]) ? extMime[ext] : file.contentType);
+      res.setHeader('Content-Disposition', 'inline');
       res.setHeader('Cache-Control', 'private, max-age=300');
       res.send(file.bytes);
     } catch (err) {
