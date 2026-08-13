@@ -8570,12 +8570,23 @@ function formatMoney(n, cur) {
         ctx.setZoomTarget(img);
       } else if (type === 'pdf') {
         container.classList.add('preview-pdf');
-        const iframe = document.createElement('iframe');
-        iframe.title = filename || 'pdf';
-        iframe.src = source.kind === 'local'
+        const pdfUrl = source.kind === 'local'
           ? ctx.trackUrl(URL.createObjectURL(source.file))
           : source.url;
-        container.appendChild(iframe);
+        // Use <object>, NOT <iframe>: Chrome DOWNLOADS a blob: PDF loaded in an
+        // iframe (freshly-dropped, pre-upload files) instead of rendering it —
+        // <object> renders inline for both blob: and http(s) URLs. Inner <a> is
+        // the fallback for a browser with no inline PDF viewer.
+        const obj = document.createElement('object');
+        obj.data = pdfUrl;
+        obj.type = 'application/pdf';
+        obj.title = filename || 'pdf';
+        const fallback = document.createElement('a');
+        fallback.href = pdfUrl;
+        fallback.textContent = 'Open ' + (filename || 'PDF');
+        if (source.kind !== 'local') { fallback.target = '_blank'; fallback.rel = 'noopener'; }
+        obj.appendChild(fallback);
+        container.appendChild(obj);
         // No zoom target — the browser's native PDF viewer owns zoom.
       } else if (type === 'txt') {
         container.classList.add('preview-text');
