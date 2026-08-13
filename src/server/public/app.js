@@ -8570,23 +8570,29 @@ function formatMoney(n, cur) {
         ctx.setZoomTarget(img);
       } else if (type === 'pdf') {
         container.classList.add('preview-pdf');
-        const pdfUrl = source.kind === 'local'
-          ? ctx.trackUrl(URL.createObjectURL(source.file))
-          : source.url;
-        // Use <object>, NOT <iframe>: Chrome DOWNLOADS a blob: PDF loaded in an
-        // iframe (freshly-dropped, pre-upload files) instead of rendering it —
-        // <object> renders inline for both blob: and http(s) URLs. Inner <a> is
-        // the fallback for a browser with no inline PDF viewer.
+        container.appendChild(fpSpinner('Loading PDF…'));
+        // Fetch the bytes and RE-WRAP them as an application/pdf blob CLIENT-SIDE,
+        // then render that. This makes the preview independent of the server's
+        // stored Content-Type: R2 returns the type verbatim from upload and can
+        // hand back a generic 'octet-stream' (or a non-canonical variant), which
+        // made the browser show a "can't display / download" placeholder instead
+        // of the PDF. A same-origin blob carries our explicit application/pdf
+        // type, so <object> renders it inline for both dropped and stored files.
+        // (Chrome DOWNLOADS a PDF in an <iframe>; <object> renders it.)
+        let pdfBuf = null;
+        try { pdfBuf = await fpBytes(source); } catch (e) { pdfBuf = null; }
+        if (!pdfBuf) { fpFallback(container, source, 'Could not load the PDF.'); return; }
+        const blobUrl = ctx.trackUrl(URL.createObjectURL(new Blob([pdfBuf], { type: 'application/pdf' })));
         const obj = document.createElement('object');
-        obj.data = pdfUrl;
+        obj.data = blobUrl;
         obj.type = 'application/pdf';
         obj.title = filename || 'pdf';
         const fallback = document.createElement('a');
-        fallback.href = pdfUrl;
+        fallback.href = source.kind === 'local' ? blobUrl : source.url;
         fallback.textContent = 'Open ' + (filename || 'PDF');
         if (source.kind !== 'local') { fallback.target = '_blank'; fallback.rel = 'noopener'; }
         obj.appendChild(fallback);
-        container.appendChild(obj);
+        container.replaceChildren(obj);
         // No zoom target — the browser's native PDF viewer owns zoom.
       } else if (type === 'txt') {
         container.classList.add('preview-text');
