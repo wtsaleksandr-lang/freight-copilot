@@ -8387,15 +8387,271 @@ function formatMoney(n, cur) {
     });
   }
 
-  // In-app preview for an attachment. Routes by file type:
-  //   image  → <img>
-  //   pdf    → <iframe> (browser native PDF viewer)
-  //   html   → <iframe sandbox> (preserves layout, blocks scripts)
-  //   eml/txt/msg → fetch text via /artifacts/:index/text and show in <pre>
-  // Falls back to "Open in new tab" when the type isn't previewable.
-  async function openFilePreview(refId, artifactIndex, artifact) {
-    // Tear down any existing preview overlay.
+  // ────────────────────────────────────────────────────────────────
+  // File preview (unified: stored artifacts AND local pre-upload files)
+  // ────────────────────────────────────────────────────────────────
+  // Classify a file into one previewer bucket by mediaType + extension.
+  function classifyFile(filename, mediaType) {
+    const name = (filename || '').toLowerCase();
+    const mt = (mediaType || '').toLowerCase();
+    const ext = (name.match(/\.([a-z0-9]+)$/) || [])[1] || '';
+    if (mt === 'application/pdf' || ext === 'pdf') return 'pdf';
+    if ((mt.startsWith('image/') && mt !== 'image/svg+xml') ||
+        /^(png|jpe?g|jpg|webp|gif|bmp)$/.test(ext)) return 'image';
+    if (mt === 'text/html' || ext === 'html' || ext === 'htm') return 'html';
+    if (mt === 'message/rfc822' || ext === 'eml') return 'eml';
+    if (mt === 'application/vnd.ms-outlook' || ext === 'msg') return 'msg';
+    if (mt === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        ext === 'xlsx') return 'xlsx';
+    if (mt === 'application/vnd.ms-excel' || ext === 'xls') return 'xls';
+    if (mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        ext === 'docx') return 'docx';
+    if (mt === 'application/msword' || ext === 'doc') return 'doc';
+    if (mt === 'text/plain' || ext === 'txt' || ext === 'csv' || ext === 'log') return 'txt';
+    return 'unknown';
+  }
+
+  // Idempotent lazy-loaders for the vendored UMD/ESM libs. Each script
+  // or module is injected/imported at most once; the promise is cached.
+  const _fpVendorScripts = {};
+  function fpLoadScript(url, globalName) {
+    if (_fpVendorScripts[url]) return _fpVendorScripts[url];
+    _fpVendorScripts[url] = new Promise((resolve, reject) => {
+      if (globalName && window[globalName]) { resolve(window[globalName]); return; }
+      const s = document.createElement('script');
+      s.src = url;
+      s.async = true;
+      s.onload = () => resolve(globalName ? window[globalName] : undefined);
+      s.onerror = () => { delete _fpVendorScripts[url]; reject(new Error('Failed to load ' + url)); };
+      document.head.appendChild(s);
+    });
+    return _fpVendorScripts[url];
+  }
+  let _fpPostalMime = null;
+  function fpLoadPostalMime() {
+    if (!_fpPostalMime) {
+      _fpPostalMime = import('/vendor/postal-mime.mjs').then((m) => m.default);
+    }
+    return _fpPostalMime;
+  }
+
+  // Get raw bytes / text from either a stored URL or a local File.
+  async function fpBytes(source) {
+    if (source.kind === 'local') return await source.file.arrayBuffer();
+    const r = await fetch(source.url);
+    if (!r.ok) throw new Error(`fetch failed (${r.status})`);
+    return await r.arrayBuffer();
+  }
+  async function fpText(source) {
+    if (source.kind === 'local') return await source.file.text();
+    if (source.refId != null && source.index != null) {
+      try {
+        const r = await fetch(
+          `/api/shipments/${encodeURIComponent(source.refId)}/artifacts/${source.index}/text`
+        );
+        const data = await r.json();
+        if (r.ok && typeof data.text === 'string') return data.text;
+      } catch (_e) { /* fall through to raw fetch */ }
+    }
+    const r = await fetch(source.url);
+    if (!r.ok) throw new Error(`fetch failed (${r.status})`);
+    return await r.text();
+  }
+
+  const FP_DOC_CSS =
+    'html,body{margin:0;padding:16px 20px;font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;line-height:1.55;color:#111827;background:#fff;}' +
+    'table{border-collapse:collapse;}td,th{border:1px solid #d1d5db;padding:3px 8px;}' +
+    'img{max-width:100%;}';
+  const FP_EML_CSS =
+    'html,body{margin:0;padding:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;color:#111827;background:#fff;}' +
+    '.eml-wrap{padding:14px 18px;}table.eml-h{border-collapse:collapse;margin-bottom:10px;font-size:12.5px;}' +
+    'table.eml-h td{padding:1px 6px;vertical-align:top;}table.eml-h td.h{color:#6b7280;font-weight:600;white-space:nowrap;}' +
+    'hr{border:0;border-top:1px solid #e5e7eb;margin:10px 0;}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;}img{max-width:100%;}';
+
+  function fpSpinner(text) {
+    const d = document.createElement('div');
+    d.className = 'file-preview-loading';
+    d.innerHTML = `<span class="fp-spinner" aria-hidden="true"></span><span>${esc(text || 'Loading…')}</span>`;
+    return d;
+  }
+
+  // Sandboxed iframe for untrusted rendered HTML. sandbox="" = maximum
+  // restriction: no scripts, no same-origin, no forms/popups.
+  function fpSandboxIframe(html) {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('sandbox', '');
+    iframe.title = 'preview';
+    iframe.srcdoc = html;
+    return iframe;
+  }
+
+  function fpFallback(container, source, msg) {
+    container.className = 'file-preview-body preview-unsupported';
+    const url = source.kind === 'local' ? '' : (source.url || '');
+    const openHtml = url
+      ? `<p><a href="${esc(url)}" target="_blank" rel="noopener">↗ Open in a new tab</a></p>`
+      : '';
+    container.innerHTML = `<p>${esc(msg)}</p>${openHtml}`;
+  }
+
+  function fpFmtAddr(a) {
+    if (!a) return '';
+    const one = (x) => (x && x.name ? `${x.name} <${x.address || ''}>` : (x && x.address) || '');
+    return Array.isArray(a) ? a.map(one).filter(Boolean).join(', ') : one(a);
+  }
+  function fpEmailHtml(email) {
+    const row = (label, val) =>
+      val ? `<tr><td class="h">${esc(label)}</td><td>${esc(val)}</td></tr>` : '';
+    const header =
+      `<table class="eml-h">${row('From', fpFmtAddr(email.from))}${row('To', fpFmtAddr(email.to))}` +
+      `${row('Cc', fpFmtAddr(email.cc))}${row('Subject', email.subject)}${row('Date', email.date)}</table>`;
+    // email.html is untrusted; it renders inside a scriptless, no-same-origin sandbox.
+    const body = email.html ? email.html : `<pre>${esc(email.text || '(no content)')}</pre>`;
+    return `<!doctype html><meta charset="utf-8"><style>${FP_EML_CSS}</style>` +
+      `<body><div class="eml-wrap">${header}<hr>${body}</div></body>`;
+  }
+
+  // Render a spreadsheet workbook with an optional multi-sheet switcher.
+  function fpRenderWorkbook(container, wb, XLSX, ctx) {
+    container.replaceChildren();
+    const names = Array.isArray(wb.SheetNames) ? wb.SheetNames : [];
+    const wrap = document.createElement('div');
+    wrap.className = 'fp-sheet-wrap';
+    const tabs = document.createElement('div');
+    tabs.className = 'fp-sheet-tabs';
+    const host = document.createElement('div');
+    host.className = 'fp-sheet-host';
+    function showSheet(name) {
+      const ws = wb.Sheets[name];
+      const table = ws ? XLSX.utils.sheet_to_html(ws) : '<p>(empty sheet)</p>';
+      const doc = `<!doctype html><meta charset="utf-8"><style>${FP_DOC_CSS}</style><body>${table}</body>`;
+      const iframe = fpSandboxIframe(doc);
+      host.replaceChildren(iframe);
+      ctx.setZoomTarget(iframe);
+      tabs.querySelectorAll('button').forEach((b) =>
+        b.classList.toggle('is-active', b.dataset.sheet === name));
+    }
+    if (names.length > 1) {
+      names.forEach((n) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fp-sheet-tab';
+        b.dataset.sheet = n;
+        b.textContent = n;
+        b.addEventListener('click', () => showSheet(n));
+        tabs.appendChild(b);
+      });
+      wrap.appendChild(tabs);
+    }
+    wrap.appendChild(host);
+    container.appendChild(wrap);
+    if (names.length) showSheet(names[0]);
+    else fpFallback(container, ctx.source, 'Workbook has no sheets.');
+  }
+
+  // Render `source` into `container`. `ctx` provides setZoomTarget(el)
+  // (reveals + wires the zoom controls onto `el`) and trackUrl(url)
+  // (registers an object URL for revocation on modal close).
+  async function renderPreview(container, source, ctx) {
+    container.className = 'file-preview-body';
+    container.replaceChildren();
+    const filename = source.kind === 'local' ? (source.file.name || '') : (source.filename || '');
+    const mediaType = source.kind === 'local' ? (source.file.type || '') : (source.mediaType || '');
+    const type = classifyFile(filename, mediaType);
+    try {
+      if (type === 'image') {
+        container.classList.add('preview-image');
+        const img = document.createElement('img');
+        img.alt = filename || 'image';
+        img.src = source.kind === 'local'
+          ? ctx.trackUrl(URL.createObjectURL(source.file))
+          : source.url;
+        container.appendChild(img);
+        ctx.setZoomTarget(img);
+      } else if (type === 'pdf') {
+        container.classList.add('preview-pdf');
+        const iframe = document.createElement('iframe');
+        iframe.title = filename || 'pdf';
+        iframe.src = source.kind === 'local'
+          ? ctx.trackUrl(URL.createObjectURL(source.file))
+          : source.url;
+        container.appendChild(iframe);
+        // No zoom target — the browser's native PDF viewer owns zoom.
+      } else if (type === 'txt') {
+        container.classList.add('preview-text');
+        container.appendChild(fpSpinner());
+        const text = await fpText(source);
+        const pre = document.createElement('pre');
+        pre.textContent = text || '(empty)';
+        container.replaceChildren(pre);
+        ctx.setZoomTarget(pre);
+      } else if (type === 'html') {
+        container.classList.add('preview-html');
+        container.appendChild(fpSpinner());
+        const html = await fpText(source);
+        const iframe = fpSandboxIframe(html);
+        container.replaceChildren(iframe);
+        ctx.setZoomTarget(iframe);
+      } else if (type === 'xlsx') {
+        container.classList.add('preview-office');
+        container.appendChild(fpSpinner('Loading spreadsheet…'));
+        const XLSX = await fpLoadScript('/vendor/xlsx.full.min.js', 'XLSX');
+        const buf = await fpBytes(source);
+        const wb = XLSX.read(buf, { type: 'array' });
+        fpRenderWorkbook(container, wb, XLSX, ctx);
+      } else if (type === 'docx') {
+        container.classList.add('preview-office');
+        container.appendChild(fpSpinner('Loading document…'));
+        await fpLoadScript('/vendor/mammoth.browser.min.js', 'mammoth');
+        const buf = await fpBytes(source);
+        const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+        const doc = `<!doctype html><meta charset="utf-8"><style>${FP_DOC_CSS}</style>` +
+          `<body>${result.value || '<p>(empty document)</p>'}</body>`;
+        const iframe = fpSandboxIframe(doc);
+        container.replaceChildren(iframe);
+        ctx.setZoomTarget(iframe);
+      } else if (type === 'eml') {
+        container.classList.add('preview-office');
+        container.appendChild(fpSpinner('Loading email…'));
+        const PostalMime = await fpLoadPostalMime();
+        const buf = await fpBytes(source);
+        const email = await new PostalMime().parse(buf);
+        const iframe = fpSandboxIframe(fpEmailHtml(email));
+        container.replaceChildren(iframe);
+        ctx.setZoomTarget(iframe);
+      } else if (type === 'msg') {
+        if (source.kind === 'local') {
+          fpFallback(container, source, 'Outlook .msg preview is available after upload.');
+        } else {
+          container.classList.add('preview-text');
+          container.appendChild(fpSpinner());
+          const text = await fpText(source);
+          const pre = document.createElement('pre');
+          pre.textContent = text || '(no text extracted)';
+          container.replaceChildren(pre);
+          ctx.setZoomTarget(pre);
+        }
+      } else if (type === 'xls' || type === 'doc') {
+        fpFallback(container, source, 'Legacy format — save as .docx/.xlsx or PDF to preview.');
+      } else {
+        fpFallback(container, source, 'No inline preview for this file type.');
+      }
+    } catch (err) {
+      fpFallback(container, source, 'Could not render preview: ' + ((err && err.message) || err));
+    }
+  }
+
+  // Open the preview modal for a `source`:
+  //   { kind:'stored', refId, index, url, mediaType, filename }
+  //   { kind:'local', file: File }
+  // Provides zoom (−/Fit/+, Ctrl+wheel, +/-/0 keys) for image / rendered
+  // HTML / office / eml content; PDFs use the browser viewer's own zoom.
+  function openPreviewModal(source) {
     document.querySelectorAll('.file-preview-overlay').forEach((n) => n.remove());
+
+    const filename = source.kind === 'local'
+      ? (source.file && source.file.name) || 'file'
+      : (source.filename || 'Preview');
 
     const overlay = document.createElement('div');
     overlay.className = 'file-preview-overlay';
@@ -8404,6 +8660,11 @@ function formatMoney(n, cur) {
       <div class="file-preview-frame">
         <div class="file-preview-toolbar">
           <strong class="file-preview-title"></strong>
+          <span class="file-preview-zoom" hidden>
+            <button type="button" class="file-preview-zoom-btn" data-zoom="out" title="Zoom out (−)">−</button>
+            <button type="button" class="file-preview-zoom-btn" data-zoom="reset" title="Fit (0)">Fit</button>
+            <button type="button" class="file-preview-zoom-btn" data-zoom="in" title="Zoom in (+)">+</button>
+          </span>
           <span class="file-preview-spacer"></span>
           <a class="file-preview-open" target="_blank" rel="noopener" title="Open in new tab">↗ Open</a>
           <button type="button" class="file-preview-close" title="Close (Esc)">✕</button>
@@ -8418,75 +8679,83 @@ function formatMoney(n, cur) {
     const openLink = overlay.querySelector('.file-preview-open');
     const closeBtn = overlay.querySelector('.file-preview-close');
     const backdrop = overlay.querySelector('.file-preview-backdrop');
+    const zoomEl = overlay.querySelector('.file-preview-zoom');
 
-    titleEl.textContent = artifact.filename || 'Preview';
-    openLink.href = artifact.url || '#';
+    titleEl.textContent = filename;
+
+    // Object URLs to revoke on close (no leaks).
+    const objectUrls = [];
+    function trackUrl(u) { objectUrls.push(u); return u; }
+    if (source.kind === 'stored') {
+      openLink.href = source.url || '#';
+    } else {
+      openLink.href = trackUrl(URL.createObjectURL(source.file));
+    }
+
+    // ---- Zoom state ----
+    let zoomTarget = null;
+    let scale = 1;
+    function applyZoom() {
+      if (!zoomTarget) return;
+      zoomTarget.style.transformOrigin = 'top left';
+      zoomTarget.style.transform = scale === 1 ? '' : `scale(${scale})`;
+      bodyEl.classList.toggle('is-zoomed', scale > 1);
+    }
+    function setZoom(next) {
+      scale = Math.min(6, Math.max(0.2, Number(next) || 1));
+      applyZoom();
+    }
+    function setZoomTarget(el) {
+      zoomTarget = el;
+      scale = 1;
+      zoomEl.hidden = false;
+      applyZoom();
+    }
+
+    zoomEl.querySelectorAll('.file-preview-zoom-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const k = btn.dataset.zoom;
+        if (k === 'in') setZoom(scale * 1.2);
+        else if (k === 'out') setZoom(scale / 1.2);
+        else setZoom(1);
+      });
+    });
+    bodyEl.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey || zoomEl.hidden) return;
+      e.preventDefault();
+      setZoom(scale * (e.deltaY < 0 ? 1.1 : 0.9));
+    }, { passive: false });
 
     function close() {
       overlay.remove();
       document.removeEventListener('keydown', onKey);
+      objectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_e) { /* noop */ } });
     }
     function onKey(e) {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') { close(); return; }
+      if (zoomEl.hidden) return;
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(scale * 1.2); }
+      else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(scale / 1.2); }
+      else if (e.key === '0') { e.preventDefault(); setZoom(1); }
     }
     closeBtn.addEventListener('click', close);
     backdrop.addEventListener('click', close);
     document.addEventListener('keydown', onKey);
 
-    const filename = (artifact.filename || '').toLowerCase();
-    const mt = (artifact.mediaType || '').toLowerCase();
-    const isImage = mt.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(filename);
-    const isPdf = mt === 'application/pdf' || filename.endsWith('.pdf');
-    const isHtml = mt === 'text/html' || /\.(html?)$/.test(filename);
-    const isText =
-      mt === 'text/plain' ||
-      mt === 'message/rfc822' ||
-      filename.endsWith('.txt') ||
-      filename.endsWith('.eml') ||
-      filename.endsWith('.msg');
+    renderPreview(bodyEl, source, { setZoomTarget, trackUrl, source });
+    return { close };
+  }
 
-    if (isImage) {
-      bodyEl.classList.add('preview-image');
-      const img = document.createElement('img');
-      img.src = artifact.url;
-      img.alt = artifact.filename || 'image';
-      bodyEl.appendChild(img);
-    } else if (isPdf) {
-      bodyEl.classList.add('preview-pdf');
-      const iframe = document.createElement('iframe');
-      iframe.src = artifact.url;
-      iframe.title = artifact.filename || 'pdf';
-      bodyEl.appendChild(iframe);
-    } else if (isHtml) {
-      bodyEl.classList.add('preview-html');
-      // Sandboxed iframe — render layout but block scripts / forms / popups.
-      const iframe = document.createElement('iframe');
-      iframe.src = artifact.url;
-      iframe.sandbox = 'allow-same-origin';
-      iframe.title = artifact.filename || 'html';
-      bodyEl.appendChild(iframe);
-    } else if (isText) {
-      bodyEl.classList.add('preview-text');
-      bodyEl.textContent = 'Loading…';
-      try {
-        const r = await fetch(
-          `/api/shipments/${encodeURIComponent(refId)}/artifacts/${artifactIndex}/text`
-        );
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'preview failed');
-        const pre = document.createElement('pre');
-        pre.textContent = data.text || '(empty)';
-        bodyEl.replaceChildren(pre);
-      } catch (err) {
-        bodyEl.textContent = `Could not load preview: ${err.message}`;
-      }
-    } else {
-      bodyEl.classList.add('preview-unsupported');
-      bodyEl.innerHTML = `
-        <p>No inline preview for this file type.</p>
-        <p><a href="${esc(artifact.url || '#')}" target="_blank" rel="noopener">↗ Open in a new tab</a></p>
-      `;
-    }
+  // Back-compat entry point for stored artifacts.
+  function openFilePreview(refId, artifactIndex, artifact) {
+    return openPreviewModal({
+      kind: 'stored',
+      refId,
+      index: artifactIndex,
+      url: artifact.url,
+      mediaType: artifact.mediaType,
+      filename: artifact.filename,
+    });
   }
 
   function openAttachmentsModal(row, anchorEl) {
@@ -8528,6 +8797,105 @@ function formatMoney(n, cur) {
     pasteZone.setAttribute('spellcheck', 'false');
     pasteZone.innerHTML = `<span class="attachments-paste-prompt">📋 Click here, then press Ctrl+V to paste a screenshot</span>`;
 
+    // ---- Pre-upload pending buffer ----
+    // Dropped / selected / pasted files land here as PENDING items (not
+    // auto-uploaded). Each can be previewed locally before the user
+    // commits them with the "Upload N file(s)" button.
+    let pendingFiles = [];
+    const pendingWrap = document.createElement('div');
+    pendingWrap.className = 'attachments-pending-wrap';
+    pendingWrap.hidden = true;
+
+    function isAcceptedFile(f) {
+      if (
+        /^(application\/pdf|image\/(png|jpe?g|webp|gif)|message\/rfc822|text\/(html|plain)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/i.test(f.type)
+      ) {
+        return true;
+      }
+      const lower = (f.name || '').toLowerCase();
+      return /\.(eml|msg|html?|txt|docx|xlsx)$/.test(lower);
+    }
+
+    function fmtSize(bytes) {
+      const n = Number(bytes) || 0;
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function renderPending() {
+      pendingWrap.replaceChildren();
+      if (pendingFiles.length === 0) {
+        pendingWrap.hidden = true;
+        return;
+      }
+      pendingWrap.hidden = false;
+      const ul = document.createElement('ul');
+      ul.className = 'attachments-pending';
+      pendingFiles.forEach((f, i) => {
+        const li = document.createElement('li');
+        li.className = 'attachments-pending-item';
+        li.innerHTML = `
+          <span class="pending-file-icon" aria-hidden="true">📎</span>
+          <span class="pending-file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+          <span class="pending-file-meta">${esc(fmtSize(f.size))}</span>
+          <button type="button" class="pending-file-preview" data-i="${i}" title="Preview">👁 Preview</button>
+          <button type="button" class="pending-file-remove" data-i="${i}" title="Remove">✕</button>`;
+        ul.appendChild(li);
+      });
+      const bar = document.createElement('div');
+      bar.className = 'attachments-pending-actions';
+      bar.innerHTML =
+        `<button type="button" class="attachments-upload-btn">Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}</button>` +
+        `<button type="button" class="attachments-clear-btn link-btn">Clear</button>`;
+      pendingWrap.appendChild(ul);
+      pendingWrap.appendChild(bar);
+
+      ul.querySelectorAll('.pending-file-preview').forEach((b) => {
+        b.addEventListener('click', () => {
+          const f = pendingFiles[Number(b.dataset.i)];
+          if (f) openPreviewModal({ kind: 'local', file: f });
+        });
+      });
+      ul.querySelectorAll('.pending-file-remove').forEach((b) => {
+        b.addEventListener('click', () => {
+          pendingFiles.splice(Number(b.dataset.i), 1);
+          renderPending();
+        });
+      });
+      bar.querySelector('.attachments-upload-btn').addEventListener('click', async () => {
+        const toUpload = pendingFiles.slice();
+        pendingFiles = [];
+        renderPending();
+        await uploadFiles(toUpload);
+      });
+      bar.querySelector('.attachments-clear-btn').addEventListener('click', () => {
+        pendingFiles = [];
+        renderPending();
+      });
+    }
+
+    // Queue files into the pending buffer instead of uploading immediately.
+    function addPending(filesIn) {
+      const arr = Array.from(filesIn || []);
+      if (arr.length === 0) return;
+      const accepted = arr.filter(isAcceptedFile);
+      const rejected = arr.length - accepted.length;
+      if (accepted.length === 0) {
+        setStatus(
+          'ship-status',
+          'Unsupported file — use image, PDF, .eml, .msg, .html, .txt, .docx, or .xlsx.',
+          'error'
+        );
+        return;
+      }
+      pendingFiles.push(...accepted);
+      renderPending();
+      if (rejected > 0) {
+        setStatus('ship-status', `${rejected} unsupported file(s) skipped.`, 'info');
+      }
+    }
+
     function renderList() {
       // List
       const listEl = document.createElement('div');
@@ -8550,11 +8918,13 @@ function formatMoney(n, cur) {
           })
           .join('');
       }
-      // Rebuild wrap: list, then drop zone, then paste zone
+      // Rebuild wrap: list, then drop zone, then pending buffer, then paste zone
       wrap.replaceChildren();
       wrap.appendChild(listEl);
       wrap.appendChild(dropzone);
+      wrap.appendChild(pendingWrap);
       wrap.appendChild(pasteZone);
+      renderPending();
       // Wire delete buttons on every render.
       listEl.querySelectorAll('.attachment-remove').forEach((btn) => {
         btn.addEventListener('click', async (e) => {
@@ -8718,7 +9088,7 @@ function formatMoney(n, cur) {
       fileInput.click();
     });
     fileInput.addEventListener('change', () => {
-      uploadFiles(fileInput.files);
+      addPending(fileInput.files);
       fileInput.value = '';
     });
     dropzone.addEventListener('dragover', (e) => {
@@ -8734,7 +9104,7 @@ function formatMoney(n, cur) {
       e.preventDefault();
       e.stopPropagation();
       dropzone.classList.remove('is-drag');
-      uploadFiles(e.dataTransfer?.files);
+      addPending(e.dataTransfer?.files);
     });
 
     // ---- Paste-zone wiring (separate, focusable, distinct purpose) ----
@@ -8751,7 +9121,7 @@ function formatMoney(n, cur) {
       }
       e.preventDefault(); // never let pasted text show inside the zone
       if (pasted.length > 0) {
-        uploadFiles(pasted);
+        addPending(pasted);
       } else {
         setStatus(
           'ship-status',

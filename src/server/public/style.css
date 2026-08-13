@@ -2589,6 +2589,202 @@ td.empty {
   color: #2563eb;
 }
 
+/* ---- Zoom controls (− / Fit / +) ---- */
+.file-preview-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.file-preview-zoom[hidden] { display: none; }
+.file-preview-zoom-btn {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 1;
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.file-preview-zoom-btn:hover {
+  background: #ebf3ff;
+  border-color: #58a6ff;
+}
+
+/* Office / spreadsheet / docx / eml rendered content. */
+.file-preview-body.preview-office {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+.file-preview-body.preview-office iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  flex: 1;
+  min-height: 0;
+}
+.fp-sheet-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.fp-sheet-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.fp-sheet-host iframe { flex: 1; }
+.fp-sheet-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  overflow-x: auto;
+}
+.fp-sheet-tab {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fp-sheet-tab.is-active {
+  background: #ebf3ff;
+  border-color: #58a6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+/* Loading state while a vendor lib loads / a file parses. */
+.file-preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 13px;
+}
+.fp-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #d1d5db;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: fp-spin 0.7s linear infinite;
+}
+@keyframes fp-spin { to { transform: rotate(360deg); } }
+
+/* Zoomed state: let content exceed the frame and pan via scrollbars.
+   Overrides the flex-centering + object-fit/max-width fit rules. */
+.file-preview-body.is-zoomed {
+  display: block;
+  align-items: initial;
+  justify-content: initial;
+  overflow: auto;
+}
+.file-preview-body.is-zoomed.preview-image img {
+  max-width: none;
+  max-height: none;
+  object-fit: none;
+}
+
+/* Pre-upload pending list (attachments dropzone). */
+.attachments-pending-wrap { margin-top: 8px; }
+.attachments-pending-wrap[hidden] { display: none; }
+.attachments-pending {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.attachments-pending-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(88, 166, 255, 0.06);
+  border: 1px solid rgba(88, 166, 255, 0.18);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.attachments-pending-item .pending-file-icon { font-size: 14px; }
+.attachments-pending-item .pending-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e6e6e6;
+}
+.attachments-pending-item .pending-file-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.attachments-pending-item .pending-file-preview {
+  background: transparent;
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  color: #58a6ff;
+  cursor: pointer;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.attachments-pending-item .pending-file-preview:hover {
+  background: rgba(88, 166, 255, 0.12);
+}
+.attachments-pending-item .pending-file-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.attachments-pending-item .pending-file-remove:hover {
+  color: #d44a4a;
+  background: rgba(212, 74, 74, 0.10);
+}
+.attachments-pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.attachments-upload-btn {
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.attachments-upload-btn:hover { background: #1d4ed8; }
+.attachments-clear-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.attachments-clear-btn:hover { color: #e6e6e6; }
+
 /* Queued files in the top dropzone — name, type, size, remove. */
 .ship-pending-files {
   list-style: none;
