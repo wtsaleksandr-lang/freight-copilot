@@ -1098,6 +1098,95 @@ label.check-line input[type="checkbox"] {
   white-space: nowrap;
 }
 
+/* ── Ocean rate-library management layer (delete / edit / AI-correct) ── */
+/* Bulk-action toolbar above the table. */
+.sheet-rates-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--info-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sheet-rates-toolbar .srt-count { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+
+/* Row-select + actions columns kept tight. */
+.sheet-rates-table .cf-select-th,
+.sheet-rates-table .sheet-select-cell { width: 30px; text-align: center; padding-left: 6px; padding-right: 6px; }
+.sheet-rates-table .sheet-select-cell input,
+.sheet-rates-table .sheet-select-all { cursor: pointer; }
+.sheet-rates-table .cf-actions-th,
+.sheet-rates-table .sheet-actions-cell { width: 74px; white-space: nowrap; }
+.sheet-rates-table tbody tr.is-selected { background: var(--info-bg); }
+
+/* Small icon buttons for per-row AI-correct + delete. */
+.btn-icon {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 13px;
+  line-height: 1.1;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.btn-icon + .btn-icon { margin-left: 4px; }
+.btn-icon:hover { background: #e2e8f0; }
+.btn-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn-icon.danger { color: var(--error); }
+.btn-icon.danger:hover { background: var(--error-bg); }
+.btn-sm.danger,
+.sheet-bulk-delete { color: #fff; background: var(--error); border-color: var(--error); }
+.btn-sm.danger:hover,
+.sheet-bulk-delete:hover { background: #991b1b; }
+
+/* Inline-editable cell values (carrier / container / POL / POD name / rate). */
+.sheet-cell-editable {
+  cursor: text;
+  border-radius: 3px;
+  padding: 0 2px;
+  outline: none;
+  display: inline-block;
+  min-width: 12px;
+}
+.sheet-cell-editable:hover { outline: 1px dashed rgba(88, 166, 255, 0.5); }
+.sheet-cell-editable.is-editing {
+  background: rgba(88, 166, 255, 0.12);
+  outline: 1px solid #58a6ff;
+  cursor: text;
+}
+.sheet-cell-editable.is-saving { opacity: 0.6; }
+.sheet-cell-editable.is-saved { background: rgba(46, 160, 67, 0.2); transition: background 0.6s ease-out; }
+
+/* Empty / loading / error state rows. */
+.sheet-rates-table td.cf-state { text-align: center; padding: 22px 12px; font-size: 13px; }
+.sheet-rates-table td.cf-error { color: var(--error); }
+
+/* AI-correction proposal review list (mirrors ship-update-proposal). */
+.ocean-proposal {
+  display: flex;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+.ocean-proposal input { margin-top: 3px; }
+.ocean-proposal small { display: block; color: var(--muted); margin-top: 3px; }
+.ocean-proposal small.confidence-high { color: var(--success); }
+.ocean-proposal small.confidence-low { color: var(--error); }
+.ocp-text {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
 /* Excel-style clickable column header (Carrier / Container / POL / POD). */
 .sheet-rates-table th.cf-th { position: sticky; top: 0; }
 .col-filter-btn {

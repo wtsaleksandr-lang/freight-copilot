@@ -96,6 +96,9 @@ import {
   getSheetUploadDetail,
   ratesFromParsedResults,
   findSheetRatesByLane,
+  deleteSheetUpload,
+  updateSheetUpload,
+  SheetUploadPatchSchema,
 } from '../db/sheetHistory.js';
 import {
   getEmailTemplates,
@@ -1804,6 +1807,67 @@ export function registerApiRoutes(app: Express): void {
         res.json(detail);
       } catch (err) {
         console.error('[api/sheets/history/:refId] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  // Delete a whole saved upload (the file's entire worth of rates). Mirrors
+  // app.delete('/api/shipments/:refId', ...) for style + the not-found path.
+  app.delete(
+    '/api/sheets/history/:refId',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      try {
+        const ok = await deleteSheetUpload(refId);
+        if (!ok) {
+          res.status(404).json({ error: 'Upload not found' });
+          return;
+        }
+        res.json({ ok });
+      } catch (err) {
+        console.error('[api/sheets/history/:refId] delete error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  // Edit parsed fields on a saved upload's rate rows. Body: { rates?, apply? }
+  // (see SheetUploadPatchSchema). `rates` = targeted per-rate inline edits;
+  // `apply` = field-level replacements across the upload. Mirrors the shipments
+  // PATCH (inline-cell edit) at /api/shipments/:refId.
+  app.patch(
+    '/api/sheets/history/:refId',
+    async (req: Request, res: Response) => {
+      const rawId = req.params.refId;
+      const refId = Array.isArray(rawId) ? rawId[0] : rawId;
+      if (!refId) {
+        res.status(400).json({ error: 'refId required' });
+        return;
+      }
+      const parsed = SheetUploadPatchSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid patch' });
+        return;
+      }
+      try {
+        const result = await updateSheetUpload(refId, parsed.data);
+        if (!result) {
+          res.status(404).json({ error: 'Upload not found' });
+          return;
+        }
+        res.json(result);
+      } catch (err) {
+        console.error('[api/sheets/history/:refId] patch error:', err);
         res.status(500).json({
           error: err instanceof Error ? err.message : String(err),
         });
