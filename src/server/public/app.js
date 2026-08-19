@@ -141,6 +141,137 @@
   };
 })();
 
+// ---------- Ocean rate-library correction modals ----------
+// Two small promise-based modals built on the same .image-modal shell as
+// confirmModal. `oceanTextPrompt` collects the plain-English correction;
+// `oceanReviewProposals` shows the extracted field changes for approval
+// (mirrors shipment-update-ui.js renderProposals). Both resolve on
+// Cancel / backdrop / Esc / ✕ with a null-ish value.
+function oceanTextPrompt(opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    const prevFocus = document.activeElement;
+    const modal = document.createElement('div');
+    modal.className = 'image-modal confirm-modal';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'image-modal-backdrop';
+    const frame = document.createElement('div');
+    frame.className = 'image-modal-frame clarify-frame confirm-modal-frame';
+    frame.innerHTML =
+      '<div class="image-modal-toolbar"><strong>' +
+      esc(o.title || 'AI correct rates') +
+      '</strong><span class="image-modal-spacer"></span><button type="button" class="btn-sm ocp-x" title="Close (Esc)">✕</button></div>' +
+      '<div class="image-modal-body clarify-body">' +
+      '<p class="muted small">' +
+      esc(
+        o.message ||
+          'Describe the correction in plain English. e.g. “MSC validity is actually through Sept 30, and POD should be Rotterdam not Antwerp.”'
+      ) +
+      '</p><textarea class="ocp-text" rows="4" placeholder="' +
+      esc(o.placeholder || 'Type your correction…') +
+      '"></textarea>' +
+      '<div class="row confirm-modal-actions"><button type="button" class="btn-sm ocp-cancel">Cancel</button><button type="button" class="primary ocp-ok">Review changes</button></div>' +
+      '</div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(frame);
+    document.body.appendChild(modal);
+    const ta = frame.querySelector('.ocp-text');
+    let done = false;
+    function cleanup(v) {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      modal.remove();
+      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_) { /* gone */ }
+      resolve(v);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(null); }
+    }
+    function submit() {
+      const v = (ta.value || '').trim();
+      if (!v) { ta.focus(); return; }
+      cleanup(v);
+    }
+    backdrop.addEventListener('click', () => cleanup(null));
+    frame.querySelector('.ocp-x').addEventListener('click', () => cleanup(null));
+    frame.querySelector('.ocp-cancel').addEventListener('click', () => cleanup(null));
+    frame.querySelector('.ocp-ok').addEventListener('click', submit);
+    ta.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+    document.addEventListener('keydown', onKey, true);
+    setTimeout(() => ta.focus(), 30);
+  });
+}
+
+function oceanReviewProposals(proposals) {
+  const FIELD_LABEL = {
+    carrierCode: 'Carrier', pol: 'POL', pod: 'POD',
+    containerType: 'Container', validityFrom: 'Validity from', validityTo: 'Validity to',
+  };
+  return new Promise((resolve) => {
+    const prevFocus = document.activeElement;
+    const modal = document.createElement('div');
+    modal.className = 'image-modal confirm-modal';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'image-modal-backdrop';
+    const frame = document.createElement('div');
+    frame.className = 'image-modal-frame clarify-frame confirm-modal-frame';
+    const items = (proposals || [])
+      .map((p, i) => {
+        const from = p.currentValue != null && p.currentValue !== '' ? p.currentValue : '—';
+        const checked = p.confidence === 'high' ? 'checked' : '';
+        return (
+          '<label class="ocean-proposal"><input type="checkbox" data-i="' + i + '" ' + checked + ' />' +
+          '<span><strong>' + esc(FIELD_LABEL[p.field] || p.field) + '</strong>: ' +
+          esc(from) + ' → <strong>' + esc(p.proposedValue) + '</strong>' +
+          '<small class="confidence-' + esc(p.confidence) + '">' + esc(p.confidence) + ' confidence' +
+          (p.evidence ? ' · ' + esc(p.evidence) : '') + '</small></span></label>'
+        );
+      })
+      .join('');
+    const hasItems = (proposals || []).length > 0;
+    frame.innerHTML =
+      '<div class="image-modal-toolbar"><strong>Review corrections</strong><span class="image-modal-spacer"></span><button type="button" class="btn-sm orp-x" title="Close (Esc)">✕</button></div>' +
+      '<div class="image-modal-body clarify-body">' +
+      (hasItems
+        ? '<p class="muted small">High-confidence changes are pre-selected. Untick anything you don’t want, then apply.</p>' + items
+        : '<div class="muted">No supported field changes were detected in that note.</div>') +
+      '<div class="row confirm-modal-actions"><button type="button" class="btn-sm orp-cancel">Cancel</button><button type="button" class="primary orp-ok"' +
+      (hasItems ? '' : ' disabled') +
+      '>Apply selected</button></div></div>';
+    modal.appendChild(backdrop);
+    modal.appendChild(frame);
+    document.body.appendChild(modal);
+    let done = false;
+    function cleanup(v) {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      modal.remove();
+      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_) { /* gone */ }
+      resolve(v);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(null); }
+    }
+    function apply() {
+      const updates = [...frame.querySelectorAll('.ocean-proposal input:checked')].map((b) => {
+        const p = proposals[Number(b.dataset.i)];
+        return { field: p.field, to: p.proposedValue, from: p.from };
+      });
+      cleanup(updates.length ? updates : null);
+    }
+    backdrop.addEventListener('click', () => cleanup(null));
+    frame.querySelector('.orp-x').addEventListener('click', () => cleanup(null));
+    frame.querySelector('.orp-cancel').addEventListener('click', () => cleanup(null));
+    frame.querySelector('.orp-ok').addEventListener('click', apply);
+    document.addEventListener('keydown', onKey, true);
+    setTimeout(() => frame.querySelector('.orp-ok')?.focus(), 30);
+  });
+}
+
 // ---------- PWA: register service worker so Chrome offers "Install" ----
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -4391,6 +4522,12 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   let currentCol = null; // the COLUMNS entry whose popover is open
   let reqToken = 0;
   let reloadTimer = null;
+  // Bulk-delete selection: refIds of uploads ticked in the spreadsheet. A single
+  // upload owns many rate rows, so ticking any of its rows selects the whole
+  // upload (deleting removes the file's entire worth of rates).
+  const selected = new Set();
+  let hasLoadedOnce = false; // drives the first-load "Loading…" state
+  let anyFilterActive = false;
 
   const CARET =
     '<svg class="cfb-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.2 5 6.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -4561,13 +4698,24 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
     }
   }
 
+  // Total column count (select + 4 filters + Rate + Validity + Uploaded +
+  // Source + Actions). Used for full-width state rows.
+  const COLSPAN = COLUMNS.length + 6;
+
   // ---- Table shell (built once so header buttons + popover survive reloads) ----
   function ensureShell() {
     if (list.querySelector('.sheet-rates-table')) return;
     const th = (col) =>
       `<th class="cf-th" data-col="${col.key}"><button type="button" class="col-filter-btn" data-col="${col.key}" aria-haspopup="dialog" aria-expanded="false" aria-label="Filter ${col.label}"><span class="cfb-label">${col.label}</span><span class="cfb-count" hidden></span>${CARET}</button></th>`;
-    list.innerHTML = `<div class="table-wrap"><table class="sheet-rates-table">
-      <thead><tr>${COLUMNS.map(th).join('')}<th>Validity</th><th>Uploaded</th><th>Source</th></tr></thead>
+    list.innerHTML = `<div class="sheet-rates-toolbar" hidden>
+        <span class="srt-count" aria-live="polite"></span>
+        <button type="button" class="btn-sm danger sheet-bulk-delete">Delete selected</button>
+        <button type="button" class="link-btn sheet-clear-sel">Clear</button>
+      </div>
+      <div class="table-wrap"><table class="sheet-rates-table">
+      <thead><tr>
+        <th class="cf-select-th"><input type="checkbox" class="sheet-select-all" title="Select all" aria-label="Select all rows"></th>
+        ${COLUMNS.map(th).join('')}<th>Rate</th><th>Validity</th><th>Uploaded</th><th>Source</th><th class="cf-actions-th">Actions</th></tr></thead>
       <tbody></tbody></table></div>`;
     list.querySelectorAll('.col-filter-btn').forEach((btn) => {
       const col = COLUMNS.find((c) => c.key === btn.dataset.col);
@@ -4576,17 +4724,70 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
         openPopover(col, btn);
       });
     });
+    // Select-all ticks / unticks every currently-rendered upload.
+    list.querySelector('.sheet-select-all')?.addEventListener('change', (e) => {
+      const on = e.target.checked;
+      list.querySelectorAll('tr[data-ref]').forEach((tr) => {
+        if (on) selected.add(tr.dataset.ref);
+        else selected.delete(tr.dataset.ref);
+      });
+      syncSelectionUI();
+    });
+    list.querySelector('.sheet-clear-sel')?.addEventListener('click', () => {
+      selected.clear();
+      syncSelectionUI();
+    });
+    list.querySelector('.sheet-bulk-delete')?.addEventListener('click', bulkDelete);
     updateHeaderBadges();
   }
+
+  // Reflect the current selection into checkboxes, the select-all tri-state and
+  // the bulk-action toolbar.
+  function syncSelectionUI() {
+    const rows = Array.from(list.querySelectorAll('tr[data-ref]'));
+    rows.forEach((tr) => {
+      const cb = tr.querySelector('.sheet-row-select');
+      const on = selected.has(tr.dataset.ref);
+      tr.classList.toggle('is-selected', on);
+      if (cb) cb.checked = on;
+    });
+    const selCount = selected.size;
+    const toolbar = list.querySelector('.sheet-rates-toolbar');
+    if (toolbar) {
+      toolbar.hidden = selCount === 0;
+      const label = toolbar.querySelector('.srt-count');
+      if (label) label.textContent = `${selCount} sheet${selCount === 1 ? '' : 's'} selected`;
+      const btn = toolbar.querySelector('.sheet-bulk-delete');
+      if (btn) btn.textContent = `Delete selected (${selCount})`;
+    }
+    const selectAll = list.querySelector('.sheet-select-all');
+    if (selectAll) {
+      const refs = new Set(rows.map((tr) => tr.dataset.ref));
+      const shown = Array.from(refs);
+      const checkedShown = shown.filter((r) => selected.has(r)).length;
+      selectAll.checked = shown.length > 0 && checkedShown === shown.length;
+      selectAll.indeterminate = checkedShown > 0 && checkedShown < shown.length;
+    }
+  }
+
+  // Clicking these cells/controls must NOT trigger the row's "reload quote".
+  const ROW_CLICK_IGNORE =
+    '.sheet-cell-editable, .sheet-select-cell, .sheet-actions-cell, .sheet-row-select, button, a, input, textarea, [contenteditable="true"], code';
 
   function renderRows(rows) {
     const tbody = list.querySelector('.sheet-rates-table tbody');
     if (!tbody) return;
     if (rows.length === 0) {
-      tbody.innerHTML =
-        '<tr class="cf-empty-row"><td colspan="7" class="muted small">No matching quotes. Adjust the header filters, or drop a sheet above and every rate will show up here.</td></tr>';
+      // Two distinct empty states: a truly empty library vs. a filtered-out view.
+      const msg = anyFilterActive
+        ? 'No matching quotes. Adjust or clear the header filters above.'
+        : 'No rate sheets yet — drop a file above and every parsed rate shows up here.';
+      tbody.innerHTML = `<tr class="cf-empty-row"><td colspan="${COLSPAN}" class="cf-state muted">${msg}</td></tr>`;
+      syncSelectionUI();
       return;
     }
+    const editable = (val, field, type) =>
+      `<span class="sheet-cell-editable" contenteditable="true" spellcheck="false" data-field="${field}"${type ? ` data-type="${type}"` : ''} title="Click to edit">${esc(val == null || val === '' ? '—' : val)}</span>`;
     tbody.innerHTML = rows
       .map((r) => {
         const validity =
@@ -4595,50 +4796,250 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
         const when = r.uploadedAt
           ? new Date(r.uploadedAt).toISOString().replace('T', ' ').slice(0, 10)
           : '';
-        const pol = r.polCode
-          ? `${esc(r.pol)} <code class="muted">${esc(r.polCode)}</code>`
-          : esc(r.pol);
-        const pod = r.podCode
-          ? `${esc(r.pod)} <code class="muted">${esc(r.podCode)}</code>`
-          : esc(r.pod);
+        const codeTag = (code) =>
+          code ? ` <code class="muted">${esc(code)}</code>` : '';
+        const rate =
+          r.freightTotal != null && Number.isFinite(r.freightTotal)
+            ? `<span class="sheet-cell-editable" contenteditable="true" spellcheck="false" data-field="freightTotal" data-type="number" title="Click to edit">${esc(String(r.freightTotal))}</span> <span class="muted small">${esc(r.freightCurrency || '')}</span>`
+            : editable(r.freightTotal, 'freightTotal', 'number');
         const source = r.sourceUrl
           ? `<a href="${esc(r.sourceUrl)}" target="_blank" rel="noopener" title="${esc(r.sourceFilename || 'source file')}" onclick="event.stopPropagation()">file</a>`
           : '<span class="muted">—</span>';
-        return `<tr data-ref="${esc(r.refId)}" title="Click to reload this quote">
-          <td><span class="carrier-pill">${esc(r.carrierCode)}</span></td>
-          <td><code>${esc(r.containerType)}</code></td>
-          <td>${pol}</td>
-          <td>${pod}</td>
+        const sel = selected.has(r.refId) ? ' is-selected' : '';
+        return `<tr data-ref="${esc(r.refId)}" data-id="${esc(String(r.id))}" class="sheet-rate-row${sel}" title="Click a blank area of the row to reload this quote">
+          <td class="sheet-select-cell"><input type="checkbox" class="sheet-row-select" aria-label="Select rate sheet ${esc(r.refId)}"${selected.has(r.refId) ? ' checked' : ''}></td>
+          <td>${editable(r.carrierCode, 'carrierCode')}</td>
+          <td><span class="sheet-cell-editable code-edit" contenteditable="true" spellcheck="false" data-field="containerType" title="Click to edit">${esc(r.containerType)}</span></td>
+          <td>${editable(r.pol, 'pol')}${codeTag(r.polCode)}</td>
+          <td>${editable(r.pod, 'pod')}${codeTag(r.podCode)}</td>
+          <td class="small nowrap">${rate}</td>
           <td class="small">${validity}</td>
           <td class="small muted nowrap">${esc(when)}</td>
           <td class="small">${source}</td>
+          <td class="sheet-actions-cell nowrap">
+            <button type="button" class="btn-icon sheet-ai-btn" title="AI correct this sheet (plain English)" aria-label="AI correct">✨</button>
+            <button type="button" class="btn-icon danger sheet-del-btn" title="Delete this sheet upload" aria-label="Delete">✕</button>
+          </td>
         </tr>`;
       })
       .join('');
+    wireRowControls(tbody);
+    syncSelectionUI();
+  }
+
+  function wireRowControls(tbody) {
+    // Row click → reload the saved upload, unless a control/editable was clicked.
     tbody.querySelectorAll('tr[data-ref]').forEach((row) => {
-      row.addEventListener('click', () => loadSavedUpload(row.dataset.ref));
+      row.addEventListener('click', (e) => {
+        if (e.target.closest(ROW_CLICK_IGNORE)) return;
+        loadSavedUpload(row.dataset.ref);
+      });
     });
+    // Per-row selection checkbox.
+    tbody.querySelectorAll('.sheet-row-select').forEach((cb) => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
+      cb.addEventListener('change', () => {
+        const ref = cb.closest('tr')?.dataset.ref;
+        if (!ref) return;
+        if (cb.checked) selected.add(ref);
+        else selected.delete(ref);
+        syncSelectionUI();
+      });
+    });
+    // Per-row delete.
+    tbody.querySelectorAll('.sheet-del-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ref = btn.closest('tr')?.dataset.ref;
+        if (ref) await deleteUpload(ref);
+      });
+    });
+    // Per-row AI correction.
+    tbody.querySelectorAll('.sheet-ai-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ref = btn.closest('tr')?.dataset.ref;
+        if (ref) await runOceanCorrection(ref);
+      });
+    });
+    wireRateCellEditors(tbody);
+  }
+
+  // Inline cell edit → PATCH /api/sheets/history/:refId { rates:[{id,field:value}] }.
+  // Mirrors the shipments wireCellEditors (contenteditable + blur save).
+  function wireRateCellEditors(tbody) {
+    tbody.querySelectorAll('.sheet-cell-editable').forEach((el) => {
+      const original = el.textContent;
+      el.addEventListener('focus', () => {
+        el.dataset.orig = el.textContent;
+        if (el.textContent === '—') el.textContent = '';
+        el.classList.add('is-editing');
+      });
+      el.addEventListener('blur', async () => {
+        el.classList.remove('is-editing');
+        const tr = el.closest('tr');
+        const refId = tr?.dataset.ref;
+        const id = Number(tr?.dataset.id);
+        const field = el.dataset.field;
+        const type = el.dataset.type || 'text';
+        const raw = el.textContent.trim();
+        const origTrim = (el.dataset.orig ?? original).trim();
+        if (raw === origTrim || (raw === '' && origTrim === '—')) {
+          if (raw === '') el.textContent = origTrim;
+          return;
+        }
+        if (!refId || !Number.isFinite(id) || !field) return;
+        let value;
+        if (type === 'number') {
+          if (raw === '') { el.textContent = origTrim; return; } // rate can't be blank
+          value = Number(raw.replace(/[^\d.\-]/g, ''));
+          if (!Number.isFinite(value)) { el.textContent = origTrim; toast('Enter a number', 'error'); return; }
+        } else {
+          if (raw === '') { el.textContent = origTrim; return; } // names can't be blank
+          value = raw;
+        }
+        el.classList.add('is-saving');
+        try {
+          const r = await fetch(`/api/sheets/history/${encodeURIComponent(refId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rates: [{ id, [field]: value }] }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'save failed');
+          el.classList.remove('is-saving');
+          el.classList.add('is-saved');
+          setTimeout(() => el.classList.remove('is-saved'), 1200);
+          // Refresh facets/badges (carrier/container edits change the dropdowns).
+          scheduleReload();
+        } catch (err) {
+          el.classList.remove('is-saving');
+          el.textContent = origTrim;
+          toast('Save failed: ' + err.message, 'error');
+        }
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+        else if (e.key === 'Escape') { el.textContent = el.dataset.orig || original; el.blur(); }
+      });
+    });
+  }
+
+  async function deleteUpload(refId) {
+    if (!(await confirmModal({
+      title: 'Delete rate sheet',
+      message: `Delete this sheet upload (${refId}) and all of its saved rates? This can’t be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    }))) return;
+    try {
+      const r = await fetch(`/api/sheets/history/${encodeURIComponent(refId)}`, { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'delete failed');
+      selected.delete(refId);
+      await load();
+    } catch (err) {
+      toast('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  async function bulkDelete() {
+    const refs = Array.from(selected);
+    if (refs.length === 0) return;
+    if (!(await confirmModal({
+      title: 'Delete selected rate sheets',
+      message: `Delete ${refs.length} rate sheet${refs.length === 1 ? '' : 's'} and all of their saved rates? This can’t be undone.`,
+      confirmLabel: `Delete ${refs.length}`,
+      danger: true,
+    }))) return;
+    let failed = 0;
+    for (const ref of refs) {
+      try {
+        const r = await fetch(`/api/sheets/history/${encodeURIComponent(ref)}`, { method: 'DELETE' });
+        if (!r.ok) failed++;
+        else selected.delete(ref);
+      } catch (_) { failed++; }
+    }
+    if (failed > 0) toast(`${failed} sheet(s) could not be deleted.`, 'error');
+    await load();
+  }
+
+  // Plain-English AI correction for one saved upload. Mirrors the shipments
+  // update flow: preview → (clarify modal when uncertain) → review → apply.
+  async function runOceanCorrection(refId) {
+    const text = await oceanTextPrompt({
+      title: `AI correct ${refId}`,
+      message: 'Describe the correction in plain English. e.g. “MSC validity is actually through Sept 30, and POD should be Rotterdam not Antwerp.”',
+    });
+    if (!text) return;
+    async function preview(answers) {
+      const r = await fetch('/api/sheets/correction-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers ? { refId, text, answers } : { refId, text }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'preview failed');
+      return data;
+    }
+    try {
+      let data = await preview();
+      // When the correction is ambiguous / low-confidence, ask through the
+      // SAME clarify modal the parse flow uses, then re-preview with answers.
+      if (data.pendingClarification && Array.isArray(data.questions)) {
+        const result = await openClarificationModal(data.questions);
+        if (!result) return; // cancelled
+        data = await preview(result.answers);
+      }
+      const updates = await oceanReviewProposals(data.proposals || []);
+      if (!updates || updates.length === 0) return;
+      const ap = await fetch('/api/sheets/correction-apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refId, updates }),
+      });
+      const applied = await ap.json();
+      if (!ap.ok) throw new Error(applied.error || 'apply failed');
+      toast(`Updated ${applied.updated} rate row${applied.updated === 1 ? '' : 's'} (${(applied.updatedFields || []).join(', ')}).`, 'success');
+      await load();
+    } catch (err) {
+      toast('AI correction failed: ' + err.message, 'error');
+    }
   }
 
   async function load() {
     ensureShell();
     const token = ++reqToken;
     const params = new URLSearchParams();
+    anyFilterActive = false;
     for (const col of COLUMNS) {
       const vals = Array.from(state[col.key]);
-      if (vals.length) params.set(col.param, vals.join(','));
+      if (vals.length) {
+        params.set(col.param, vals.join(','));
+        anyFilterActive = true;
+      }
+    }
+    // First-ever load shows a loading state; later reloads keep the current
+    // rows visible to avoid flicker while filtering.
+    const tbody0 = list.querySelector('.sheet-rates-table tbody');
+    if (tbody0 && !hasLoadedOnce) {
+      tbody0.innerHTML = `<tr><td colspan="${COLSPAN}" class="cf-state muted">Loading rate sheets…</td></tr>`;
     }
     try {
       const r = await fetch('/api/sheets/rates?' + params.toString());
       const data = await r.json();
       if (token !== reqToken) return; // a newer request superseded this one
       if (!r.ok) throw new Error(data.error || 'load failed');
+      hasLoadedOnce = true;
       facets = {
         carriers: data.carriers || [],
         containers: data.containerTypes || [],
         pols: data.pols || [],
         pods: data.pods || [],
       };
+      // Drop selections for uploads that no longer exist.
+      const liveRefs = new Set((data.rows || []).map((r2) => r2.refId));
+      for (const ref of Array.from(selected)) if (!liveRefs.has(ref)) selected.delete(ref);
       renderRows(data.rows || []);
       updateHeaderBadges();
       if (currentCol) renderList(); // refresh open popover against new facets
@@ -4646,7 +5047,8 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
       if (token !== reqToken) return;
       const tbody = list.querySelector('.sheet-rates-table tbody');
       if (tbody)
-        tbody.innerHTML = `<tr><td colspan="7" class="muted small">Error: ${esc(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="cf-state cf-error">Couldn’t load rate sheets: ${esc(err.message)}. <button type="button" class="link-btn sheet-retry">Retry</button></td></tr>`;
+      tbody?.querySelector('.sheet-retry')?.addEventListener('click', () => load());
     }
   }
 

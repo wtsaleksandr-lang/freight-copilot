@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, like, or, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 import { createDbClient } from './client.js';
 import { sheetUploads, sheetRates } from './schema.js';
 import type { RateSheetResult } from '../llm/parseRateSheet.js';
@@ -39,11 +40,21 @@ export interface SheetUploadInput {
   keptBackend?: string | null;
 }
 
-function searchKeyFor(r: SheetUploadRowInput): string {
-  return [r.pol, r.polCode, r.pod, r.podCode]
+/** Build the pre-lowered POL/POD search key from its four parts. */
+function searchKeyForParts(
+  pol: string | null,
+  polCode: string | null,
+  pod: string | null,
+  podCode: string | null
+): string {
+  return [pol, polCode, pod, podCode]
     .filter((s) => s != null && s !== '')
     .map((s) => String(s).toLowerCase())
     .join(' ');
+}
+
+function searchKeyFor(r: SheetUploadRowInput): string {
+  return searchKeyForParts(r.pol, r.polCode ?? null, r.pod, r.podCode ?? null);
 }
 
 /** Insert a new sheet_uploads row + its sheet_rates children. */
@@ -129,6 +140,223 @@ export async function updateSheetUploadEmail(
       }),
     })
     .where(eq(sheetUploads.refId, refId));
+}
+
+/**
+ * Delete one sheet upload AND all of its saved rate rows. The child rates are
+ * removed first, then the parent upload — the FK is ON DELETE CASCADE, but we
+ * delete both explicitly so the behaviour is identical on any database and the
+ * intent is obvious. Returns true when an upload row was actually removed.
+ * Mirrors {@link deleteShipment} in shipmentBoard.ts.
+ */
+export async function deleteSheetUpload(refId: string): Promise<boolean> {
+  const db = createDbClient();
+  const [u] = await db
+    .select({ id: sheetUploads.id })
+    .from(sheetUploads)
+    .where(eq(sheetUploads.refId, refId));
+  if (!u) return false;
+  await db.delete(sheetRates).where(eq(sheetRates.uploadId, u.id));
+  const result = await db
+    .delete(sheetUploads)
+    .where(eq(sheetUploads.id, u.id));
+  const r = result as unknown as {
+    rowCount?: number | null;
+    rowsAffected?: number;
+  };
+  const ra = r.rowCount ?? r.rowsAffected ?? 0;
+  return ra > 0;
+}
+
+// ── Manual + AI correction of parsed rate rows ───────────────────────────────
+// A saved upload owns many rate rows (one per lane × container). Corrections
+// arrive in two shapes: targeted per-rate edits (inline cell edit, keyed by the
+// rate's id) and field-level replacements across the upload (the plain-English
+// AI-correction path — e.g. "POD should be Rotterdam not Antwerp" updates every
+// rate whose POD currently reads Antwerp). Field types mirror the parseRateSheet
+// zod primitives (string names/codes/currency, numeric freight_total).
+
+/** One targeted edit to a single saved rate row (inline cell edit). */
+const RatePatchSchema = z.object({
+  id: z.number().int().positive(),
+  carrierCode: z.string().trim().min(1).optional(),
+  pol: z.string().trim().min(1).optional(),
+  polCode: z.string().trim().nullable().optional(),
+  pod: z.string().trim().min(1).optional(),
+  podCode: z.string().trim().nullable().optional(),
+  containerType: z.string().trim().min(1).optional(),
+  freightTotal: z.number().finite().optional(),
+  freightCurrency: z.string().trim().min(1).optional(),
+  validityFrom: z.string().trim().nullable().optional(),
+  validityTo: z.string().trim().nullable().optional(),
+});
+
+/**
+ * One field-level replacement applied across the upload's rates. When `from`
+ * is given only rates whose current value equals it (case-insensitive) are
+ * changed; otherwise every rate in the upload is updated. Money (freightTotal)
+ * is deliberately excluded — it is per-rate and only editable via `rates`.
+ */
+const FieldReplacementSchema = z.object({
+  field: z.enum([
+    'carrierCode',
+    'pol',
+    'polCode',
+    'pod',
+    'podCode',
+    'containerType',
+    'freightCurrency',
+    'validityFrom',
+    'validityTo',
+  ]),
+  to: z.union([z.string(), z.null()]),
+  from: z.string().optional(),
+});
+
+export const SheetUploadPatchSchema = z
+  .object({
+    rates: z.array(RatePatchSchema).optional(),
+    apply: z.array(FieldReplacementSchema).optional(),
+  })
+  .refine((p) => (p.rates?.length ?? 0) + (p.apply?.length ?? 0) > 0, {
+    message: 'No edits supplied.',
+  });
+export type SheetUploadPatch = z.infer<typeof SheetUploadPatchSchema>;
+
+const RATE_PATCH_FIELDS = [
+  'carrierCode',
+  'pol',
+  'polCode',
+  'pod',
+  'podCode',
+  'containerType',
+  'freightTotal',
+  'freightCurrency',
+  'validityFrom',
+  'validityTo',
+] as const;
+const LANE_FIELDS = new Set(['pol', 'polCode', 'pod', 'podCode']);
+
+export interface SheetUploadUpdateResult {
+  updated: number;
+}
+
+/**
+ * Apply manual and/or AI corrections to a saved upload's rate rows. Returns the
+ * number of rate rows changed, or null when the upload does not exist. Parallels
+ * {@link updateSheetUploadEmail} but targets the child rate rows. The pre-lowered
+ * `search_key` is recomputed whenever a POL/POD field changes so the spreadsheet
+ * filters stay correct. Mirrors the shipments PATCH (updateShipment) in style.
+ */
+export async function updateSheetUpload(
+  refId: string,
+  patch: SheetUploadPatch
+): Promise<SheetUploadUpdateResult | null> {
+  const db = createDbClient();
+  const [u] = await db
+    .select({ id: sheetUploads.id })
+    .from(sheetUploads)
+    .where(eq(sheetUploads.refId, refId));
+  if (!u) return null;
+
+  // Load the upload's rates once so we can guard ownership and recompute keys.
+  const owned = await db
+    .select()
+    .from(sheetRates)
+    .where(eq(sheetRates.uploadId, u.id));
+  const byId = new Map(owned.map((r) => [r.id, r]));
+  let updated = 0;
+
+  // 1) Targeted per-rate edits (inline cell edit). A rate not belonging to this
+  //    upload is silently ignored — never edit another upload's rows.
+  for (const rp of patch.rates ?? []) {
+    const current = byId.get(rp.id);
+    if (!current) continue;
+    const set: Record<string, unknown> = {};
+    for (const k of RATE_PATCH_FIELDS) {
+      if (rp[k] !== undefined) set[k] = rp[k];
+    }
+    if (Object.keys(set).length === 0) continue;
+    if (['pol', 'polCode', 'pod', 'podCode'].some((k) => k in set)) {
+      set.searchKey = searchKeyForParts(
+        (set.pol as string) ?? current.pol,
+        (set.polCode as string | null) ?? current.polCode,
+        (set.pod as string) ?? current.pod,
+        (set.podCode as string | null) ?? current.podCode
+      );
+    }
+    await db.update(sheetRates).set(set).where(eq(sheetRates.id, rp.id));
+    updated++;
+  }
+
+  // 2) Field-level replacements across the upload (AI correction / bulk edit).
+  for (const rep of patch.apply ?? []) {
+    const targets = owned.filter((r) => {
+      if (rep.from == null) return true;
+      const cur = (r as unknown as Record<string, unknown>)[rep.field];
+      return String(cur ?? '').toLowerCase() === rep.from.toLowerCase();
+    });
+    for (const t of targets) {
+      const set: Record<string, unknown> = { [rep.field]: rep.to };
+      if (LANE_FIELDS.has(rep.field)) {
+        const merged = { ...t, [rep.field]: rep.to } as typeof t;
+        set.searchKey = searchKeyForParts(
+          merged.pol,
+          merged.polCode,
+          merged.pod,
+          merged.podCode
+        );
+      }
+      await db.update(sheetRates).set(set).where(eq(sheetRates.id, t.id));
+      updated++;
+    }
+  }
+
+  return { updated };
+}
+
+/**
+ * Current aggregated field values for one upload, used by the AI-correction
+ * preview to know what to change (and to disambiguate when a field holds
+ * several distinct values across the upload's lanes). Returns null when the
+ * upload does not exist.
+ */
+export interface SheetUploadCurrent {
+  refId: string;
+  carriers: string[];
+  pols: string[];
+  pods: string[];
+  containerTypes: string[];
+  validityFrom: string | null;
+  validityTo: string | null;
+  rateRowCount: number;
+}
+
+export async function getSheetUploadCurrent(
+  refId: string
+): Promise<SheetUploadCurrent | null> {
+  const db = createDbClient();
+  const [u] = await db
+    .select({ id: sheetUploads.id, refId: sheetUploads.refId })
+    .from(sheetUploads)
+    .where(eq(sheetUploads.refId, refId));
+  if (!u) return null;
+  const rows = await db
+    .select()
+    .from(sheetRates)
+    .where(eq(sheetRates.uploadId, u.id));
+  const uniq = (xs: Array<string | null>): string[] =>
+    Array.from(new Set(xs.filter((s): s is string => !!s)));
+  return {
+    refId: u.refId,
+    carriers: uniq(rows.map((r) => r.carrierCode)),
+    pols: uniq(rows.map((r) => r.pol)),
+    pods: uniq(rows.map((r) => r.pod)),
+    containerTypes: uniq(rows.map((r) => r.containerType)),
+    validityFrom: rows.find((r) => r.validityFrom)?.validityFrom ?? null,
+    validityTo: rows.find((r) => r.validityTo)?.validityTo ?? null,
+    rateRowCount: rows.length,
+  };
 }
 
 /**

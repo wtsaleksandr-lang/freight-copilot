@@ -7,6 +7,7 @@ import { registerQuoteValidationRoute } from './quoteValidationRoute.js';
 import { registerShipmentReportRoute } from './shipmentReportRoute.js';
 import { registerShipmentEmailRoute } from './shipmentEmailRoute.js';
 import { registerShipmentUpdateIntakeRoute } from './shipmentUpdateIntakeRoute.js';
+import { registerSheetCorrectionIntakeRoute } from './sheetCorrectionIntakeRoute.js';
 import { registerShipmentDocumentIntakeRoute } from './shipmentDocumentIntakeRoute.js';
 import { registerShipmentOperationsRoute } from './shipmentOperationsRoute.js';
 import { registerTruckingRateIngestionRoute } from './truckingRateIngestionRoute.js';
@@ -80,6 +81,7 @@ export function createApp(): express.Express {
   registerShipmentReportRoute(app);
   registerShipmentEmailRoute(app);
   registerShipmentUpdateIntakeRoute(app);
+  registerSheetCorrectionIntakeRoute(app);
   registerShipmentDocumentIntakeRoute(app);
   registerShipmentOperationsRoute(app);
   registerTruckingRateIngestionRoute(app);
