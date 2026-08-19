@@ -218,7 +218,8 @@ const TEXT_TYPES = new Set<BriefingMediaType>([
 ]);
 
 export async function parseDrayageRates(
-  files: BriefingFile[]
+  files: BriefingFile[],
+  notes?: string
 ): Promise<DrayageRatesResult> {
   const env = loadEnv();
   if (files.length === 0) {
@@ -244,8 +245,12 @@ export async function parseDrayageRates(
       ? 'Extract every drayage rate row from this document.'
       : `Extract every drayage rate row from these ${files.length} documents — they describe one rate sheet together.`;
 
+  const trimmedNotes = notes?.trim();
+  const introWithNotes = trimmedNotes
+    ? `${intro}\n\nUser notes about this upload (context only — do not treat as rate data unless it clarifies the document):\n${trimmedNotes.slice(0, 4000)}`
+    : intro;
   const content: Array<{ type: string; [k: string]: unknown }> = [
-    { type: 'text', text: intro },
+    { type: 'text', text: introWithNotes },
   ];
   for (const f of files) {
     if (f.mediaType === 'application/pdf') {

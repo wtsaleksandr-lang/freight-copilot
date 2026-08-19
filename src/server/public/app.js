@@ -3695,12 +3695,21 @@ async function loadCredList() {
 
     setStatus('sheet-status', 'Sending for analysis…', 'info', true);
     try {
-      const keepEl = document.getElementById('sheet-keep-original');
-      const keepOriginal = !!(keepEl && keepEl.checked);
+      // "Don't save file" checkbox (repurposed #sheet-keep-original): CHECKED =
+      // discard the original even if it's a rate sheet; UNCHECKED = keep it.
+      const dontSaveEl = document.getElementById('sheet-keep-original');
+      const dontSave = !!(dontSaveEl && dontSaveEl.checked);
+      const notesEl = document.getElementById('sheet-notes');
+      const notes = notesEl ? notesEl.value.trim() : '';
       const r = await fetch('/api/rates/parse-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: payload, keepOriginal }),
+        body: JSON.stringify({
+          files: payload,
+          keepOriginal: !dontSave,
+          forceDiscard: dontSave,
+          notes: notes || undefined,
+        }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'parse failed');
@@ -10989,6 +10998,8 @@ function esc(s) {
     );
     try {
       const payload = await filesToPayload(pending);
+      const drNotesEl = document.getElementById('dr-lib-notes');
+      const drNotes = drNotesEl ? drNotesEl.value.trim() : '';
       const r = await fetch('/api/drayage-rate-library/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -10996,6 +11007,7 @@ function esc(s) {
           files: payload,
           fxRates: getFxRates(),
           dryRun: true,
+          notes: drNotes || undefined,
         }),
       });
       const data = await r.json();
@@ -11127,12 +11139,17 @@ function esc(s) {
     previewSaveBtn.disabled = true;
     setStat(`Saving ${previewRates.length} rate${previewRates.length === 1 ? '' : 's'}…`, 'info');
     try {
+      // "Don't save file" checkbox: CHECKED = persist only the extracted rates,
+      // discard the original upload (ephemeral). UNCHECKED = keep the file too.
+      const drDontSaveEl = document.getElementById('dr-lib-dont-save');
+      const drDontSave = !!(drDontSaveEl && drDontSaveEl.checked);
       const r = await fetch('/api/drayage-rate-library/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rates: previewRates,
           files: previewFiles,
+          ephemeral: drDontSave,
         }),
       });
       const data = await r.json();
