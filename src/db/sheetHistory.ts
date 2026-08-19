@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import { createDbClient } from './client.js';
 import { sheetUploads, sheetRates } from './schema.js';
 import type { RateSheetResult } from '../llm/parseRateSheet.js';
@@ -373,10 +373,20 @@ export interface SheetRateSpreadsheetRow {
 export interface SheetRatesQuery {
   /** Free-text POL/POD match against the pre-lowered search_key. */
   q?: string;
-  /** Exact ocean-carrier code (as stored, e.g. MSK / MSC). */
+  /** Exact ocean-carrier code (single value — back-compat, e.g. MSK / MSC). */
   carrier?: string;
-  /** Exact container type (as stored, e.g. 40HC / 20GP). */
+  /** Exact container type (single value — back-compat, e.g. 40HC / 20GP). */
   container?: string;
+  /**
+   * Excel-style multi-select filters. Within one list the match is OR (any of
+   * the checked values); across the four lists it is AND. Empty/absent list ⇒
+   * that column is unfiltered. `carriers`/`containers` are merged with the
+   * legacy single `carrier`/`container` above.
+   */
+  carriers?: string[];
+  containers?: string[];
+  pols?: string[];
+  pods?: string[];
   limit?: number;
 }
 
@@ -386,6 +396,52 @@ export interface SheetRatesResult {
   carriers: string[];
   /** Distinct container types across ALL saved rates (for the filter dropdown). */
   containerTypes: string[];
+  /** Distinct POL names across ALL saved rates (for the POL header filter). */
+  pols: string[];
+  /** Distinct POD names across ALL saved rates (for the POD header filter). */
+  pods: string[];
+}
+
+/**
+ * Parse the raw `/api/sheets/rates` query params into a normalized
+ * {@link SheetRatesQuery}. Each of carrier/container/pol/pod may arrive as a
+ * comma-separated list (Excel multi-select); values are trimmed, empties
+ * dropped and duplicates removed while preserving first-seen order. Pure — no
+ * I/O — so the multi-value semantics can be unit-tested without a database.
+ */
+export function parseSheetRatesParams(raw: {
+  q?: unknown;
+  carrier?: unknown;
+  container?: unknown;
+  pol?: unknown;
+  pod?: unknown;
+  limit?: unknown;
+}): SheetRatesQuery {
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const list = (v: unknown): string[] => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const part of str(v).split(',')) {
+      const t = part.trim();
+      if (t && !seen.has(t)) {
+        seen.add(t);
+        out.push(t);
+      }
+    }
+    return out;
+  };
+  const q: SheetRatesQuery = { q: str(raw.q).trim() };
+  const carriers = list(raw.carrier);
+  const containers = list(raw.container);
+  const pols = list(raw.pol);
+  const pods = list(raw.pod);
+  if (carriers.length) q.carriers = carriers;
+  if (containers.length) q.containers = containers;
+  if (pols.length) q.pols = pols;
+  if (pods.length) q.pods = pods;
+  const lim = Number(raw.limit);
+  if (Number.isFinite(lim) && lim > 0) q.limit = Math.floor(lim);
+  return q;
 }
 
 /**
@@ -404,10 +460,26 @@ export async function searchSheetRates(
   const conds: SQL[] = [];
   const q = (query.q ?? '').trim().toLowerCase();
   if (q) conds.push(like(sheetRates.searchKey, `%${q}%`));
-  const carrier = (query.carrier ?? '').trim();
-  if (carrier) conds.push(eq(sheetRates.carrierCode, carrier));
-  const container = (query.container ?? '').trim();
-  if (container) conds.push(eq(sheetRates.containerType, container));
+
+  // Multi-select filters: OR within a column (inArray), AND across columns.
+  // Merge the legacy single carrier/container into the multi-value lists.
+  const uniq = (xs: string[]): string[] =>
+    Array.from(new Set(xs.map((x) => x.trim()).filter(Boolean)));
+  const carriers = uniq([
+    ...(query.carrier ? [query.carrier] : []),
+    ...(query.carriers ?? []),
+  ]);
+  if (carriers.length) conds.push(inArray(sheetRates.carrierCode, carriers));
+  const containers = uniq([
+    ...(query.container ? [query.container] : []),
+    ...(query.containers ?? []),
+  ]);
+  if (containers.length)
+    conds.push(inArray(sheetRates.containerType, containers));
+  const pols = uniq(query.pols ?? []);
+  if (pols.length) conds.push(inArray(sheetRates.pol, pols));
+  const pods = uniq(query.pods ?? []);
+  if (pods.length) conds.push(inArray(sheetRates.pod, pods));
 
   const base = db
     .select({
@@ -445,6 +517,19 @@ export async function searchSheetRates(
   const containerRows = await db
     .selectDistinct({ v: sheetRates.containerType })
     .from(sheetRates);
+  const polRows = await db
+    .selectDistinct({ v: sheetRates.pol })
+    .from(sheetRates);
+  const podRows = await db
+    .selectDistinct({ v: sheetRates.pod })
+    .from(sheetRates);
+  const distinct = (
+    rows: Array<{ v: string | null }>
+  ): string[] =>
+    rows
+      .map((r) => r.v)
+      .filter((v): v is string => !!v)
+      .sort((a, b) => a.localeCompare(b));
 
   return {
     rows: found.map((r) => ({
@@ -466,14 +551,10 @@ export async function searchSheetRates(
       sourceFilename: r.sourceFilename,
       uploadedAt: r.createdAt.toISOString(),
     })),
-    carriers: carrierRows
-      .map((r) => r.v)
-      .filter((v): v is string => !!v)
-      .sort(),
-    containerTypes: containerRows
-      .map((r) => r.v)
-      .filter((v): v is string => !!v)
-      .sort(),
+    carriers: distinct(carrierRows),
+    containerTypes: distinct(containerRows),
+    pols: distinct(polRows),
+    pods: distinct(podRows),
   };
 }
 

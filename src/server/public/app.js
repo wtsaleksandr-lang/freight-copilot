@@ -4373,56 +4373,221 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 
 // ---- Past sheet quotes: filterable spreadsheet + load-back ----
 (function wireSheetHistory() {
-  const searchInput = document.getElementById('sheet-history-search');
-  const carrierSel = document.getElementById('sheet-filter-carrier');
-  const containerSel = document.getElementById('sheet-filter-container');
   const list = document.getElementById('sheet-history-list');
   const refreshBtn = document.getElementById('sheet-history-refresh');
-  if (!searchInput || !list) return;
+  if (!list) return;
 
-  let debounceTimer = null;
+  // Excel-style per-column-header filters. Each filterable column keeps a Set
+  // of checked values in `state`; empty Set = column unfiltered. Filtering is
+  // OR within a column, AND across columns — matching the backend.
+  const COLUMNS = [
+    { key: 'carrier', label: 'Carrier', param: 'carrier', facet: 'carriers' },
+    { key: 'container', label: 'Container', param: 'container', facet: 'containerTypes' },
+    { key: 'pol', label: 'POL', param: 'pol', facet: 'pols' },
+    { key: 'pod', label: 'POD', param: 'pod', facet: 'pods' },
+  ];
+  const state = { carrier: new Set(), container: new Set(), pol: new Set(), pod: new Set() };
+  let facets = { carriers: [], containers: [], pols: [], pods: [] };
+  let currentCol = null; // the COLUMNS entry whose popover is open
+  let reqToken = 0;
+  let reloadTimer = null;
 
-  async function load() {
-    list.innerHTML = '<div class="muted small">Loading…</div>';
-    const params = new URLSearchParams();
-    const q = (searchInput.value || '').trim();
-    if (q) params.set('q', q);
-    if (carrierSel && carrierSel.value) params.set('carrier', carrierSel.value);
-    if (containerSel && containerSel.value)
-      params.set('container', containerSel.value);
-    try {
-      const r = await fetch('/api/sheets/rates?' + params.toString());
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'load failed');
-      populateFacets(data.carriers || [], data.containerTypes || []);
-      renderTable(data.rows || []);
-    } catch (err) {
-      list.innerHTML = `<div class="muted small">Error: ${esc(err.message)}</div>`;
+  const CARET =
+    '<svg class="cfb-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.2 5 6.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // ---- One shared popover, anchored under whichever header is clicked ----
+  const pop = document.createElement('div');
+  pop.className = 'col-filter-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.hidden = true;
+  pop.innerHTML =
+    '<div class="cfp-head"><input type="search" class="cfp-search" autocomplete="off" spellcheck="false" placeholder="Search…" aria-label="Search values"></div>' +
+    '<div class="cfp-bar"><label class="cfp-all"><input type="checkbox" class="cfp-selectall"><span>(Select all)</span></label><button type="button" class="cfp-clear">Clear</button></div>' +
+    '<div class="cfp-list" role="group"></div>';
+  document.body.appendChild(pop);
+  const popSearch = pop.querySelector('.cfp-search');
+  const popList = pop.querySelector('.cfp-list');
+  const popSelectAll = pop.querySelector('.cfp-selectall');
+  const popClear = pop.querySelector('.cfp-clear');
+
+  function currentBtn() {
+    return currentCol
+      ? list.querySelector(`.col-filter-btn[data-col="${currentCol.key}"]`)
+      : null;
+  }
+
+  function visibleValues() {
+    if (!currentCol) return [];
+    const needle = (popSearch.value || '').trim().toLowerCase();
+    return (facets[currentCol.facet] || []).filter(
+      (v) => !needle || String(v).toLowerCase().includes(needle)
+    );
+  }
+
+  function renderList() {
+    if (!currentCol) return;
+    const sel = state[currentCol.key];
+    const vals = visibleValues();
+    if (vals.length === 0) {
+      popList.innerHTML = '<div class="cfp-empty">No matches</div>';
+    } else {
+      popList.innerHTML = vals
+        .map(
+          (v) =>
+            `<label class="cfp-opt"><input type="checkbox" value="${esc(v)}"${sel.has(v) ? ' checked' : ''}><span>${esc(v)}</span></label>`
+        )
+        .join('');
     }
+    // Reflect select-all state over the currently VISIBLE values.
+    const checkedVisible = vals.filter((v) => sel.has(v)).length;
+    popSelectAll.checked = vals.length > 0 && checkedVisible === vals.length;
+    popSelectAll.indeterminate = checkedVisible > 0 && checkedVisible < vals.length;
   }
 
-  // Repopulate the carrier/container dropdowns from the server-provided
-  // facets while preserving the current selection.
-  function populateFacets(carriers, containers) {
-    fillSelect(carrierSel, carriers, 'All carriers');
-    fillSelect(containerSel, containers, 'All containers');
-  }
-  function fillSelect(sel, opts, allLabel) {
-    if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML =
-      `<option value="">${allLabel}</option>` +
-      opts.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    sel.value = opts.indexOf(cur) >= 0 ? cur : '';
+  function positionPopover(btn) {
+    const r = btn.getBoundingClientRect();
+    pop.style.visibility = 'hidden';
+    pop.hidden = false;
+    // Width clamped to the viewport so the popover never causes h-overflow.
+    const pw = Math.min(pop.offsetWidth || 260, window.innerWidth - 16);
+    let left = Math.min(r.left, window.innerWidth - pw - 8);
+    left = Math.max(8, left);
+    const top = Math.min(r.bottom + 4, window.innerHeight - 8);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    const maxListH = window.innerHeight - top - 100;
+    popList.style.maxHeight = Math.max(120, Math.min(300, maxListH)) + 'px';
+    pop.style.visibility = '';
   }
 
-  function renderTable(rows) {
-    if (rows.length === 0) {
-      list.innerHTML =
-        '<div class="muted small">No matching quotes. Drop a sheet above and every rate will show up here.</div>';
+  function openPopover(col, btn) {
+    if (currentCol && currentCol.key === col.key) {
+      closePopover(true);
       return;
     }
-    const body = rows
+    closePopover(false);
+    currentCol = col;
+    popSearch.value = '';
+    popSearch.placeholder = 'Search ' + col.label + '…';
+    renderList();
+    positionPopover(btn);
+    btn.setAttribute('aria-expanded', 'true');
+    popSearch.focus();
+    document.addEventListener('mousedown', onOutside, true);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+  }
+
+  function closePopover(returnFocus) {
+    if (!currentCol) return;
+    const btn = currentBtn();
+    pop.hidden = true;
+    document.removeEventListener('mousedown', onOutside, true);
+    window.removeEventListener('resize', onReposition);
+    window.removeEventListener('scroll', onReposition, true);
+    currentCol = null;
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'false');
+      if (returnFocus) btn.focus();
+    }
+  }
+
+  function onReposition() {
+    const btn = currentBtn();
+    if (btn) positionPopover(btn);
+  }
+  function onOutside(e) {
+    if (pop.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.col-filter-btn')) return;
+    closePopover(false);
+  }
+
+  // ---- Popover interactions ----
+  popSearch.addEventListener('input', renderList);
+  popList.addEventListener('change', (e) => {
+    const cb = e.target;
+    if (!cb || cb.type !== 'checkbox' || !currentCol) return;
+    const sel = state[currentCol.key];
+    if (cb.checked) sel.add(cb.value);
+    else sel.delete(cb.value);
+    // keep the (Select all) tri-state in sync without a full re-render
+    const vals = visibleValues();
+    const checkedVisible = vals.filter((v) => sel.has(v)).length;
+    popSelectAll.checked = vals.length > 0 && checkedVisible === vals.length;
+    popSelectAll.indeterminate = checkedVisible > 0 && checkedVisible < vals.length;
+    updateHeaderBadges();
+    scheduleReload();
+  });
+  popSelectAll.addEventListener('change', () => {
+    if (!currentCol) return;
+    const sel = state[currentCol.key];
+    const vals = visibleValues();
+    if (popSelectAll.checked) vals.forEach((v) => sel.add(v));
+    else vals.forEach((v) => sel.delete(v));
+    renderList();
+    updateHeaderBadges();
+    scheduleReload();
+  });
+  popClear.addEventListener('click', () => {
+    if (!currentCol) return;
+    state[currentCol.key].clear();
+    renderList();
+    updateHeaderBadges();
+    scheduleReload();
+  });
+  pop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closePopover(true);
+    }
+  });
+
+  function scheduleReload() {
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(load, 160);
+  }
+
+  function updateHeaderBadges() {
+    for (const col of COLUMNS) {
+      const btn = list.querySelector(`.col-filter-btn[data-col="${col.key}"]`);
+      if (!btn) continue;
+      const n = state[col.key].size;
+      const badge = btn.querySelector('.cfb-count');
+      btn.classList.toggle('is-active', n > 0);
+      if (badge) {
+        badge.hidden = n === 0;
+        badge.textContent = n > 0 ? String(n) : '';
+      }
+    }
+  }
+
+  // ---- Table shell (built once so header buttons + popover survive reloads) ----
+  function ensureShell() {
+    if (list.querySelector('.sheet-rates-table')) return;
+    const th = (col) =>
+      `<th class="cf-th" data-col="${col.key}"><button type="button" class="col-filter-btn" data-col="${col.key}" aria-haspopup="dialog" aria-expanded="false" aria-label="Filter ${col.label}"><span class="cfb-label">${col.label}</span><span class="cfb-count" hidden></span>${CARET}</button></th>`;
+    list.innerHTML = `<div class="table-wrap"><table class="sheet-rates-table">
+      <thead><tr>${COLUMNS.map(th).join('')}<th>Validity</th><th>Uploaded</th><th>Source</th></tr></thead>
+      <tbody></tbody></table></div>`;
+    list.querySelectorAll('.col-filter-btn').forEach((btn) => {
+      const col = COLUMNS.find((c) => c.key === btn.dataset.col);
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openPopover(col, btn);
+      });
+    });
+    updateHeaderBadges();
+  }
+
+  function renderRows(rows) {
+    const tbody = list.querySelector('.sheet-rates-table tbody');
+    if (!tbody) return;
+    if (rows.length === 0) {
+      tbody.innerHTML =
+        '<tr class="cf-empty-row"><td colspan="7" class="muted small">No matching quotes. Adjust the header filters, or drop a sheet above and every rate will show up here.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows
       .map((r) => {
         const validity =
           [r.validityFrom, r.validityTo].filter(Boolean).join(' → ') ||
@@ -4450,12 +4615,39 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
         </tr>`;
       })
       .join('');
-    list.innerHTML = `<div class="table-wrap"><table class="sheet-rates-table">
-      <thead><tr><th>Carrier</th><th>Container</th><th>POL</th><th>POD</th><th>Validity</th><th>Uploaded</th><th>Source</th></tr></thead>
-      <tbody>${body}</tbody></table></div>`;
-    list.querySelectorAll('tr[data-ref]').forEach((row) => {
+    tbody.querySelectorAll('tr[data-ref]').forEach((row) => {
       row.addEventListener('click', () => loadSavedUpload(row.dataset.ref));
     });
+  }
+
+  async function load() {
+    ensureShell();
+    const token = ++reqToken;
+    const params = new URLSearchParams();
+    for (const col of COLUMNS) {
+      const vals = Array.from(state[col.key]);
+      if (vals.length) params.set(col.param, vals.join(','));
+    }
+    try {
+      const r = await fetch('/api/sheets/rates?' + params.toString());
+      const data = await r.json();
+      if (token !== reqToken) return; // a newer request superseded this one
+      if (!r.ok) throw new Error(data.error || 'load failed');
+      facets = {
+        carriers: data.carriers || [],
+        containers: data.containerTypes || [],
+        pols: data.pols || [],
+        pods: data.pods || [],
+      };
+      renderRows(data.rows || []);
+      updateHeaderBadges();
+      if (currentCol) renderList(); // refresh open popover against new facets
+    } catch (err) {
+      if (token !== reqToken) return;
+      const tbody = list.querySelector('.sheet-rates-table tbody');
+      if (tbody)
+        tbody.innerHTML = `<tr><td colspan="7" class="muted small">Error: ${esc(err.message)}</td></tr>`;
+    }
   }
 
   async function loadSavedUpload(refId) {
@@ -4508,13 +4700,12 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
     }
   }
 
-  searchInput.addEventListener('input', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => load(), 250);
-  });
-  carrierSel?.addEventListener('change', () => load());
-  containerSel?.addEventListener('change', () => load());
   refreshBtn?.addEventListener('click', () => load());
+
+  // Close the header popover on Escape from anywhere.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && currentCol) closePopover(true);
+  });
 
   // Initial load
   load();
