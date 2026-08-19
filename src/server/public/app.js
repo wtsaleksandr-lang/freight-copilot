@@ -4371,68 +4371,89 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   });
 })();
 
-// ---- Past sheet quotes: search + load-back ----
+// ---- Past sheet quotes: filterable spreadsheet + load-back ----
 (function wireSheetHistory() {
   const searchInput = document.getElementById('sheet-history-search');
+  const carrierSel = document.getElementById('sheet-filter-carrier');
+  const containerSel = document.getElementById('sheet-filter-container');
   const list = document.getElementById('sheet-history-list');
   const refreshBtn = document.getElementById('sheet-history-refresh');
   if (!searchInput || !list) return;
 
   let debounceTimer = null;
 
-  async function load(query) {
+  async function load() {
     list.innerHTML = '<div class="muted small">Loading…</div>';
+    const params = new URLSearchParams();
+    const q = (searchInput.value || '').trim();
+    if (q) params.set('q', q);
+    if (carrierSel && carrierSel.value) params.set('carrier', carrierSel.value);
+    if (containerSel && containerSel.value)
+      params.set('container', containerSel.value);
     try {
-      const r = await fetch(
-        '/api/sheets/history?q=' + encodeURIComponent(query || '')
-      );
+      const r = await fetch('/api/sheets/rates?' + params.toString());
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'load failed');
-      renderList(data.uploads || []);
+      populateFacets(data.carriers || [], data.containerTypes || []);
+      renderTable(data.rows || []);
     } catch (err) {
       list.innerHTML = `<div class="muted small">Error: ${esc(err.message)}</div>`;
     }
   }
 
-  function renderList(uploads) {
-    if (uploads.length === 0) {
+  // Repopulate the carrier/container dropdowns from the server-provided
+  // facets while preserving the current selection.
+  function populateFacets(carriers, containers) {
+    fillSelect(carrierSel, carriers, 'All carriers');
+    fillSelect(containerSel, containers, 'All containers');
+  }
+  function fillSelect(sel, opts, allLabel) {
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML =
+      `<option value="">${allLabel}</option>` +
+      opts.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    sel.value = opts.indexOf(cur) >= 0 ? cur : '';
+  }
+
+  function renderTable(rows) {
+    if (rows.length === 0) {
       list.innerHTML =
-        '<div class="muted small">No saved quotes yet. Drop a sheet above and they\'ll start showing up here.</div>';
+        '<div class="muted small">No matching quotes. Drop a sheet above and every rate will show up here.</div>';
       return;
     }
-    list.innerHTML = uploads
-      .map((u) => {
-        const when = new Date(u.createdAt)
-          .toISOString()
-          .replace('T', ' ')
-          .slice(0, 16);
-        const lanesHtml = u.lanes
-          .slice(0, 3)
-          .map((l) => `<span class="lane">${esc(l)}</span>`)
-          .join('');
-        const more =
-          u.lanes.length > 3
-            ? `<span class="muted small">+${u.lanes.length - 3} more</span>`
-            : '';
-        const carriers = u.carriers
-          .map((c) => `<span class="carrier-pill">${esc(c)}</span>`)
-          .join(' ');
-        const containers =
-          u.containerTypes.length > 0
-            ? u.containerTypes.map((c) => `<code>${esc(c)}</code>`).join(' ')
-            : '';
-        const emailFlag = u.generatedEmail
-          ? '<span class="has-email">✓ email saved</span>'
+    const body = rows
+      .map((r) => {
+        const validity =
+          [r.validityFrom, r.validityTo].filter(Boolean).join(' → ') ||
+          '<span class="muted">—</span>';
+        const when = r.uploadedAt
+          ? new Date(r.uploadedAt).toISOString().replace('T', ' ').slice(0, 10)
           : '';
-        return `<div class="sheet-history-row" data-ref="${esc(u.refId)}">
-          <div class="when">${esc(when)}<br><code class="muted small">${esc(u.refId)}</code></div>
-          <div class="lanes">${lanesHtml}${more}</div>
-          <div class="meta">${carriers} ${containers} <span class="muted small">${u.rateRowCount} rate${u.rateRowCount === 1 ? '' : 's'}</span> ${emailFlag}</div>
-        </div>`;
+        const pol = r.polCode
+          ? `${esc(r.pol)} <code class="muted">${esc(r.polCode)}</code>`
+          : esc(r.pol);
+        const pod = r.podCode
+          ? `${esc(r.pod)} <code class="muted">${esc(r.podCode)}</code>`
+          : esc(r.pod);
+        const source = r.sourceUrl
+          ? `<a href="${esc(r.sourceUrl)}" target="_blank" rel="noopener" title="${esc(r.sourceFilename || 'source file')}" onclick="event.stopPropagation()">file</a>`
+          : '<span class="muted">—</span>';
+        return `<tr data-ref="${esc(r.refId)}" title="Click to reload this quote">
+          <td><span class="carrier-pill">${esc(r.carrierCode)}</span></td>
+          <td><code>${esc(r.containerType)}</code></td>
+          <td>${pol}</td>
+          <td>${pod}</td>
+          <td class="small">${validity}</td>
+          <td class="small muted nowrap">${esc(when)}</td>
+          <td class="small">${source}</td>
+        </tr>`;
       })
       .join('');
-
-    list.querySelectorAll('.sheet-history-row').forEach((row) => {
+    list.innerHTML = `<div class="table-wrap"><table class="sheet-rates-table">
+      <thead><tr><th>Carrier</th><th>Container</th><th>POL</th><th>POD</th><th>Validity</th><th>Uploaded</th><th>Source</th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+    list.querySelectorAll('tr[data-ref]').forEach((row) => {
       row.addEventListener('click', () => loadSavedUpload(row.dataset.ref));
     });
   }
@@ -4489,15 +4510,17 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
 
   searchInput.addEventListener('input', () => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => load(searchInput.value), 250);
+    debounceTimer = setTimeout(() => load(), 250);
   });
-  refreshBtn?.addEventListener('click', () => load(searchInput.value));
+  carrierSel?.addEventListener('change', () => load());
+  containerSel?.addEventListener('change', () => load());
+  refreshBtn?.addEventListener('click', () => load());
 
   // Initial load
-  load('');
+  load();
 
   // Refresh after every successful parse so the new quote appears immediately.
-  document.addEventListener('sheet-parse-complete', () => load(searchInput.value));
+  document.addEventListener('sheet-parse-complete', () => load());
 })();
 
 // ---- Shipment board ----
