@@ -4060,3 +4060,19 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
   font-weight: 600;
   margin: 12px 0 4px;
 }
+
+/* ─── Ocean / Drayage two-column top row: "Client request" | "Upload Rates".
+   Desktop = side by side; ≤720px = stacked with Client request first (kept
+   first in source order so the stack order needs no reordering). Each child
+   is an existing .card and keeps its own styling; min-width:0 stops long
+   dropzone/notes content from forcing horizontal overflow in the grid. ─── */
+.oc-top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.oc-top-grid > .card { margin: 0; min-width: 0; }
+@media (max-width: 720px) {
+  .oc-top-grid { grid-template-columns: 1fr; }
+}

@@ -61,160 +61,45 @@
 
   <main>
     <section id="tab-new" class="tab-pane active">
-      <!-- ─── Client-request intake: promoted to first-class (was buried under
-           the fragile "Advanced" details). AI reads the request and fills the
-           quote form below. Wired by ocIntake in app.js (#intake-dropzone). ─── -->
-      <div class="card">
-        <span class="intake-eyebrow is-quote">Client request</span>
-        <h2>Quote a client request</h2>
-        <div id="intake-dropzone"></div>
-      </div>
-
-      <!-- ─── Lane & cargo details: promoted OUT of the fragile "Advanced"
-           fold so the fields the "Generate quote from the lane fields"
-           button reads are always visible. The live carrier-portal
-           automation (carrier picker + run) stays in the Advanced fold
-           below. Field ids unchanged so ocIntake + run-btn still bind. ─── -->
-      <div class="card">
-        <h2>Lane &amp; cargo details</h2>
-        <div class="grid">
-          <label>Cargo type
-            <select id="cargo-type">
-              <option value="general">General</option>
-              <option value="hazmat">Hazmat</option>
-              <option value="high_value">High value</option>
-              <option value="reefer">Reefer (temp controlled)</option>
-            </select>
-          </label>
-          <label>Container type
-            <select id="container" class="container-select" data-current="40 Dry High">
-              <option value="20 Dry Standard">20 Dry Standard</option>
-              <option value="40 Dry Standard">40 Dry Standard</option>
-              <option value="40 Dry High" selected>40 Dry High</option>
-              <option value="20 Reefer">20 Reefer</option>
-              <option value="40 Reefer">40 Reefer</option>
-              <option value="40 Reefer High Cube">40 Reefer High Cube</option>
-              <option value="20 Open Top">20 Open Top</option>
-              <option value="40 Open Top">40 Open Top</option>
-              <option value="20 Flat Rack">20 Flat Rack</option>
-              <option value="40 Flat Rack">40 Flat Rack</option>
-              <option value="20 Tank">20 Tank</option>
-              <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
-            </select>
-          </label>
-          <label>Weight per container
-            <select id="weight" class="weight-select">
-              <option value="5000">3,000 – 5,000 kg</option>
-              <option value="10000" selected>5,000 – 10,000 kg</option>
-              <option value="17900">10,000 – 17,900 kg</option>
-              <option value="19800">17,900 – 19,800 kg</option>
-              <option value="22000">19,800+ kg</option>
-            </select>
-          </label>
-          <label>Cargo / commodity
-            <select id="commodity" class="commodity-select">
-              <option value="General cargo" selected>General cargo</option>
-              <option value="Pharmaceuticals">Pharmaceuticals</option>
-              <option value="Controlled cargo">Controlled cargo</option>
-              <option value="Used vehicles">Used vehicles</option>
-              <option value="Brand new vehicles">Brand new vehicles</option>
-              <option value="Used electric vehicles">Used electric vehicles</option>
-              <option value="Brand new electric vehicles">Brand new electric vehicles</option>
-              <option value="Dangerous cargo">Dangerous cargo</option>
-            </select>
-          </label>
-          <label class="full">Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
+      <!-- ─── Top row: two side-by-side cards. LEFT = client-request intake
+           (#intake-dropzone, ocIntake — its Notes + Extract submit are built by
+           createDropzoneWithNotes). RIGHT = Upload Rates (#sheet-dropzone). The
+           .oc-top-grid rule (end of style.css) makes them 2-up on desktop and
+           stacks them (Client request first) at ≤720px. ─── -->
+      <div class="oc-top-grid">
+        <div class="card">
+          <span class="intake-eyebrow is-quote">Client request</span>
+          <h2>Quote a client request</h2>
+          <div id="intake-dropzone"></div>
         </div>
 
-        <div class="endpoint-row">
-          <div class="endpoint-card origin">
-            <h3>📍 Origin (FROM)</h3>
-            <div class="cy-door-row">
-              <label class="cy-door-radio">
-                <input type="radio" name="oc-origin-type" value="CY" checked> CY — port / terminal
-              </label>
-              <label class="cy-door-radio">
-                <input type="radio" name="oc-origin-type" value="DOOR"> DOOR — street
-              </label>
+        <!-- ─── Upload Rates: drop rate sheets, AI parses, generate email ─── -->
+        <div class="card">
+          <span class="intake-eyebrow is-library">Upload Rates</span>
+          <h2>Upload Rates</h2>
+
+          <div id="sheet-dropzone" class="sheet-dropzone">
+            <div class="sheet-drop-prompt">
+              <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
+              <span class="muted small">PDF · PNG · JPG · WEBP · DOCX · XLSX — multiple at once</span>
             </div>
-            <div id="oc-origin-cy" class="endpoint-fields">
-              <label class="full">Port code<input id="oc-origin-port-code" class="port-code-input" placeholder="USEWR" autocomplete="off"></label>
-              <label class="full">Port name<input id="from" class="port-name-input" placeholder="Newark" autocomplete="off"></label>
-              <input type="hidden" id="from-region" />
-              <input type="hidden" id="oc-origin-terminal" />
-            </div>
-            <div id="oc-origin-door" class="endpoint-fields is-hidden">
-              <label class="full">Country
-                <select id="oc-origin-country" class="country-select">
-                  <option value="US" selected>United States</option>
-                  <option value="CA">Canada</option>
-                </select>
-              </label>
-              <label class="full">Address or ZIP — start typing<input id="oc-origin-address" class="address-input" placeholder="e.g. 1234 Main St or 60601" autocomplete="off"></label>
-              <label>City<input id="oc-origin-city"></label>
-              <label>State / Province<input id="oc-origin-state"></label>
-              <label class="full">ZIP / postal code<input id="oc-origin-zip" class="zip-input" autocomplete="off"></label>
-            </div>
+            <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx" hidden />
           </div>
 
-          <div class="endpoint-card destination">
-            <h3>🎯 Destination (TO)</h3>
-            <div class="cy-door-row">
-              <label class="cy-door-radio">
-                <input type="radio" name="oc-destination-type" value="CY" checked> CY — port / terminal
-              </label>
-              <label class="cy-door-radio">
-                <input type="radio" name="oc-destination-type" value="DOOR"> DOOR — street
-              </label>
-            </div>
-            <div id="oc-destination-cy" class="endpoint-fields">
-              <label class="full">Port code<input id="oc-destination-port-code" class="port-code-input" placeholder="BEANR" autocomplete="off"></label>
-              <label class="full">Port name<input id="to" class="port-name-input" placeholder="Antwerp" autocomplete="off"></label>
-              <input type="hidden" id="to-region" />
-              <input type="hidden" id="oc-destination-terminal" />
-            </div>
-            <div id="oc-destination-door" class="endpoint-fields is-hidden">
-              <label class="full">Country
-                <select id="oc-destination-country" class="country-select">
-                  <option value="US" selected>United States</option>
-                  <option value="CA">Canada</option>
-                </select>
-              </label>
-              <label class="full">Address or ZIP — start typing<input id="oc-destination-address" class="address-input" placeholder="e.g. 1234 Main St or 60601" autocomplete="off"></label>
-              <label>City<input id="oc-destination-city"></label>
-              <label>State / Province<input id="oc-destination-state"></label>
-              <label class="full">ZIP / postal code<input id="oc-destination-zip" class="zip-input" autocomplete="off"></label>
-            </div>
+          <textarea id="sheet-notes" class="dzn-notes" rows="3" aria-label="Notes" placeholder="Notes for these rates (optional)…"></textarea>
+
+          <div class="row" style="gap: 12px; flex-wrap: wrap;">
+            <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
+            <button class="gq-generate-btn" type="button">📝 Generate quote from saved rates</button>
+            <label id="sheet-keep-original-label" class="keep-original-toggle" title="Checked = the uploaded file is parsed then discarded (never stored). Unchecked = the original is kept.">
+              <input id="sheet-keep-original" type="checkbox" />
+              <span>Don't save file</span>
+            </label>
+            <div id="sheet-status" class="status-inline"></div>
           </div>
-        </div>
-        <div class="row">
-          <button class="gq-generate-btn primary" type="button">📝 Generate quote from the lane fields</button>
-        </div>
-      </div>
 
-      <!-- ─── Primary workflow: drop rate sheets, AI parses, generate email ─── -->
-      <div class="card">
-        <h2>Drop rate sheets</h2>
-
-        <div id="sheet-dropzone" class="sheet-dropzone">
-          <div class="sheet-drop-prompt">
-            <strong>Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
-            <span class="muted small">PDF · PNG · JPG · WEBP · DOCX · XLSX — multiple at once</span>
-          </div>
-          <input id="sheet-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx" hidden />
+          <div id="sheet-progress-list" class="rec-upload-progress"></div>
         </div>
-
-        <div class="row">
-          <button id="sheet-parse-btn" class="primary" disabled>Parse selected sheet(s)</button>
-          <button class="gq-generate-btn" type="button">📝 Generate quote from saved rates</button>
-          <label id="sheet-keep-original-label" class="keep-original-toggle" title="By default the original file is kept only when it is a carrier rate sheet; customer quote-request screenshots are parsed then discarded. Tick this to always keep the original.">
-            <input id="sheet-keep-original" type="checkbox" />
-            <span>📌 Always keep original</span>
-          </label>
-          <div id="sheet-status" class="status-inline"></div>
-        </div>
-
-        <div id="sheet-progress-list" class="rec-upload-progress"></div>
       </div>
 
       <!-- ─── Shared output for the "Generate Quote" buttons (both cards write
@@ -345,6 +230,128 @@
         </div>
       </div>
 
+      <!-- ─── Lane & cargo details: full-width collapsible (default OPEN). Holds
+           the fields the "Generate quote from the lane fields" button reads.
+           Field ids unchanged so ocIntake + run-btn still bind. ─── -->
+      <details class="lane-details" open>
+        <summary><strong>Lane &amp; cargo details</strong></summary>
+      <div class="card">
+        <div class="grid">
+          <label>Cargo type
+            <select id="cargo-type">
+              <option value="general">General</option>
+              <option value="hazmat">Hazmat</option>
+              <option value="high_value">High value</option>
+              <option value="reefer">Reefer (temp controlled)</option>
+            </select>
+          </label>
+          <label>Container type
+            <select id="container" class="container-select" data-current="40 Dry High">
+              <option value="20 Dry Standard">20 Dry Standard</option>
+              <option value="40 Dry Standard">40 Dry Standard</option>
+              <option value="40 Dry High" selected>40 Dry High</option>
+              <option value="20 Reefer">20 Reefer</option>
+              <option value="40 Reefer">40 Reefer</option>
+              <option value="40 Reefer High Cube">40 Reefer High Cube</option>
+              <option value="20 Open Top">20 Open Top</option>
+              <option value="40 Open Top">40 Open Top</option>
+              <option value="20 Flat Rack">20 Flat Rack</option>
+              <option value="40 Flat Rack">40 Flat Rack</option>
+              <option value="20 Tank">20 Tank</option>
+              <option value="40 NOR (Non-Operating Reefer)">40 NOR</option>
+            </select>
+          </label>
+          <label>Weight per container
+            <select id="weight" class="weight-select">
+              <option value="5000">3,000 – 5,000 kg</option>
+              <option value="10000" selected>5,000 – 10,000 kg</option>
+              <option value="17900">10,000 – 17,900 kg</option>
+              <option value="19800">17,900 – 19,800 kg</option>
+              <option value="22000">19,800+ kg</option>
+            </select>
+          </label>
+          <label>Cargo / commodity
+            <select id="commodity" class="commodity-select">
+              <option value="General cargo" selected>General cargo</option>
+              <option value="Pharmaceuticals">Pharmaceuticals</option>
+              <option value="Controlled cargo">Controlled cargo</option>
+              <option value="Used vehicles">Used vehicles</option>
+              <option value="Brand new vehicles">Brand new vehicles</option>
+              <option value="Used electric vehicles">Used electric vehicles</option>
+              <option value="Brand new electric vehicles">Brand new electric vehicles</option>
+              <option value="Dangerous cargo">Dangerous cargo</option>
+            </select>
+          </label>
+          <label class="full">Client name (optional)<input id="client-name" placeholder="e.g. Acme Corp"></label>
+        </div>
+
+        <div class="endpoint-row">
+          <div class="endpoint-card origin">
+            <h3>📍 Origin (FROM)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-origin-type" value="CY" checked> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-origin-type" value="DOOR"> DOOR — street
+              </label>
+            </div>
+            <div id="oc-origin-cy" class="endpoint-fields">
+              <label class="full">Port code<input id="oc-origin-port-code" class="port-code-input" placeholder="USEWR" autocomplete="off"></label>
+              <label class="full">Port name<input id="from" class="port-name-input" placeholder="Newark" autocomplete="off"></label>
+              <input type="hidden" id="from-region" />
+              <input type="hidden" id="oc-origin-terminal" />
+            </div>
+            <div id="oc-origin-door" class="endpoint-fields is-hidden">
+              <label class="full">Country
+                <select id="oc-origin-country" class="country-select">
+                  <option value="US" selected>United States</option>
+                  <option value="CA">Canada</option>
+                </select>
+              </label>
+              <label class="full">Address or ZIP — start typing<input id="oc-origin-address" class="address-input" placeholder="e.g. 1234 Main St or 60601" autocomplete="off"></label>
+              <label>City<input id="oc-origin-city"></label>
+              <label>State / Province<input id="oc-origin-state"></label>
+              <label class="full">ZIP / postal code<input id="oc-origin-zip" class="zip-input" autocomplete="off"></label>
+            </div>
+          </div>
+
+          <div class="endpoint-card destination">
+            <h3>🎯 Destination (TO)</h3>
+            <div class="cy-door-row">
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-destination-type" value="CY" checked> CY — port / terminal
+              </label>
+              <label class="cy-door-radio">
+                <input type="radio" name="oc-destination-type" value="DOOR"> DOOR — street
+              </label>
+            </div>
+            <div id="oc-destination-cy" class="endpoint-fields">
+              <label class="full">Port code<input id="oc-destination-port-code" class="port-code-input" placeholder="BEANR" autocomplete="off"></label>
+              <label class="full">Port name<input id="to" class="port-name-input" placeholder="Antwerp" autocomplete="off"></label>
+              <input type="hidden" id="to-region" />
+              <input type="hidden" id="oc-destination-terminal" />
+            </div>
+            <div id="oc-destination-door" class="endpoint-fields is-hidden">
+              <label class="full">Country
+                <select id="oc-destination-country" class="country-select">
+                  <option value="US" selected>United States</option>
+                  <option value="CA">Canada</option>
+                </select>
+              </label>
+              <label class="full">Address or ZIP — start typing<input id="oc-destination-address" class="address-input" placeholder="e.g. 1234 Main St or 60601" autocomplete="off"></label>
+              <label>City<input id="oc-destination-city"></label>
+              <label>State / Province<input id="oc-destination-state"></label>
+              <label class="full">ZIP / postal code<input id="oc-destination-zip" class="zip-input" autocomplete="off"></label>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <button class="gq-generate-btn primary" type="button">📝 Generate quote from the lane fields</button>
+        </div>
+      </div>
+      </details><!-- /lane-details -->
+
       <!-- ─── Advanced: live portal automation (fragile, work in progress) ─── -->
       <details class="advanced-section">
         <summary><strong>Advanced — live portal automation</strong> <span class="muted small">(fragile, work in progress)</span></summary>
@@ -473,47 +480,62 @@
       <!-- Client-request intake FIRST, so Drayage matches Ocean & Customs
            (all three tabs lead with the client-request / quote upload; the
            rate library follows). -->
-      <div class="card">
-        <span class="intake-eyebrow is-quote">Client request</span>
-        <h2>Quote a client request</h2>
-        <div id="dr-intake-dropzone"></div>
-      </div>
+      <!-- ─── Top row: two side-by-side cards, mirroring the Ocean tab. LEFT =
+           client-request intake (#dr-intake-dropzone, drIntake — Notes + Extract
+           submit built by createDropzoneWithNotes). RIGHT = Upload Rates
+           (#dr-lib-dropzone). Shares the .oc-top-grid rule with Ocean: 2-up on
+           desktop, stacked (Client request first) at ≤720px. ─── -->
+      <div class="oc-top-grid">
+        <div class="card">
+          <span class="intake-eyebrow is-quote">Client request</span>
+          <h2>Quote a client request</h2>
+          <div id="dr-intake-dropzone"></div>
+        </div>
 
-      <!-- Rate library card. AI extracts every rate from a dropped/pasted
-           file and APPENDS to the database (price-history preserved). User
-           filters / searches below. -->
-      <details class="card dr-fold" open>
-        <summary class="dr-fold-summary"><span class="intake-eyebrow is-library">Rate library</span><h2>Save rates to your library</h2></summary>
-        <div id="dr-lib-dropzone" class="sheet-dropzone">
-          <div class="sheet-drop-prompt">
-            <strong>📂 Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
-            <span class="muted small">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT — multiple lanes per file are extracted automatically</span>
+        <!-- Upload Rates: AI extracts every rate from a dropped/pasted file and
+             APPENDS to the database (price-history preserved). User filters /
+             searches below. -->
+        <div class="card">
+          <span class="intake-eyebrow is-library">Upload Rates</span>
+          <h2>Upload Rates</h2>
+          <div id="dr-lib-dropzone" class="sheet-dropzone">
+            <div class="sheet-drop-prompt">
+              <strong>📂 Drop files, click to browse, or press Ctrl+V to paste a screenshot</strong>
+              <span class="muted small">PDF · PNG · JPG · WEBP · EML · MSG · HTML · TXT — multiple lanes per file are extracted automatically</span>
+            </div>
+            <input id="dr-lib-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
           </div>
-          <input id="dr-lib-files" type="file" multiple accept="application/pdf,image/png,image/jpeg,image/webp,image/gif,message/rfc822,application/vnd.ms-outlook,text/html,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.png,.jpg,.jpeg,.webp,.gif,.eml,.msg,.html,.htm,.txt,.docx,.xlsx" hidden />
-        </div>
-        <ul id="dr-lib-pending-files" class="ship-pending-files" hidden></ul>
-        <div class="row" style="gap: 12px; flex-wrap: wrap; margin-top: 8px;">
-          <button id="dr-lib-parse-btn" class="primary" disabled>Extract for review</button>
-          <div id="dr-lib-status" class="status-inline"></div>
-        </div>
+          <ul id="dr-lib-pending-files" class="ship-pending-files" hidden></ul>
 
-        <!-- Editable preview area shown after extract, before save. -->
-        <div id="dr-lib-preview" hidden style="margin-top: 14px;">
-          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <strong id="dr-lib-preview-title">Review extracted rates</strong>
-            <div class="row" style="gap: 8px;">
-              <button id="dr-lib-preview-cancel" class="btn-sm">Cancel</button>
-              <button id="dr-lib-preview-save" class="primary">💾 Save to library</button>
+          <textarea id="dr-lib-notes" class="dzn-notes" rows="3" aria-label="Notes" placeholder="Notes for these rates (optional)…"></textarea>
+
+          <div class="row" style="gap: 12px; flex-wrap: wrap; margin-top: 8px;">
+            <button id="dr-lib-parse-btn" class="primary" disabled>Extract for review</button>
+            <label id="dr-lib-keep-label" class="keep-original-toggle" title="Checked = the uploaded file is parsed then discarded (only the extracted rates are saved). Unchecked = the original file is kept too.">
+              <input id="dr-lib-dont-save" type="checkbox" />
+              <span>Don't save file</span>
+            </label>
+            <div id="dr-lib-status" class="status-inline"></div>
+          </div>
+
+          <!-- Editable preview area shown after extract, before save. -->
+          <div id="dr-lib-preview" hidden style="margin-top: 14px;">
+            <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <strong id="dr-lib-preview-title">Review extracted rates</strong>
+              <div class="row" style="gap: 8px;">
+                <button id="dr-lib-preview-cancel" class="btn-sm">Cancel</button>
+                <button id="dr-lib-preview-save" class="primary">💾 Save to library</button>
+              </div>
+            </div>
+            <!-- Plain wrapper (NOT .ship-table-wrap — that class sets
+                 user-select:none for drag-to-pan on the Shipments tab,
+                 which would block typing inside these inputs). -->
+            <div style="overflow: auto; max-height: 480px;">
+              <table id="dr-lib-preview-table" class="ship-table"></table>
             </div>
           </div>
-          <!-- Plain wrapper (NOT .ship-table-wrap — that class sets
-               user-select:none for drag-to-pan on the Shipments tab,
-               which would block typing inside these inputs). -->
-          <div style="overflow: auto; max-height: 480px;">
-            <table id="dr-lib-preview-table" class="ship-table"></table>
-          </div>
         </div>
-      </details>
+      </div>
 
       <!-- Form -->
       <div class="card">

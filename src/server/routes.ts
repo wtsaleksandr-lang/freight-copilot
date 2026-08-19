@@ -1589,7 +1589,13 @@ export function registerApiRoutes(app: Express): void {
       }>;
       /** When true, keep the ORIGINAL file even if it isn't classified a rate sheet. */
       keepOriginal?: boolean;
+      /** When true, discard the ORIGINAL file even if it IS a rate sheet ("Don't save file"). Overrides keepOriginal. */
+      forceDiscard?: boolean;
+      /** Free-text notes the user typed alongside the upload; forwarded to the parser as context. */
+      notes?: string;
     };
+    const uploadNotes =
+      typeof body.notes === 'string' && body.notes.trim() ? body.notes : undefined;
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
       res.status(400).json({ error: 'No files provided.' });
@@ -1630,18 +1636,21 @@ export function registerApiRoutes(app: Express): void {
                   mediaType: f.mediaType,
                   fileBase64: f.contentBase64,
                 }).text ?? '',
+              notes: uploadNotes,
             })
           : await parseRateSheet({
               fileBase64: f.contentBase64,
               mediaType: f.mediaType,
               filename,
+              notes: uploadNotes,
             });
         // Storage optimization: keep the ORIGINAL only when it's worth keeping
         // — a real rate sheet, or the user explicitly asked to keep it. A
         // customer quote-request screenshot / misc image is parsed for its
         // data and then discarded (never persisted), so storage stays lean.
         const shouldKeep =
-          body.keepOriginal === true || parsed.document_type === 'rate_sheet';
+          body.forceDiscard !== true &&
+          (body.keepOriginal === true || parsed.document_type === 'rate_sheet');
         let kept: StoredKeptFile | null = null;
         if (shouldKeep) {
           kept = await storeKeptFile({
@@ -3814,7 +3823,11 @@ export function registerApiRoutes(app: Express): void {
          *  to disk and no rows are inserted. The user then edits and
          *  POSTs the (possibly edited) rates to /save. */
         dryRun?: boolean;
+        /** Free-text notes the user typed alongside the upload; forwarded to the parser as context. */
+        notes?: string;
       };
+      const uploadNotes =
+        typeof body.notes === 'string' && body.notes.trim() ? body.notes : undefined;
       const files = Array.isArray(body.files) ? body.files : [];
       if (files.length === 0) {
         res.status(400).json({ error: 'No files provided.' });
@@ -3871,7 +3884,7 @@ export function registerApiRoutes(app: Express): void {
         const { parseDrayageRates } = await import(
           '../llm/parseDrayageRates.js'
         );
-        const result = await parseDrayageRates(briefingFiles);
+        const result = await parseDrayageRates(briefingFiles, uploadNotes);
         const rates = result.rates ?? [];
         // Mis-drop safety net: surface the classifier so the frontend can
         // offer to re-route a mis-dropped client quote request to the intake

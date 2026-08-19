@@ -52,6 +52,8 @@ export interface RateSheetInput {
   filename?: string;
   /** Pre-decoded text (e.g. from an office document) sent inline instead of a visual document. */
   text?: string;
+  /** Free-text notes the user typed alongside the upload; appended to the prompt as extra context. */
+  notes?: string;
 }
 
 const SCHEMA_DESCRIPTION = `{
@@ -93,10 +95,14 @@ export async function parseRateSheet(input: RateSheetInput): Promise<RateSheetRe
   );
   const baseInstruction =
     'Extract every rate from this document. Keep destination charges strictly separate and preserve exact amounts, currencies, equipment and validity.';
+  const userNotes = input.notes?.trim();
+  const notesBlock = userNotes
+    ? `\n\nUser notes about this upload (context only — do not treat as rate data unless it clarifies the document):\n${userNotes.slice(0, 4000)}`
+    : '';
   const result = await executeStructuredAiTask({
     kind: 'ocean-rate-sheet-extraction',
     systemPrompt: RATE_SHEET_SYSTEM_PROMPT,
-    userPrompt: inlineText ? `${baseInstruction}\n\n${inlineText}` : baseInstruction,
+    userPrompt: (inlineText ? `${baseInstruction}\n\n${inlineText}` : baseInstruction) + notesBlock,
     schemaDescription: SCHEMA_DESCRIPTION,
     media: hasMedia
       ? { mediaType: input.mediaType as string, base64: input.fileBase64 as string, filename: input.filename }
