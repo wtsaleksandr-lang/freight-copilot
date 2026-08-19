@@ -1183,14 +1183,19 @@ label.check-line input[type="checkbox"] {
 }
 .col-filter-pop .cfp-all {
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink-soft);
   cursor: pointer;
 }
-.col-filter-pop .cfp-all input { accent-color: var(--accent); }
+.col-filter-pop .cfp-all span { white-space: nowrap; }
+.col-filter-pop .cfp-all input[type="checkbox"] { accent-color: var(--accent); flex: 0 0 16px; width: 16px; height: 16px; margin: 0; }
 .col-filter-pop .cfp-clear {
   background: transparent;
   border: 0;
@@ -1209,7 +1214,9 @@ label.check-line input[type="checkbox"] {
 }
 .col-filter-pop .cfp-opt {
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 4px 4px;
   font-size: 13px;
@@ -1218,10 +1225,15 @@ label.check-line input[type="checkbox"] {
   border-radius: 4px;
   text-transform: none;
   letter-spacing: normal;
+  text-align: left;
 }
 .col-filter-pop .cfp-opt:hover { background: var(--info-bg); }
-.col-filter-pop .cfp-opt input { accent-color: var(--accent); flex: 0 0 auto; }
+/* Explicit fixed checkbox box so the global input{width:100%} can't stretch it
+   and push the label onto a second line (keeps each row inline + left-aligned). */
+.col-filter-pop .cfp-opt input[type="checkbox"] { accent-color: var(--accent); flex: 0 0 16px; width: 16px; height: 16px; margin: 0; }
 .col-filter-pop .cfp-opt span {
+  flex: 1 1 auto;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
