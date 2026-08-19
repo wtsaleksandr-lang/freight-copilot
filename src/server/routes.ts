@@ -91,6 +91,7 @@ import {
   saveSheetUpload,
   updateSheetUploadEmail,
   searchSheetUploads,
+  searchSheetRates,
   getSheetUploadDetail,
   ratesFromParsedResults,
   findSheetRatesByLane,
@@ -1749,6 +1750,28 @@ export function registerApiRoutes(app: Express): void {
       res.json({ uploads });
     } catch (err) {
       console.error('[api/sheets/history] error:', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // Filterable "spreadsheet of past quotes": every saved lane × container
+  // rate, one row each, filterable by POL/POD text (q), ocean carrier and
+  // container type. Also returns the distinct carrier + container facets for
+  // the UI filter dropdowns.
+  app.get('/api/sheets/rates', async (req: Request, res: Response) => {
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    try {
+      const result = await searchSheetRates({
+        q: str(req.query.q),
+        carrier: str(req.query.carrier),
+        container: str(req.query.container),
+        limit: 500,
+      });
+      res.json(result);
+    } catch (err) {
+      console.error('[api/sheets/rates] error:', err);
       res.status(500).json({
         error: err instanceof Error ? err.message : String(err),
       });

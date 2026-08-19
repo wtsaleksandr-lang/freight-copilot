@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or } from 'drizzle-orm';
+import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { createDbClient } from './client.js';
 import { sheetUploads, sheetRates } from './schema.js';
 import type { RateSheetResult } from '../llm/parseRateSheet.js';
@@ -341,6 +341,140 @@ export async function findSheetRatesByLane(
       serviceName: r.serviceName,
     })
   );
+}
+
+/**
+ * One flat "past quote" row for the filterable spreadsheet: every saved
+ * lane × container rate, joined to its parent upload for the upload date +
+ * source ref. This is the row shape the Past-quotes table renders and the
+ * user filters by POL/POD, container type and ocean carrier.
+ */
+export interface SheetRateSpreadsheetRow {
+  id: number;
+  refId: string;
+  carrierCode: string;
+  pol: string;
+  polCode: string | null;
+  pod: string;
+  podCode: string | null;
+  containerType: string;
+  transitDays: number | null;
+  validityFrom: string | null;
+  validityTo: string | null;
+  freightTotal: number;
+  freightCurrency: string;
+  serviceName: string | null;
+  sourceUrl: string | null;
+  sourceFilename: string | null;
+  /** Parent upload's server timestamp (ISO) — when the file was dropped. */
+  uploadedAt: string;
+}
+
+export interface SheetRatesQuery {
+  /** Free-text POL/POD match against the pre-lowered search_key. */
+  q?: string;
+  /** Exact ocean-carrier code (as stored, e.g. MSK / MSC). */
+  carrier?: string;
+  /** Exact container type (as stored, e.g. 40HC / 20GP). */
+  container?: string;
+  limit?: number;
+}
+
+export interface SheetRatesResult {
+  rows: SheetRateSpreadsheetRow[];
+  /** Distinct carrier codes across ALL saved rates (for the filter dropdown). */
+  carriers: string[];
+  /** Distinct container types across ALL saved rates (for the filter dropdown). */
+  containerTypes: string[];
+}
+
+/**
+ * Filterable "spreadsheet of past quotes". Returns one row per saved
+ * lane × container rate (joined to its upload for the drop date + source),
+ * narrowed by any combination of POL/POD text, ocean carrier and container
+ * type. Also returns the full distinct carrier + container facets so the UI
+ * can populate its filter dropdowns regardless of the current filter.
+ */
+export async function searchSheetRates(
+  query: SheetRatesQuery
+): Promise<SheetRatesResult> {
+  const db = createDbClient();
+  const limit = query.limit && query.limit > 0 ? query.limit : 500;
+
+  const conds: SQL[] = [];
+  const q = (query.q ?? '').trim().toLowerCase();
+  if (q) conds.push(like(sheetRates.searchKey, `%${q}%`));
+  const carrier = (query.carrier ?? '').trim();
+  if (carrier) conds.push(eq(sheetRates.carrierCode, carrier));
+  const container = (query.container ?? '').trim();
+  if (container) conds.push(eq(sheetRates.containerType, container));
+
+  const base = db
+    .select({
+      id: sheetRates.id,
+      refId: sheetUploads.refId,
+      carrierCode: sheetRates.carrierCode,
+      pol: sheetRates.pol,
+      polCode: sheetRates.polCode,
+      pod: sheetRates.pod,
+      podCode: sheetRates.podCode,
+      containerType: sheetRates.containerType,
+      transitDays: sheetRates.transitDays,
+      validityFrom: sheetRates.validityFrom,
+      validityTo: sheetRates.validityTo,
+      freightTotal: sheetRates.freightTotal,
+      freightCurrency: sheetRates.freightCurrency,
+      serviceName: sheetRates.serviceName,
+      sourceUrl: sheetRates.sourceUrl,
+      sourceFilename: sheetRates.sourceFilename,
+      createdAt: sheetUploads.createdAt,
+    })
+    .from(sheetRates)
+    .innerJoin(sheetUploads, eq(sheetRates.uploadId, sheetUploads.id));
+
+  const found = await base
+    .where(conds.length > 0 ? and(...conds) : undefined)
+    .orderBy(desc(sheetUploads.createdAt), desc(sheetRates.id))
+    .limit(limit);
+
+  // Facets: distinct carriers + container types across ALL saved rates,
+  // so the dropdowns stay fully populated even under a narrow filter.
+  const carrierRows = await db
+    .selectDistinct({ v: sheetRates.carrierCode })
+    .from(sheetRates);
+  const containerRows = await db
+    .selectDistinct({ v: sheetRates.containerType })
+    .from(sheetRates);
+
+  return {
+    rows: found.map((r) => ({
+      id: r.id,
+      refId: r.refId,
+      carrierCode: r.carrierCode,
+      pol: r.pol,
+      polCode: r.polCode,
+      pod: r.pod,
+      podCode: r.podCode,
+      containerType: r.containerType,
+      transitDays: r.transitDays,
+      validityFrom: r.validityFrom,
+      validityTo: r.validityTo,
+      freightTotal: r.freightTotal,
+      freightCurrency: r.freightCurrency,
+      serviceName: r.serviceName,
+      sourceUrl: r.sourceUrl,
+      sourceFilename: r.sourceFilename,
+      uploadedAt: r.createdAt.toISOString(),
+    })),
+    carriers: carrierRows
+      .map((r) => r.v)
+      .filter((v): v is string => !!v)
+      .sort(),
+    containerTypes: containerRows
+      .map((r) => r.v)
+      .filter((v): v is string => !!v)
+      .sort(),
+  };
 }
 
 /**
