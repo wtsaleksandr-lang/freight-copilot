@@ -2,6 +2,7 @@ import { ensureShipmentColumns } from '../db/shipmentBoard.js';
 import { ensureEmailTemplateTable } from '../db/emailTemplates.js';
 import { ensureCompaniesTable } from '../db/companies.js';
 import { ensureShipmentOperationTables } from '../db/shipmentOperations.js';
+import { ensureSheetRateColumns } from '../db/sheetHistory.js';
 
 /**
  * Run every additive schema self-heal once, eagerly, at server startup.
@@ -26,6 +27,7 @@ export async function runBootSelfHeal(): Promise<void> {
     ['shipment columns', ensureShipmentColumns],
     ['email templates table', ensureEmailTemplateTable],
     ['companies table', ensureCompaniesTable],
+    ['sheet_rates prepaid/collect columns', ensureSheetRateColumns],
   ];
   for (const [label, run] of steps) {
     try {

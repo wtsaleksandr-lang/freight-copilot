@@ -99,6 +99,8 @@ import {
   deleteSheetUpload,
   updateSheetUpload,
   SheetUploadPatchSchema,
+  getRatePaymentTerms,
+  moveRateChargeTerm,
 } from '../db/sheetHistory.js';
 import {
   getEmailTemplates,
@@ -1880,6 +1882,78 @@ export function registerApiRoutes(app: Express): void {
         res.status(500).json({
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+    }
+  );
+
+  // Prepaid / Collect payment-term buckets for ONE saved rate row (by its
+  // sheet_rates id). GET resolves the buckets (seeding Prepaid←freight,
+  // Collect←destination on first touch) + each running total. POST /move
+  // transfers one line between the two buckets and persists both. This is the
+  // rate-library mirror of the shipments Cost↔Sell charge-move
+  // (/api/shipments/:refId/breakdown op:'transfer').
+  app.get(
+    '/api/sheets/rate/:id/payment-terms',
+    async (req: Request, res: Response) => {
+      const id = Number(
+        Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      );
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: 'valid rate id required' });
+        return;
+      }
+      try {
+        const terms = await getRatePaymentTerms(id);
+        if (!terms) {
+          res.status(404).json({ error: 'Rate not found' });
+          return;
+        }
+        res.json(terms);
+      } catch (err) {
+        console.error('[api/sheets/rate/:id/payment-terms] error:', err);
+        res.status(500).json({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  );
+
+  app.post(
+    '/api/sheets/rate/:id/payment-terms/move',
+    async (req: Request, res: Response) => {
+      const id = Number(
+        Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      );
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: 'valid rate id required' });
+        return;
+      }
+      const body = (req.body ?? {}) as { from?: unknown; index?: unknown };
+      const from = body.from === 'collect' ? 'collect' : 'prepaid';
+      if (body.from !== 'prepaid' && body.from !== 'collect') {
+        res.status(400).json({ error: "from must be 'prepaid' or 'collect'" });
+        return;
+      }
+      const index = Number(body.index);
+      if (!Number.isInteger(index) || index < 0) {
+        res.status(400).json({ error: 'index must be a non-negative integer' });
+        return;
+      }
+      try {
+        const terms = await moveRateChargeTerm(id, from, index);
+        if (!terms) {
+          res.status(404).json({ error: 'Rate not found' });
+          return;
+        }
+        res.json(terms);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'invalid index') {
+          res.status(400).json({ error: 'invalid index' });
+          return;
+        }
+        console.error('[api/sheets/rate/:id/payment-terms/move] error:', err);
+        res.status(500).json({ error: msg });
       }
     }
   );

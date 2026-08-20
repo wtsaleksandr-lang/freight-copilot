@@ -347,6 +347,19 @@ export const sheetRates = pgTable('sheet_rates', {
   destinationCharges: jsonb('destination_charges').$type<
     Array<{ name: string; amount: number; currency: string }>
   >(),
+  /** Manual Prepaid/Collect payment-term reclassification of this rate's
+   *  charges. Analogous to the shipments Cost/Sell breakdown columns: two
+   *  independent jsonb buckets whose lines the user moves between by clicking
+   *  Prepaid / Collect. NULL on both = never touched → the UI seeds Prepaid
+   *  from freight_charges and Collect from destination_charges (the sensible
+   *  ocean default). Additive; created at runtime by ensureSheetRateColumns()
+   *  and declared here so drizzle-kit push never proposes a DROP. */
+  prepaidCharges: jsonb('prepaid_charges').$type<
+    Array<{ name: string; amount: number; currency: string }>
+  >(),
+  collectCharges: jsonb('collect_charges').$type<
+    Array<{ name: string; amount: number; currency: string }>
+  >(),
   validityFrom: text('validity_from'),
   validityTo: text('validity_to'),
   serviceName: text('service_name'),
