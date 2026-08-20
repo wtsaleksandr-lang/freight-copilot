@@ -1,9 +1,17 @@
 import { and, desc, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { createDbClient } from './client.js';
+import { createDbClient, getPostgresPool } from './client.js';
 import { sheetUploads, sheetRates } from './schema.js';
 import type { RateSheetResult } from '../llm/parseRateSheet.js';
 import type { SheetReplyRow } from '../llm/generateReply.js';
+import {
+  seedBuckets,
+  moveCharge,
+  bucketTotals,
+  type PaymentBucketName,
+  type PaymentBuckets,
+  type PaymentBucketTotals,
+} from './ratePaymentTerms.js';
 
 export interface SheetUploadRowInput {
   carrierCode: string;
@@ -836,4 +844,118 @@ export function ratesFromParsedResults(
     }
   }
   return rows;
+}
+
+// ── Prepaid / Collect payment-term buckets ───────────────────────────────────
+// The rate-library analogue of the shipments Cost/Sell charge-move. See
+// src/db/ratePaymentTerms.ts for the pure move + total logic; this layer adds
+// the DB self-heal + read/write for the two additive jsonb columns.
+
+/**
+ * Self-heal the additive prepaid_charges / collect_charges columns on
+ * sheet_rates before the payment-term route reads or writes them. The Replit
+ * deploy runs NO migration step, so a fresh Publish would ship code that
+ * SELECTs these columns against a table that lacks them. Idempotent
+ * (ADD COLUMN IF NOT EXISTS), run-once-per-process (cached promise) and
+ * deliberately NON-fatal — a fail-fast boot migration is what takes apps down
+ * on deploy. Mirrors ensureShipmentColumns() in shipmentBoard.ts.
+ */
+let sheetRateColumnsReady: Promise<void> | null = null;
+export function ensureSheetRateColumns(): Promise<void> {
+  if (sheetRateColumnsReady) return sheetRateColumnsReady;
+  sheetRateColumnsReady = (async () => {
+    const pool = getPostgresPool();
+    await pool.query(
+      `ALTER TABLE sheet_rates
+         ADD COLUMN IF NOT EXISTS prepaid_charges jsonb,
+         ADD COLUMN IF NOT EXISTS collect_charges jsonb`
+    );
+  })().catch((error) => {
+    sheetRateColumnsReady = null;
+    console.error(
+      '[db] ensureSheetRateColumns failed — Prepaid/Collect columns may be missing until this heals:',
+      error
+    );
+  });
+  return sheetRateColumnsReady;
+}
+
+export interface RatePaymentTerms extends PaymentBuckets, PaymentBucketTotals {
+  id: number;
+  refId: string;
+}
+
+/**
+ * Build the response payload for one rate row: its resolved Prepaid/Collect
+ * buckets (seeded from freight/destination charges on first touch) plus each
+ * bucket's recomputed total. Returns null when the rate does not exist.
+ */
+export async function getRatePaymentTerms(
+  id: number
+): Promise<RatePaymentTerms | null> {
+  await ensureSheetRateColumns();
+  const db = createDbClient();
+  const [row] = await db
+    .select({
+      id: sheetRates.id,
+      refId: sheetUploads.refId,
+      freightCharges: sheetRates.freightCharges,
+      destinationCharges: sheetRates.destinationCharges,
+      prepaidCharges: sheetRates.prepaidCharges,
+      collectCharges: sheetRates.collectCharges,
+    })
+    .from(sheetRates)
+    .innerJoin(sheetUploads, eq(sheetRates.uploadId, sheetUploads.id))
+    .where(eq(sheetRates.id, id));
+  if (!row) return null;
+  const buckets = seedBuckets({
+    freightCharges: row.freightCharges,
+    destinationCharges: row.destinationCharges,
+    prepaidStored: row.prepaidCharges,
+    collectStored: row.collectCharges,
+  });
+  return { id: row.id, refId: row.refId, ...buckets, ...bucketTotals(buckets) };
+}
+
+/**
+ * Move one charge line from the `from` bucket into the other, persist BOTH
+ * columns as the exact new arrays, and return the refreshed buckets + totals.
+ * Returns null when the rate does not exist; throws 'invalid index' (caught by
+ * the route → 400) when the index is out of range. Mirrors the shipments
+ * op:'transfer' write, which persists both breakdown columns in one update.
+ */
+export async function moveRateChargeTerm(
+  id: number,
+  from: PaymentBucketName,
+  index: number
+): Promise<RatePaymentTerms | null> {
+  await ensureSheetRateColumns();
+  const db = createDbClient();
+  const [row] = await db
+    .select({
+      id: sheetRates.id,
+      refId: sheetUploads.refId,
+      freightCharges: sheetRates.freightCharges,
+      destinationCharges: sheetRates.destinationCharges,
+      prepaidCharges: sheetRates.prepaidCharges,
+      collectCharges: sheetRates.collectCharges,
+    })
+    .from(sheetRates)
+    .innerJoin(sheetUploads, eq(sheetRates.uploadId, sheetUploads.id))
+    .where(eq(sheetRates.id, id));
+  if (!row) return null;
+  const current = seedBuckets({
+    freightCharges: row.freightCharges,
+    destinationCharges: row.destinationCharges,
+    prepaidStored: row.prepaidCharges,
+    collectStored: row.collectCharges,
+  });
+  const next = moveCharge(current, from, index);
+  // Persist BOTH buckets explicitly (never null) so the seed becomes durable
+  // and subsequent reads are authoritative rather than re-derived.
+  await db
+    .update(sheetRates)
+    .set({ prepaidCharges: next.prepaid, collectCharges: next.collect })
+    .where(eq(sheetRates.id, id));
+  return { id: row.id, refId: row.refId, ...next, ...bucketTotals(next) };
 }

@@ -4826,6 +4826,7 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
           <td class="small muted nowrap">${esc(when)}</td>
           <td class="small">${source}</td>
           <td class="sheet-actions-cell nowrap">
+            <button type="button" class="btn-icon sheet-pc-btn" title="Prepaid / Collect — move charges between payment terms" aria-label="Prepaid / Collect charges">⇄ P/C</button>
             <button type="button" class="btn-icon sheet-ai-btn" title="AI correct this sheet (plain English)" aria-label="AI correct">✨</button>
             <button type="button" class="btn-icon danger sheet-del-btn" title="Delete this sheet upload" aria-label="Delete">✕</button>
           </td>
@@ -4869,6 +4870,16 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
         e.stopPropagation();
         const ref = btn.closest('tr')?.dataset.ref;
         if (ref) await runOceanCorrection(ref);
+      });
+    });
+    // Per-row Prepaid / Collect charge-move panel.
+    tbody.querySelectorAll('.sheet-pc-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tr = btn.closest('tr');
+        const id = Number(tr?.dataset.id);
+        const ref = tr?.dataset.ref;
+        if (Number.isFinite(id) && ref) openPaymentTermsPanel(id, ref, btn);
       });
     });
     wireRateCellEditors(tbody);
@@ -5014,6 +5025,122 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
     } catch (err) {
       toast('AI correction failed: ' + err.message, 'error');
     }
+  }
+
+  // ── Prepaid / Collect charge-move panel ────────────────────────────────────
+  // The rate-library mirror of the shipments Cost↔Sell breakdown move
+  // (openBreakdownModal). Two buckets — Prepaid (shipper pays at origin) and
+  // Collect (consignee pays at destination) — each listing its charge lines with
+  // a one-click move button to the other bucket, and a running total per side.
+  // Persisted per rate row via /api/sheets/rate/:id/payment-terms(/move).
+  function openPaymentTermsPanel(id, refId, anchorEl) {
+    const prevFocus = anchorEl || document.activeElement;
+    const modal = document.createElement('div');
+    modal.className = 'image-modal confirm-modal pt-modal';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'image-modal-backdrop';
+    const frame = document.createElement('div');
+    frame.className = 'image-modal-frame clarify-frame confirm-modal-frame pt-frame';
+    modal.appendChild(backdrop);
+    modal.appendChild(frame);
+    document.body.appendChild(modal);
+
+    let done = false;
+    function cleanup() {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      modal.remove();
+      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_) { /* gone */ }
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(); }
+    }
+    backdrop.addEventListener('click', cleanup);
+    document.addEventListener('keydown', onKey, true);
+
+    const fmtAmount = (amount, currency) =>
+      `${esc(currency || 'USD')} ${(Number(amount) || 0).toLocaleString()}`;
+
+    // One bucket column. `bucket` is 'prepaid' | 'collect'; `other` is the label
+    // of the destination bucket shown on each line's move button.
+    function bucketCol(bucket, label, lines, total, currency) {
+      const other = bucket === 'prepaid' ? 'Collect' : 'Prepaid';
+      const rows = (lines || []).length
+        ? lines
+            .map(
+              (c, i) =>
+                `<div class="pt-line">
+                  <span class="pt-line-name">${esc(c.name || '—')}</span>
+                  <span class="pt-line-amount">${fmtAmount(c.amount, c.currency)}</span>
+                  <button type="button" class="btn-sm pt-move" data-bucket="${bucket}" data-i="${i}" title="Move to ${other}" aria-label="Move ${esc(c.name || 'charge')} to ${other}">→ ${other}</button>
+                </div>`
+            )
+            .join('')
+        : `<p class="muted small pt-empty">No ${label.toLowerCase()} charges.</p>`;
+      return `<div class="pt-col" data-bucket="${bucket}">
+        <div class="pt-col-head">
+          <strong>${label}</strong>
+          <span class="pt-total">${fmtAmount(total, currency)}</span>
+        </div>
+        <div class="pt-lines">${rows}</div>
+      </div>`;
+    }
+
+    function render(data) {
+      frame.innerHTML =
+        `<div class="image-modal-toolbar"><strong>Prepaid / Collect — ${esc(refId)}</strong>` +
+        `<span class="image-modal-spacer"></span>` +
+        `<button type="button" class="btn-sm pt-x" title="Close (Esc)" aria-label="Close">✕</button></div>` +
+        `<div class="image-modal-body clarify-body pt-body">` +
+        `<p class="muted small">Click <strong>→ Collect</strong> or <strong>→ Prepaid</strong> to move a charge between payment terms. Prepaid = shipper pays at origin; Collect = consignee pays at destination.</p>` +
+        `<div class="pt-cols">` +
+        bucketCol('prepaid', 'Prepaid', data.prepaid, data.prepaidTotal, data.prepaidCurrency) +
+        bucketCol('collect', 'Collect', data.collect, data.collectTotal, data.collectCurrency) +
+        `</div></div>`;
+      frame.querySelector('.pt-x')?.addEventListener('click', cleanup);
+      frame.querySelectorAll('.pt-move').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const from = btn.dataset.bucket;
+          const index = Number(btn.dataset.i);
+          frame.querySelectorAll('.pt-move').forEach((b) => (b.disabled = true));
+          try {
+            const r = await fetch(
+              `/api/sheets/rate/${encodeURIComponent(id)}/payment-terms/move`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from, index }),
+              }
+            );
+            const next = await r.json();
+            if (!r.ok) throw new Error(next.error || 'move failed');
+            render(next);
+          } catch (err) {
+            frame.querySelectorAll('.pt-move').forEach((b) => (b.disabled = false));
+            window.toast?.('Move failed: ' + err.message, 'error');
+          }
+        });
+      });
+    }
+
+    frame.innerHTML =
+      `<div class="image-modal-body clarify-body pt-body"><p class="muted">Loading charges…</p></div>`;
+    (async () => {
+      try {
+        const r = await fetch(`/api/sheets/rate/${encodeURIComponent(id)}/payment-terms`);
+        const data = await r.json();
+        if (done) return;
+        if (!r.ok) throw new Error(data.error || 'load failed');
+        render(data);
+      } catch (err) {
+        if (done) return;
+        frame.innerHTML =
+          `<div class="image-modal-toolbar"><strong>Prepaid / Collect</strong><span class="image-modal-spacer"></span><button type="button" class="btn-sm pt-x">✕</button></div>` +
+          `<div class="image-modal-body clarify-body pt-body"><p class="cf-error">Couldn’t load charges: ${esc(err.message)}</p></div>`;
+        frame.querySelector('.pt-x')?.addEventListener('click', cleanup);
+      }
+    })();
   }
 
   async function load() {
