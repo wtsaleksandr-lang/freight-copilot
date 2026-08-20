@@ -1117,9 +1117,26 @@ label.check-line input[type="checkbox"] {
 .sheet-rates-table .sheet-select-cell { width: 30px; text-align: center; padding-left: 6px; padding-right: 6px; }
 .sheet-rates-table .sheet-select-cell input,
 .sheet-rates-table .sheet-select-all { cursor: pointer; }
-.sheet-rates-table .cf-actions-th,
-.sheet-rates-table .sheet-actions-cell { width: 74px; white-space: nowrap; }
+.sheet-rates-table .cf-actions-th { width: 116px; white-space: nowrap; }
+.sheet-rates-table .sheet-actions-cell { width: 116px; }
+.sheet-actions-cell .sheet-actions-row {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.sheet-bd-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
 .sheet-rates-table tbody tr.is-selected { background: var(--info-bg); }
+/* The inline breakdown row is a passive container, not a clickable quote row. */
+.sheet-rates-table tbody tr.sheet-bd-row,
+.sheet-rates-table tbody tr.sheet-bd-row:hover { background: var(--bg); cursor: default; }
+.sheet-rates-table tr.sheet-bd-row > td { padding: 0; }
+.sheet-bd-inline { padding: 10px 12px 12px; }
+.pt-hint { margin: 0 0 8px; }
 
 /* Small icon buttons for per-row AI-correct + delete. */
 .btn-icon {
@@ -4079,13 +4096,12 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
 
 /* ---- Prepaid / Collect payment-term charge-move panel (rate library) ---- */
 /* Mirrors the shipments Cost/Sell breakdown move, styled with app tokens. */
-.pt-frame { max-width: 720px; width: min(720px, 94vw); }
-.pt-body { max-height: 70vh; overflow-y: auto; }
 .pt-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 8px;
+  align-items: start;
 }
 .pt-col {
   border: 1px solid var(--border);
@@ -4101,6 +4117,8 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
+.pt-col-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pt-col-sub { font-size: 10.5px; font-weight: 400; white-space: nowrap; }
 .pt-col[data-bucket="prepaid"] .pt-col-head { background: var(--info-bg); }
 .pt-col[data-bucket="collect"] .pt-col-head { background: var(--warn-bg); }
 .pt-col[data-bucket="prepaid"] .pt-col-head strong { color: var(--info); }
@@ -4146,11 +4164,6 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
 .pt-move:hover:not(:disabled) { background: var(--info-bg); border-color: var(--accent-hover); }
 .pt-move:disabled { opacity: 0.5; cursor: default; }
 .pt-empty { margin: 6px 0; }
-.sheet-pc-btn {
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 @media (max-width: 560px) {
   .pt-cols { grid-template-columns: 1fr; }
 }

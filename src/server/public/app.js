@@ -3917,16 +3917,13 @@ function renderSheetResults(data) {
   const card = document.getElementById('sheet-results-card');
   const title = document.getElementById('sheet-results-title');
   const meta = document.getElementById('sheet-results-meta');
-  const table = document.getElementById('sheet-results-table');
-  if (!card || !table) return;
+  if (!card) return;
   card.hidden = false;
 
   const okResults = data.results.filter((r) => r.ok);
   if (okResults.length === 0) {
     title.textContent = 'No rates extracted';
     meta.textContent = data.refId;
-    table.innerHTML =
-      '<tbody><tr><td class="empty">All files failed. See queue above.</td></tr></tbody>';
     lastSheetRows = [];
     return;
   }
@@ -4005,103 +4002,13 @@ function renderSheetResults(data) {
     }
   }
 
-  title.textContent = `${data.refId}: ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
-  meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code>`;
-
-  const thead = `<thead><tr>
-    <th>Carrier</th>
-    <th>POL → POD</th>
-    <th>Container</th>
-    <th>Transit</th>
-    <th>Det/Dem free</th>
-    <th>Freight total<br><span class="muted small">(in total)</span></th>
-    <th>Destination<br><span class="muted small">(separate)</span></th>
-    <th>Source</th>
-  </tr></thead>`;
-
-  // Consistent two-line POL/POD cell: line 1 = POL with code if present,
-  // line 2 = POD with code if present. "—" for missing values, never the
-  // word "UNKNOWN" leaking through.
-  function locCell(name, code) {
-    if (!name && !code) return '—';
-    const main = name || code || '—';
-    const codeStr = code && name ? ` <code>${esc(code)}</code>` : '';
-    return `${esc(main)}${codeStr}`;
-  }
-
-  const body = rows
-    .map((r, idx) => {
-      const polPodCell =
-        `<div><span class="muted small">POL</span> ${locCell(r.pol, r.polCode)}</div>` +
-        `<div><span class="muted small">POD</span> ${locCell(r.pod, r.podCode)}</div>`;
-
-      const transit = r.transitDays != null ? `${r.transitDays}d` : '—';
-      const dnd =
-        r.detentionDays != null || r.demurrageDays != null
-          ? `${r.detentionDays ?? '?'}d / ${r.demurrageDays ?? '?'}d`
-          : '—';
-
-      const fc = (r.freightCharges || [])
-        .map(
-          (c) =>
-            `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency)} ${(c.amount ?? 0).toLocaleString()}</span></div>`
-        )
-        .join('');
-      const dc = (r.destCharges || [])
-        .map(
-          (c) =>
-            `<div class="bd-row"><span>${esc(c.name)}</span><span>${esc(c.currency)} ${(c.amount ?? 0).toLocaleString()}</span></div>`
-        )
-        .join('');
-
-      const freightCell =
-        `<strong>${esc(r.freightCurrency)} ${r.freightTotal.toLocaleString()}</strong>` +
-        (fc
-          ? `<details class="rate-breakdown"><summary>breakdown</summary><div class="bd-section">${fc}</div></details>`
-          : '');
-
-      const destCell =
-        r.destTotal != null
-          ? `<strong>${esc(r.destCurrency || '')} ${r.destTotal.toLocaleString()}</strong>` +
-            (dc
-              ? `<details class="rate-breakdown"><summary>breakdown</summary><div class="bd-section">${dc}</div></details>`
-              : '')
-          : '<span class="muted small">—</span>';
-
-      // Source link: PDFs still open in a new tab (browser PDF viewer);
-      // images open the in-page modal so the user can compare the
-      // extracted figures against the original side-by-side.
-      const isImage = r.source && /\.(png|jpe?g|webp|gif)$/i.test(r.source);
-      const sourceCell = r.source
-        ? isImage
-          ? `<a href="#" data-image-src="${esc(r.source)}" data-image-name="${esc(r.filename)}" class="artifact-link sheet-source-link" data-row-idx="${idx}">${esc(r.filename)}</a>`
-          : `<a href="${esc(r.source)}" target="_blank" rel="noopener" class="artifact-link">${esc(r.filename)}</a>`
-        : esc(r.filename);
-
-      return `<tr>
-        <td><strong>${esc(r.carrier)}</strong>${r.serviceName ? `<br><span class="muted small">${esc(r.serviceName)}</span>` : ''}${r.validity ? `<br><span class="muted small">${esc(r.validity)}</span>` : ''}</td>
-        <td>${polPodCell}</td>
-        <td><code>${esc(r.containerType)}</code></td>
-        <td>${transit}</td>
-        <td>${esc(dnd)}</td>
-        <td class="price">${freightCell}</td>
-        <td>${destCell}</td>
-        <td>${sourceCell}</td>
-      </tr>`;
-    })
-    .join('');
-
-  table.innerHTML = thead + '<tbody>' + body + '</tbody>';
-
-  // Wire image-source links to the modal viewer.
-  table.querySelectorAll('a.sheet-source-link').forEach((a) => {
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      const src = a.getAttribute('data-image-src');
-      const name = a.getAttribute('data-image-name') || '';
-      if (src) openImageModal(src, name);
-    });
-  });
+  // The parsed rates themselves now render ONLY in the single rate library
+  // below (wireSheetHistory refreshes on the sheet-parse-complete event). This
+  // card is the quote-email tool for the freshly-parsed / reloaded sheet — it
+  // keeps lastSheetRows (read by the Generate-email button) but no longer draws
+  // a second, near-duplicate rate table.
+  title.textContent = `Generate quote email — ${rows.length} rate row(s) from ${okResults.length} sheet(s)`;
+  meta.innerHTML = `Saved to <code>${esc(data.outputFolder)}</code> · rates in the library below`;
 
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -4815,7 +4722,8 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
           ? `<a href="${esc(r.sourceUrl)}" target="_blank" rel="noopener" title="${esc(r.sourceFilename || 'source file')}" onclick="event.stopPropagation()">file</a>`
           : '<span class="muted">—</span>';
         const sel = selected.has(r.refId) ? ' is-selected' : '';
-        return `<tr data-ref="${esc(r.refId)}" data-id="${esc(String(r.id))}" class="sheet-rate-row${sel}" title="Click a blank area of the row to reload this quote">
+        const rid = esc(String(r.id));
+        return `<tr data-ref="${esc(r.refId)}" data-id="${rid}" class="sheet-rate-row${sel}" title="Click a blank area of the row to reload this quote">
           <td class="sheet-select-cell"><input type="checkbox" class="sheet-row-select" aria-label="Select rate sheet ${esc(r.refId)}"${selected.has(r.refId) ? ' checked' : ''}></td>
           <td>${editable(r.carrierCode, 'carrierCode')}</td>
           <td><span class="sheet-cell-editable code-edit" contenteditable="true" spellcheck="false" data-field="containerType" title="Click to edit">${esc(r.containerType)}</span></td>
@@ -4825,11 +4733,16 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
           <td class="small">${validity}</td>
           <td class="small muted nowrap">${esc(when)}</td>
           <td class="small">${source}</td>
-          <td class="sheet-actions-cell nowrap">
-            <button type="button" class="btn-icon sheet-pc-btn" title="Prepaid / Collect — move charges between payment terms" aria-label="Prepaid / Collect charges">⇄ P/C</button>
-            <button type="button" class="btn-icon sheet-ai-btn" title="AI correct this sheet (plain English)" aria-label="AI correct">✨</button>
-            <button type="button" class="btn-icon danger sheet-del-btn" title="Delete this sheet upload" aria-label="Delete">✕</button>
+          <td class="sheet-actions-cell">
+            <button type="button" class="btn-sm sheet-bd-toggle" data-id="${rid}" aria-expanded="false" title="Show the Freight & Destination charge breakdown — move charges between the two columns">+ breakdown</button>
+            <span class="sheet-actions-row">
+              <button type="button" class="btn-icon sheet-ai-btn" title="AI correct this sheet (plain English)" aria-label="AI correct">✨</button>
+              <button type="button" class="btn-icon danger sheet-del-btn" title="Delete this sheet upload" aria-label="Delete">✕</button>
+            </span>
           </td>
+        </tr>
+        <tr class="sheet-bd-row" data-bd-for="${rid}" hidden>
+          <td colspan="${COLSPAN}"><div class="sheet-bd-inline" data-id="${rid}"></div></td>
         </tr>`;
       })
       .join('');
@@ -4872,14 +4785,14 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
         if (ref) await runOceanCorrection(ref);
       });
     });
-    // Per-row Prepaid / Collect charge-move panel.
-    tbody.querySelectorAll('.sheet-pc-btn').forEach((btn) => {
+    // Per-row inline charge breakdown: one toggle opens BOTH the Freight and
+    // Destination columns together, each charge line carrying a one-click move
+    // button to the other column (totals update live). Replaces the old
+    // ⇄ P/C modal — the move buttons are now visible right in the table.
+    tbody.querySelectorAll('.sheet-bd-toggle').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const tr = btn.closest('tr');
-        const id = Number(tr?.dataset.id);
-        const ref = tr?.dataset.ref;
-        if (Number.isFinite(id) && ref) openPaymentTermsPanel(id, ref, btn);
+        toggleInlineBreakdown(btn);
       });
     });
     wireRateCellEditors(tbody);
@@ -5027,120 +4940,113 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
     }
   }
 
-  // ── Prepaid / Collect charge-move panel ────────────────────────────────────
-  // The rate-library mirror of the shipments Cost↔Sell breakdown move
-  // (openBreakdownModal). Two buckets — Prepaid (shipper pays at origin) and
-  // Collect (consignee pays at destination) — each listing its charge lines with
-  // a one-click move button to the other bucket, and a running total per side.
-  // Persisted per rate row via /api/sheets/rate/:id/payment-terms(/move).
-  function openPaymentTermsPanel(id, refId, anchorEl) {
-    const prevFocus = anchorEl || document.activeElement;
-    const modal = document.createElement('div');
-    modal.className = 'image-modal confirm-modal pt-modal';
-    const backdrop = document.createElement('div');
-    backdrop.className = 'image-modal-backdrop';
-    const frame = document.createElement('div');
-    frame.className = 'image-modal-frame clarify-frame confirm-modal-frame pt-frame';
-    modal.appendChild(backdrop);
-    modal.appendChild(frame);
-    document.body.appendChild(modal);
+  // ── Inline Freight / Destination charge breakdown + move ───────────────────
+  // One "+ breakdown" toggle per row opens BOTH columns together, right in the
+  // table (no modal). Left = Freight (the Prepaid bucket — shipper pays at
+  // origin); right = Destination (the Collect bucket — consignee pays at
+  // destination). Each charge line carries a one-click move button to the other
+  // column, and both subtotals recompute live on every move. Backed by the #145
+  // Prepaid/Collect model: GET/POST /api/sheets/rate/:id/payment-terms(/move).
+  const fmtAmount = (amount, currency) =>
+    `${esc(currency || 'USD')} ${(Number(amount) || 0).toLocaleString()}`;
 
-    let done = false;
-    function cleanup() {
-      if (done) return;
-      done = true;
-      document.removeEventListener('keydown', onKey, true);
-      modal.remove();
-      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch (_) { /* gone */ }
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(); }
-    }
-    backdrop.addEventListener('click', cleanup);
-    document.addEventListener('keydown', onKey, true);
+  // Column meta keyed by the backend bucket name. `title` is the money label the
+  // user asked for (Freight / Destination); `move` is the other column's name
+  // shown on each line button; `sub` explains the payment term (from #145).
+  const BD_COL = {
+    prepaid: { title: 'Freight total', move: 'Destination', sub: 'Prepaid · shipper pays at origin' },
+    collect: { title: 'Destination total', move: 'Freight', sub: 'Collect · consignee pays at destination' },
+  };
 
-    const fmtAmount = (amount, currency) =>
-      `${esc(currency || 'USD')} ${(Number(amount) || 0).toLocaleString()}`;
+  function bucketCol(bucket, lines, total, currency) {
+    const meta = BD_COL[bucket];
+    const rows = (lines || []).length
+      ? lines
+          .map(
+            (c, i) =>
+              `<div class="pt-line">
+                <span class="pt-line-name" title="${esc(c.name || '')}">${esc(c.name || '—')}</span>
+                <span class="pt-line-amount">${fmtAmount(c.amount, c.currency)}</span>
+                <button type="button" class="btn-sm pt-move" data-bucket="${bucket}" data-i="${i}" title="Move to ${meta.move}" aria-label="Move ${esc(c.name || 'charge')} to ${meta.move}">→ ${meta.move}</button>
+              </div>`
+          )
+          .join('')
+      : `<p class="muted small pt-empty">No ${meta.title.replace(' total', '').toLowerCase()} charges.</p>`;
+    return `<div class="pt-col" data-bucket="${bucket}">
+      <div class="pt-col-head">
+        <span class="pt-col-title"><strong>${meta.title}</strong><span class="pt-col-sub muted">${meta.sub}</span></span>
+        <span class="pt-total">${fmtAmount(total, currency)}</span>
+      </div>
+      <div class="pt-lines">${rows}</div>
+    </div>`;
+  }
 
-    // One bucket column. `bucket` is 'prepaid' | 'collect'; `other` is the label
-    // of the destination bucket shown on each line's move button.
-    function bucketCol(bucket, label, lines, total, currency) {
-      const other = bucket === 'prepaid' ? 'Collect' : 'Prepaid';
-      const rows = (lines || []).length
-        ? lines
-            .map(
-              (c, i) =>
-                `<div class="pt-line">
-                  <span class="pt-line-name">${esc(c.name || '—')}</span>
-                  <span class="pt-line-amount">${fmtAmount(c.amount, c.currency)}</span>
-                  <button type="button" class="btn-sm pt-move" data-bucket="${bucket}" data-i="${i}" title="Move to ${other}" aria-label="Move ${esc(c.name || 'charge')} to ${other}">→ ${other}</button>
-                </div>`
-            )
-            .join('')
-        : `<p class="muted small pt-empty">No ${label.toLowerCase()} charges.</p>`;
-      return `<div class="pt-col" data-bucket="${bucket}">
-        <div class="pt-col-head">
-          <strong>${label}</strong>
-          <span class="pt-total">${fmtAmount(total, currency)}</span>
-        </div>
-        <div class="pt-lines">${rows}</div>
-      </div>`;
-    }
-
-    function render(data) {
-      frame.innerHTML =
-        `<div class="image-modal-toolbar"><strong>Prepaid / Collect — ${esc(refId)}</strong>` +
-        `<span class="image-modal-spacer"></span>` +
-        `<button type="button" class="btn-sm pt-x" title="Close (Esc)" aria-label="Close">✕</button></div>` +
-        `<div class="image-modal-body clarify-body pt-body">` +
-        `<p class="muted small">Click <strong>→ Collect</strong> or <strong>→ Prepaid</strong> to move a charge between payment terms. Prepaid = shipper pays at origin; Collect = consignee pays at destination.</p>` +
-        `<div class="pt-cols">` +
-        bucketCol('prepaid', 'Prepaid', data.prepaid, data.prepaidTotal, data.prepaidCurrency) +
-        bucketCol('collect', 'Collect', data.collect, data.collectTotal, data.collectCurrency) +
-        `</div></div>`;
-      frame.querySelector('.pt-x')?.addEventListener('click', cleanup);
-      frame.querySelectorAll('.pt-move').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const from = btn.dataset.bucket;
-          const index = Number(btn.dataset.i);
-          frame.querySelectorAll('.pt-move').forEach((b) => (b.disabled = true));
-          try {
-            const r = await fetch(
-              `/api/sheets/rate/${encodeURIComponent(id)}/payment-terms/move`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from, index }),
-              }
-            );
-            const next = await r.json();
-            if (!r.ok) throw new Error(next.error || 'move failed');
-            render(next);
-          } catch (err) {
-            frame.querySelectorAll('.pt-move').forEach((b) => (b.disabled = false));
-            window.toast?.('Move failed: ' + err.message, 'error');
-          }
-        });
+  // Render the two aligned columns into an inline breakdown container and wire
+  // each move button. `data` is the payment-terms payload (buckets + totals).
+  function renderInlineBreakdown(container, data) {
+    const id = container.dataset.id;
+    container.innerHTML =
+      `<p class="muted small pt-hint">Click <strong>→ Destination</strong> or <strong>→ Freight</strong> to move a charge between the two columns — both totals update instantly.</p>` +
+      `<div class="pt-cols">` +
+      bucketCol('prepaid', data.prepaid, data.prepaidTotal, data.prepaidCurrency) +
+      bucketCol('collect', data.collect, data.collectTotal, data.collectCurrency) +
+      `</div>`;
+    container.querySelectorAll('.pt-move').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const from = btn.dataset.bucket;
+        const index = Number(btn.dataset.i);
+        container.querySelectorAll('.pt-move').forEach((b) => (b.disabled = true));
+        try {
+          const r = await fetch(
+            `/api/sheets/rate/${encodeURIComponent(id)}/payment-terms/move`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ from, index }),
+            }
+          );
+          const next = await r.json();
+          if (!r.ok) throw new Error(next.error || 'move failed');
+          renderInlineBreakdown(container, next); // re-render → totals update live
+        } catch (err) {
+          container.querySelectorAll('.pt-move').forEach((b) => (b.disabled = false));
+          window.toast?.('Move failed: ' + err.message, 'error');
+        }
       });
-    }
+    });
+  }
 
-    frame.innerHTML =
-      `<div class="image-modal-body clarify-body pt-body"><p class="muted">Loading charges…</p></div>`;
-    (async () => {
-      try {
-        const r = await fetch(`/api/sheets/rate/${encodeURIComponent(id)}/payment-terms`);
-        const data = await r.json();
-        if (done) return;
-        if (!r.ok) throw new Error(data.error || 'load failed');
-        render(data);
-      } catch (err) {
-        if (done) return;
-        frame.innerHTML =
-          `<div class="image-modal-toolbar"><strong>Prepaid / Collect</strong><span class="image-modal-spacer"></span><button type="button" class="btn-sm pt-x">✕</button></div>` +
-          `<div class="image-modal-body clarify-body pt-body"><p class="cf-error">Couldn’t load charges: ${esc(err.message)}</p></div>`;
-        frame.querySelector('.pt-x')?.addEventListener('click', cleanup);
-      }
-    })();
+  async function loadInlineBreakdown(container) {
+    const id = container.dataset.id;
+    container.dataset.loaded = 'pending';
+    container.innerHTML = `<p class="muted small pt-hint">Loading charges…</p>`;
+    try {
+      const r = await fetch(`/api/sheets/rate/${encodeURIComponent(id)}/payment-terms`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'load failed');
+      container.dataset.loaded = 'yes';
+      renderInlineBreakdown(container, data);
+    } catch (err) {
+      container.dataset.loaded = '';
+      container.innerHTML = `<p class="cf-error small">Couldn’t load charges: ${esc(err.message)}. <button type="button" class="link-btn pt-retry">Retry</button></p>`;
+      container.querySelector('.pt-retry')?.addEventListener('click', () => loadInlineBreakdown(container));
+    }
+  }
+
+  // Toggle a row's inline breakdown open/closed (lazy-loading on first open).
+  function toggleInlineBreakdown(btn) {
+    const id = btn.dataset.id;
+    const bdRow = list.querySelector(`.sheet-bd-row[data-bd-for="${CSS.escape(id)}"]`);
+    if (!bdRow) return;
+    const container = bdRow.querySelector('.sheet-bd-inline');
+    const open = bdRow.hidden; // about to open
+    bdRow.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.textContent = open ? '− breakdown' : '+ breakdown';
+    if (open && container && container.dataset.loaded !== 'yes') {
+      loadInlineBreakdown(container);
+    }
   }
 
   async function load() {
