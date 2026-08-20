@@ -318,6 +318,14 @@ export const sheetUploads = pgTable('sheet_uploads', {
   keptStorageKey: text('kept_storage_key'),
   /** Backend the kept original lives in: 'r2' | 'disk' (null when discarded). */
   keptBackend: text('kept_backend'),
+  /** How this upload was created: 'file' (drag/drop parse) | 'email_bcc'
+   *  (a rate quote Alex BCC'd in). Additive; self-healed by
+   *  ensureSheetUploadColumns() and declared here so drizzle-kit never
+   *  proposes a DROP. Defaults keep every existing upload = 'file'. */
+  sourceType: text('source_type').notNull().default('file'),
+  /** RFC-822 Message-ID of the ingested email (email_bcc uploads only), used
+   *  to dedupe re-delivered copies of the same quote. NULL for file uploads. */
+  sourceMessageId: text('source_message_id'),
   createdAt: timestamp('created_at', { mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -366,6 +374,18 @@ export const sheetRates = pgTable('sheet_rates', {
   sourceFilename: text('source_filename'),
   /** URL path under /parsed-sheets-files for the dashboard to link/preview. */
   sourceUrl: text('source_url'),
+  /** 'buy' = a carrier/NVOCC rate we pay (default, every existing row) |
+   *  'sell' = a rate WE quoted to a customer (our margin already baked in;
+   *  reference only, never a carrier buy rate). Set to 'sell' by the
+   *  BCC-email ingest path. Additive; self-healed by ensureSheetRateColumns()
+   *  and declared here so drizzle-kit never proposes a DROP. */
+  rateType: text('rate_type').notNull().default('buy'),
+  /** Provenance of this rate: 'file' (drag/drop parse, default) | 'email_bcc'
+   *  (extracted from a quote Alex BCC'd in). */
+  sourceType: text('source_type').notNull().default('file'),
+  /** Human-readable remark surfaced in the spreadsheet — e.g. the SELL-rate
+   *  disclaimer for email_bcc rows. NULL for ordinary file rows. */
+  sourceNote: text('source_note'),
   /** Pre-lowered concat of pol/polCode/pod/podCode for fast search. */
   searchKey: text('search_key').notNull(),
 });

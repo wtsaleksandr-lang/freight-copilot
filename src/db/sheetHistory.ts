@@ -34,6 +34,12 @@ export interface SheetUploadRowInput {
   serviceName?: string | null;
   sourceFilename?: string | null;
   sourceUrl?: string | null;
+  /** 'buy' (default) | 'sell'. Sell rows are our own quotes (margin included). */
+  rateType?: 'buy' | 'sell';
+  /** 'file' (default) | 'email_bcc'. */
+  sourceType?: 'file' | 'email_bcc';
+  /** Free-text remark surfaced in the spreadsheet (e.g. the SELL disclaimer). */
+  sourceNote?: string | null;
 }
 
 export interface SheetUploadInput {
@@ -46,6 +52,10 @@ export interface SheetUploadInput {
   documentType?: string | null;
   keptStorageKey?: string | null;
   keptBackend?: string | null;
+  /** 'file' (default) | 'email_bcc'. */
+  sourceType?: 'file' | 'email_bcc';
+  /** RFC-822 Message-ID (email_bcc uploads only) — dedupe key. */
+  sourceMessageId?: string | null;
 }
 
 /** Build the pre-lowered POL/POD search key from its four parts. */
@@ -69,6 +79,10 @@ function searchKeyFor(r: SheetUploadRowInput): string {
 export async function saveSheetUpload(
   input: SheetUploadInput
 ): Promise<number> {
+  // The additive sell/source columns are self-healed lazily; ensure they exist
+  // before an insert that references them (email_bcc uploads always do).
+  await ensureSheetUploadColumns();
+  await ensureSheetRateColumns();
   const db = createDbClient();
   const [upload] = await db
     .insert(sheetUploads)
@@ -83,6 +97,8 @@ export async function saveSheetUpload(
       documentType: input.documentType ?? null,
       keptStorageKey: input.keptStorageKey ?? null,
       keptBackend: input.keptBackend ?? null,
+      sourceType: input.sourceType ?? 'file',
+      sourceMessageId: input.sourceMessageId ?? null,
     })
     .returning({ id: sheetUploads.id });
   if (!upload) throw new Error('Failed to insert sheet_uploads row');
@@ -90,6 +106,9 @@ export async function saveSheetUpload(
     await db.insert(sheetRates).values(
       input.rows.map((r) => ({
         uploadId: upload.id,
+        rateType: r.rateType ?? 'buy',
+        sourceType: r.sourceType ?? 'file',
+        sourceNote: r.sourceNote ?? null,
         carrierCode: r.carrierCode,
         pol: r.pol,
         polCode: r.polCode ?? null,
@@ -602,6 +621,10 @@ export interface SheetRateSpreadsheetRow {
   serviceName: string | null;
   sourceUrl: string | null;
   sourceFilename: string | null;
+  /** 'buy' (default) | 'sell'. Drives the SELL badge in the spreadsheet. */
+  rateType: string;
+  /** Optional remark surfaced next to sell rows (the SELL disclaimer). */
+  sourceNote: string | null;
   /** Parent upload's server timestamp (ISO) — when the file was dropped. */
   uploadedAt: string;
 }
@@ -690,6 +713,9 @@ export function parseSheetRatesParams(raw: {
 export async function searchSheetRates(
   query: SheetRatesQuery
 ): Promise<SheetRatesResult> {
+  // Ensure the additive rate_type/source_note columns exist before we SELECT
+  // them — a fresh DB that never ran the boot self-heal must not 500 here.
+  await ensureSheetRateColumns();
   const db = createDbClient();
   const limit = query.limit && query.limit > 0 ? query.limit : 500;
 
@@ -735,6 +761,8 @@ export async function searchSheetRates(
       serviceName: sheetRates.serviceName,
       sourceUrl: sheetRates.sourceUrl,
       sourceFilename: sheetRates.sourceFilename,
+      rateType: sheetRates.rateType,
+      sourceNote: sheetRates.sourceNote,
       createdAt: sheetUploads.createdAt,
     })
     .from(sheetRates)
@@ -785,6 +813,8 @@ export async function searchSheetRates(
       serviceName: r.serviceName,
       sourceUrl: r.sourceUrl,
       sourceFilename: r.sourceFilename,
+      rateType: r.rateType ?? 'buy',
+      sourceNote: r.sourceNote ?? null,
       uploadedAt: r.createdAt.toISOString(),
     })),
     carriers: distinct(carrierRows),
@@ -868,16 +898,68 @@ export function ensureSheetRateColumns(): Promise<void> {
     await pool.query(
       `ALTER TABLE sheet_rates
          ADD COLUMN IF NOT EXISTS prepaid_charges jsonb,
-         ADD COLUMN IF NOT EXISTS collect_charges jsonb`
+         ADD COLUMN IF NOT EXISTS collect_charges jsonb,
+         ADD COLUMN IF NOT EXISTS rate_type text NOT NULL DEFAULT 'buy',
+         ADD COLUMN IF NOT EXISTS source_type text NOT NULL DEFAULT 'file',
+         ADD COLUMN IF NOT EXISTS source_note text`
     );
   })().catch((error) => {
     sheetRateColumnsReady = null;
     console.error(
-      '[db] ensureSheetRateColumns failed — Prepaid/Collect columns may be missing until this heals:',
+      '[db] ensureSheetRateColumns failed — Prepaid/Collect + sell/source columns may be missing until this heals:',
       error
     );
   });
   return sheetRateColumnsReady;
+}
+
+/**
+ * Self-heal the additive source_type / source_message_id columns on
+ * sheet_uploads. Same additive, Replit-publish-safe pattern as
+ * {@link ensureSheetRateColumns}: idempotent (ADD COLUMN IF NOT EXISTS),
+ * run-once-per-process, non-fatal. Declared in schema.ts too so drizzle-kit
+ * never proposes a DROP. Enables the BCC-email ingest to tag synthetic uploads
+ * and dedupe on the email Message-ID.
+ */
+let sheetUploadColumnsReady: Promise<void> | null = null;
+export function ensureSheetUploadColumns(): Promise<void> {
+  if (sheetUploadColumnsReady) return sheetUploadColumnsReady;
+  sheetUploadColumnsReady = (async () => {
+    const pool = getPostgresPool();
+    await pool.query(
+      `ALTER TABLE sheet_uploads
+         ADD COLUMN IF NOT EXISTS source_type text NOT NULL DEFAULT 'file',
+         ADD COLUMN IF NOT EXISTS source_message_id text`
+    );
+  })().catch((error) => {
+    sheetUploadColumnsReady = null;
+    console.error(
+      '[db] ensureSheetUploadColumns failed — source_type/source_message_id may be missing until this heals:',
+      error
+    );
+  });
+  return sheetUploadColumnsReady;
+}
+
+/**
+ * Look up a saved upload by its ingested email Message-ID. Used by the
+ * BCC-email ingest to skip a re-delivered copy of the same quote. Returns the
+ * upload id + refId when one exists, else null. Best-effort: self-heals the
+ * column first so a fresh database never throws "column does not exist".
+ */
+export async function findSheetUploadByMessageId(
+  messageId: string
+): Promise<{ id: number; refId: string } | null> {
+  const key = (messageId ?? '').trim();
+  if (!key) return null;
+  await ensureSheetUploadColumns();
+  const db = createDbClient();
+  const [row] = await db
+    .select({ id: sheetUploads.id, refId: sheetUploads.refId })
+    .from(sheetUploads)
+    .where(eq(sheetUploads.sourceMessageId, key))
+    .limit(1);
+  return row ?? null;
 }
 
 export interface RatePaymentTerms extends PaymentBuckets, PaymentBucketTotals {

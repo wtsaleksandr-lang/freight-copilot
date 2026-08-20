@@ -4444,6 +4444,14 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
   const selected = new Set();
   let hasLoadedOnce = false; // drives the first-load "Loading…" state
   let anyFilterActive = false;
+  // Sell-rate visibility: rows quoted BY us (rate_type='sell', BCC'd in) are
+  // shown by default but can be hidden to see carrier buy rates alone.
+  let showSell = true;
+  let lastRows = []; // last fetch, unfiltered — re-rendered when the toggle flips
+  const SELL_RATE_NOTE_UI =
+    'Quoted by us — SELL rate (your margin already included). Reference only, not a carrier buy rate.';
+  const visibleRows = (rows) =>
+    showSell ? rows : (rows || []).filter((r) => r.rateType !== 'sell');
 
   const CARET =
     '<svg class="cfb-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.2 5 6.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -4623,7 +4631,10 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
     if (list.querySelector('.sheet-rates-table')) return;
     const th = (col) =>
       `<th class="cf-th" data-col="${col.key}"><button type="button" class="col-filter-btn" data-col="${col.key}" aria-haspopup="dialog" aria-expanded="false" aria-label="Filter ${col.label}"><span class="cfb-label">${col.label}</span><span class="cfb-count" hidden></span>${CARET}</button></th>`;
-    list.innerHTML = `<div class="sheet-rates-toolbar" hidden>
+    list.innerHTML = `<div class="sheet-rates-filterbar">
+        <label class="sheet-sell-toggle" title="Sell rates are quotes YOU sent (margin already included) that were BCC'd in — reference only, not carrier buy rates."><input type="checkbox" class="sheet-show-sell" checked> Show my sell rates</label>
+      </div>
+      <div class="sheet-rates-toolbar" hidden>
         <span class="srt-count" aria-live="polite"></span>
         <button type="button" class="btn-sm danger sheet-bulk-delete">Delete selected</button>
         <button type="button" class="link-btn sheet-clear-sel">Clear</button>
@@ -4654,6 +4665,11 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
       syncSelectionUI();
     });
     list.querySelector('.sheet-bulk-delete')?.addEventListener('click', bulkDelete);
+    // Sell-rate visibility toggle (client-side filter over the last fetch).
+    list.querySelector('.sheet-show-sell')?.addEventListener('change', (e) => {
+      showSell = !!e.target.checked;
+      renderRows(visibleRows(lastRows));
+    });
     updateHeaderBadges();
   }
 
@@ -4723,9 +4739,13 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
           : '<span class="muted">—</span>';
         const sel = selected.has(r.refId) ? ' is-selected' : '';
         const rid = esc(String(r.id));
-        return `<tr data-ref="${esc(r.refId)}" data-id="${rid}" class="sheet-rate-row${sel}" title="Click a blank area of the row to reload this quote">
+        const isSell = r.rateType === 'sell';
+        const sellBadge = isSell
+          ? `<div class="rate-sell-badge" title="${esc(r.sourceNote || SELL_RATE_NOTE_UI)}">SELL · your quote (margin incl.)</div>`
+          : '';
+        return `<tr data-ref="${esc(r.refId)}" data-id="${rid}" class="sheet-rate-row${sel}${isSell ? ' is-sell-rate' : ''}" title="Click a blank area of the row to reload this quote">
           <td class="sheet-select-cell"><input type="checkbox" class="sheet-row-select" aria-label="Select rate sheet ${esc(r.refId)}"${selected.has(r.refId) ? ' checked' : ''}></td>
-          <td>${editable(r.carrierCode, 'carrierCode')}</td>
+          <td>${editable(r.carrierCode, 'carrierCode')}${sellBadge}</td>
           <td><span class="sheet-cell-editable code-edit" contenteditable="true" spellcheck="false" data-field="containerType" title="Click to edit">${esc(r.containerType)}</span></td>
           <td>${editable(r.pol, 'pol')}${codeTag(r.polCode)}</td>
           <td>${editable(r.pod, 'pod')}${codeTag(r.podCode)}</td>
@@ -5082,7 +5102,8 @@ const SHEET_TEMPLATE_SELECTED_KEY = 'freight.sheet.email.template.selected';
       // Drop selections for uploads that no longer exist.
       const liveRefs = new Set((data.rows || []).map((r2) => r2.refId));
       for (const ref of Array.from(selected)) if (!liveRefs.has(ref)) selected.delete(ref);
-      renderRows(data.rows || []);
+      lastRows = data.rows || [];
+      renderRows(visibleRows(lastRows));
       updateHeaderBadges();
       if (currentCol) renderList(); // refresh open popover against new facets
     } catch (err) {

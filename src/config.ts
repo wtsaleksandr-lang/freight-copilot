@@ -84,6 +84,16 @@ const envSchema = z.object({
   /** Google AI Studio key (for AI_PROVIDER=gemini). */
   GEMINI_API_KEY: z.string().optional(),
   /**
+   * Shared secret guarding POST /api/rates/ingest-email — the endpoint a
+   * mail-forwarding worker (Cloudflare Email Routing → Worker) calls with the
+   * raw MIME of a rate quote Alex BCC'd. When UNSET the endpoint is disabled
+   * (returns 404 to every request, hiding its existence). The forwarder must
+   * present this exact value via the `x-rate-ingest-token` header, an
+   * `Authorization: Bearer` header, or a `?token=` query param; the comparison
+   * is constant-time.
+   */
+  RATE_EMAIL_INGEST_TOKEN: z.string().optional(),
+  /**
    * Geoapify API key (server-side) for the address / ZIP autosuggest at
    * GET /api/data/geocode. When set, the route uses Geoapify Autocomplete
    * for real street-address + postal-code typeahead (US + CA); when absent,
