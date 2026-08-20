@@ -13,6 +13,7 @@ import { registerShipmentOperationsRoute } from './shipmentOperationsRoute.js';
 import { registerTruckingRateIngestionRoute } from './truckingRateIngestionRoute.js';
 import { registerDrayageRateIngestionRoute } from './drayageRateIngestionRoute.js';
 import { registerUniversalRateIngestionRoute } from './universalRateIngestionRoute.js';
+import { registerRateEmailIngestRoute } from './rateEmailIngestRoute.js';
 import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
 import { registerClientQuoteRoute } from './clientQuoteRoute.js';
 import { registerClientQuotePrefillRoute } from './clientQuotePrefillRoute.js';
@@ -87,6 +88,7 @@ export function createApp(): express.Express {
   registerTruckingRateIngestionRoute(app);
   registerDrayageRateIngestionRoute(app);
   registerUniversalRateIngestionRoute(app);
+  registerRateEmailIngestRoute(app);
   registerRuntimeHealthRoute(app);
   registerClientQuoteRoute(app);
   registerClientQuotePrefillRoute(app);

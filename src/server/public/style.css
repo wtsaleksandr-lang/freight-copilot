@@ -4167,3 +4167,41 @@ details.dr-fold > summary.dr-fold-summary h2 { margin: 0; }
 @media (max-width: 560px) {
   .pt-cols { grid-template-columns: 1fr; }
 }
+
+/* ── SELL-rate provenance (BCC'd own quotes) in the unified rate spreadsheet ──
+   A rate flagged rate_type='sell' is a quote WE sent (margin already baked in),
+   ingested by BCC — reference only, never a carrier buy rate. It gets an amber
+   badge (distinct from unbadged buy rates), squared corners, plus a faint row
+   tint so it reads apart at a glance. */
+.sheet-rates-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px 0;
+}
+.sheet-sell-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.rate-sell-badge {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 2px 6px;
+  border-radius: 0; /* squared corners */
+  border: 1px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: help;
+}
+tr.sheet-rate-row.is-sell-rate > td { background: color-mix(in srgb, var(--warn-bg) 45%, transparent); }
+tr.sheet-rate-row.is-sell-rate.is-selected > td { background: color-mix(in srgb, var(--warn-bg) 60%, transparent); }
