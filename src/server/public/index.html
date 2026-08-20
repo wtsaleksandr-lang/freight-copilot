@@ -119,9 +119,10 @@
 
       <div id="sheet-results-card" class="card" hidden>
         <div class="card-header">
-          <h2 id="sheet-results-title">Parsed rates</h2>
+          <h2 id="sheet-results-title">Generate quote email</h2>
           <span id="sheet-results-meta" class="muted"></span>
         </div>
+        <p class="muted small">Your parsed rates now live in the single rate library below — this card just turns the selected sheet into a client quote email.</p>
 
         <div class="sheet-actions">
           <button id="sheet-email-btn" class="primary">📧 Generate quote email</button>
@@ -223,10 +224,6 @@
         <textarea id="sheet-email-text" rows="14" hidden placeholder="Generated email will appear here — fully editable. Edit, then click Copy to clipboard."></textarea>
         <div id="sheet-email-row" class="row" hidden>
           <button id="sheet-email-copy-btn" class="btn-sm">📋 Copy to clipboard</button>
-        </div>
-
-        <div class="table-wrap">
-          <table id="sheet-results-table"></table>
         </div>
       </div>
 
@@ -421,10 +418,10 @@
 
       <div class="card">
         <div class="card-header">
-          <h2>Past quotes</h2>
+          <h2>Rate library — all your rates</h2>
           <button id="sheet-history-refresh" class="btn-sm">Refresh</button>
         </div>
-        <p class="muted small">Every rate from every sheet you drop is saved here. Click a column header (Carrier, Container, POL, POD) to filter — search and tick the values you want, Excel-style. Click a blank part of a row to reload that quote. Click any Carrier / Container / POL / POD / Rate value to edit it inline. Use ✨ to correct a sheet in plain English, ✕ to delete it, or tick rows to delete several at once.</p>
+        <p class="muted small">The single spreadsheet of every rate from every sheet you drop. Click a column header (Carrier, Container, POL, POD) to filter — search and tick the values you want, Excel-style. Use <strong>+ breakdown</strong> to open the Freight and Destination charge columns together and move any charge between them with one click — the totals update instantly. Open the <strong>Source</strong> link to retrieve the original file. Click a blank part of a row to reload that quote; click any Carrier / Container / POL / POD / Rate value to edit it inline. Use ✨ to correct a sheet in plain English, ✕ to delete it, or tick rows to delete several at once.</p>
         <div id="sheet-history-list" class="sheet-history-list"></div>
       </div>
 

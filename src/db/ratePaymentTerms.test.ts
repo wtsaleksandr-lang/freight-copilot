@@ -120,6 +120,31 @@ test('move then recompute: totals follow the moved line (Cost/Sell-style invaria
   assert.equal(after.collectTotal, 550);
 });
 
+test('inline re-render contract: two sequential moves apply against the returned buckets', () => {
+  // The inline breakdown re-renders from each move response and issues the next
+  // move by INDEX into that fresh state. This locks that flow: move BAF prepaid
+  // →collect, then move it straight back — buckets + live totals stay exact.
+  let buckets = seedBuckets({
+    freightCharges: [line('Ocean freight', 2000), line('BAF', 300)],
+    destinationCharges: [line('THC', 250)],
+    prepaidStored: null,
+    collectStored: null,
+  });
+  // First move: BAF (prepaid index 1) → collect (appended at end, index 1).
+  buckets = moveCharge(buckets, 'prepaid', 1);
+  let totals = bucketTotals(buckets);
+  assert.deepEqual(buckets.collect.map((c) => c.name), ['THC', 'BAF']);
+  assert.equal(totals.prepaidTotal, 2000);
+  assert.equal(totals.collectTotal, 550);
+  // Second move, by index into the RETURNED state: BAF (collect index 1) → back.
+  buckets = moveCharge(buckets, 'collect', 1);
+  totals = bucketTotals(buckets);
+  assert.deepEqual(buckets.prepaid.map((c) => c.name), ['Ocean freight', 'BAF']);
+  assert.deepEqual(buckets.collect.map((c) => c.name), ['THC']);
+  assert.equal(totals.prepaidTotal, 2300);
+  assert.equal(totals.collectTotal, 250);
+});
+
 test('bucketTotals: empty bucket totals 0 and defaults currency to USD', () => {
   const totals = bucketTotals({ prepaid: [], collect: [line('THC', 250, 'EUR')] });
   assert.equal(totals.prepaidTotal, 0);
