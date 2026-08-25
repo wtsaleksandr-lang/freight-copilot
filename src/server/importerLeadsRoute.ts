@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { findImporterLeads, toCSV, MAX_LEADS_CAP, type FindImporterLeadsParams } from './importerLeads.js';
+import { findImporterLeads, MAX_LEADS_CAP, type FindImporterLeadsParams } from './importerLeads.js';
 
 /**
  * Importer-Leads admin route. Auth is the app-wide HTTP Basic gate (see app.ts);
@@ -7,8 +7,10 @@ import { findImporterLeads, toCSV, MAX_LEADS_CAP, type FindImporterLeadsParams }
  * be exposed without that gate. A hard per-request cap (MAX_LEADS_CAP) bounds
  * spend regardless of what the client asks for.
  *
- *   POST /api/importer-leads         → { leads, creditsRemaining, cost }
- *   POST /api/importer-leads/export  → text/csv download of the same leads
+ *   POST /api/importer-leads  → { leads, creditsRemaining, cost }
+ *
+ * CSV export is done CLIENT-SIDE from the already-fetched leads (see
+ * importer-leads-ui.js) so exporting never triggers a second paid pull.
  */
 
 /** Coerce the request body into engine params, applying the hard cap. Only the
@@ -55,31 +57,6 @@ export function registerImporterLeadsRoute(app: Express): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[api/importer-leads] pull failed:', message);
-      res.status(502).json({ error: message });
-    }
-  });
-
-  app.post('/api/importer-leads/export', async (req: Request, res: Response) => {
-    const params = readParams((req.body ?? {}) as Record<string, unknown>);
-    const invalid = validateParams(params);
-    if (invalid) {
-      res.status(400).json({ error: invalid });
-      return;
-    }
-    if (!process.env.IMPORTYETI_API_KEY) {
-      res.status(503).json({ error: 'IMPORTYETI_API_KEY is not configured on the server. Add it as a Replit Secret.' });
-      return;
-    }
-    try {
-      const { leads } = await findImporterLeads(params);
-      const csv = toCSV(leads);
-      const stamp = new Date().toISOString().slice(0, 10);
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="importer-leads-${stamp}.csv"`);
-      res.send(csv);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[api/importer-leads/export] export failed:', message);
       res.status(502).json({ error: message });
     }
   });
