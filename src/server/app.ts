@@ -18,6 +18,7 @@ import { registerRuntimeHealthRoute } from './runtimeHealthRoute.js';
 import { registerClientQuoteRoute } from './clientQuoteRoute.js';
 import { registerClientQuotePrefillRoute } from './clientQuotePrefillRoute.js';
 import { registerAiRoutingRoute } from './aiRoutingRoute.js';
+import { registerImporterLeadsRoute } from './importerLeadsRoute.js';
 import { loadEnv } from '../config.js';
 import { startKeepAlivePinger } from './sessionProbe.js';
 
@@ -54,6 +55,9 @@ const CLIENT_SCRIPTS = [
   'system-check-ui.js',
   'ai-routing-ui.js',
   'usability-shell.js',
+  // Builds the "Importer leads" workspace pane (tab-leads); loads after the
+  // shell so the shell's nav (which carries the leads menu item) exists first.
+  'importer-leads-ui.js',
   'shipment-grid-stability-guard.js',
   'shipment-grid-enhancements-ui.js',
 ] as const;
@@ -93,6 +97,7 @@ export function createApp(): express.Express {
   registerClientQuoteRoute(app);
   registerClientQuotePrefillRoute(app);
   registerAiRoutingRoute(app);
+  registerImporterLeadsRoute(app);
   registerApiRoutes(app);
 
   const publicDir = resolve(process.cwd(), 'src/server/public');
