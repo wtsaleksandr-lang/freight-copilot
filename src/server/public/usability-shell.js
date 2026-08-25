@@ -681,6 +681,7 @@
         <div id="simple-more-menu" class="simple-more-menu" role="menu" hidden>
           <button type="button" role="menuitem" data-action="import">Import rate files</button>
           <button type="button" role="menuitem" data-action="client-quote">Create client quote</button>
+          <button type="button" role="menuitem" data-simple-tab="leads">🔎 Importer leads</button>
           <button type="button" role="menuitem" data-simple-tab="history">Quote history</button>
           <button type="button" role="menuitem" data-simple-tab="delaypredict">DelayPredict</button>
           <button type="button" role="menuitem" data-simple-tab="intellcluster">IntellCluster</button>

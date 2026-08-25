@@ -80,6 +80,7 @@ jobs:
           node --check src/server/public/client-quote-actions-ui.js
           node --check src/server/public/system-check-ui.js
           node --check src/server/public/usability-shell.js
+          node --check src/server/public/importer-leads-ui.js
 
       - name: Install browser
         run: pnpm exec playwright install --with-deps chromium
