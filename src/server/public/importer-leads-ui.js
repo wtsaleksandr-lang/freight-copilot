@@ -67,6 +67,146 @@
     return [CSV_COLS.join(','), ...leads.map((l) => CSV_COLS.map((c) => escCell(l[c])).join(','))].join('\n');
   }
 
+  // ── Keyboard-accessible autosuggest combobox (ARIA 1.2 pattern) ───────────
+  // Wraps a plain <input> and drives a downward-only listbox fed by the static
+  // /api/importer-leads/suggest endpoint (debounced). No paid API is ever hit.
+  let comboSeq = 0;
+  function attachCombobox(input, field) {
+    if (!input || input.dataset.ilCombo === '1') return;
+    input.dataset.ilCombo = '1';
+    const id = `il-combo-${++comboSeq}`;
+    const listId = `${id}-list`;
+
+    // Wrap the input so the listbox can anchor to it (position:relative parent).
+    const wrap = document.createElement('div');
+    wrap.className = 'il-combo';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    const listbox = document.createElement('ul');
+    listbox.className = 'il-listbox';
+    listbox.id = listId;
+    listbox.setAttribute('role', 'listbox');
+    listbox.hidden = true;
+    wrap.appendChild(listbox);
+
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
+    input.setAttribute('aria-controls', listId);
+    input.setAttribute('aria-haspopup', 'listbox');
+
+    let items = [];
+    let activeIdx = -1;
+    let timer = null;
+    let seq = 0;
+
+    function close() {
+      listbox.hidden = true;
+      listbox.innerHTML = '';
+      items = [];
+      activeIdx = -1;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+
+    function setActive(idx) {
+      const opts = listbox.querySelectorAll('.il-option');
+      if (activeIdx >= 0 && opts[activeIdx]) opts[activeIdx].setAttribute('aria-selected', 'false');
+      activeIdx = idx;
+      if (activeIdx >= 0 && opts[activeIdx]) {
+        opts[activeIdx].setAttribute('aria-selected', 'true');
+        input.setAttribute('aria-activedescendant', opts[activeIdx].id);
+        opts[activeIdx].scrollIntoView({ block: 'nearest' });
+      } else {
+        input.removeAttribute('aria-activedescendant');
+      }
+    }
+
+    function render(list) {
+      items = list;
+      activeIdx = -1;
+      if (!list.length) {
+        listbox.innerHTML = '<li class="il-option-empty" role="presentation">No matches</li>';
+        listbox.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+        return;
+      }
+      listbox.innerHTML = list
+        .map((it, i) => {
+          const hint = it.hint ? `<span class="il-opt-hint">${esc(it.hint)}</span>` : '';
+          return `<li class="il-option" role="option" id="${listId}-opt-${i}" aria-selected="false" data-idx="${i}">` +
+            `<span class="il-opt-label">${esc(it.label)}</span>${hint}</li>`;
+        })
+        .join('');
+      listbox.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      listbox.querySelectorAll('.il-option').forEach((opt) => {
+        // mousedown (not click) so it fires before the input's blur handler.
+        opt.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          choose(Number(opt.dataset.idx));
+        });
+      });
+    }
+
+    function choose(idx) {
+      const it = items[idx];
+      if (!it) return;
+      input.value = it.value;
+      close();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    async function query() {
+      const q = input.value.trim();
+      const mySeq = ++seq;
+      try {
+        const url = `/api/importer-leads/suggest?field=${encodeURIComponent(field)}&q=${encodeURIComponent(q)}`;
+        const r = await fetch(url);
+        if (!r.ok) { close(); return; }
+        const payload = await r.json().catch(() => ({}));
+        if (mySeq !== seq) return; // a newer keystroke already superseded this
+        render(Array.isArray(payload.suggestions) ? payload.suggestions : []);
+      } catch (err) {
+        // Suggestions are a convenience — a failed lookup must never break typing.
+        console.warn('[importer-leads] suggest failed:', err);
+        close();
+      }
+    }
+
+    function schedule() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(query, 130);
+    }
+
+    input.addEventListener('input', schedule);
+    input.addEventListener('focus', () => { if (listbox.hidden) query(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (listbox.hidden) { query(); return; }
+        if (items.length) setActive((activeIdx + 1) % items.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (items.length) setActive((activeIdx - 1 + items.length) % items.length);
+      } else if (e.key === 'Enter') {
+        if (!listbox.hidden && activeIdx >= 0) { e.preventDefault(); choose(activeIdx); }
+      } else if (e.key === 'Escape') {
+        if (!listbox.hidden) { e.stopPropagation(); close(); }
+      }
+    });
+    input.addEventListener('blur', () => { setTimeout(close, 150); });
+  }
+
+  const COMBO_FIELDS = [
+    ['#il-entry-port', 'entryPort'],
+    ['#il-product', 'product'],
+    ['#il-hs', 'hsCode'],
+    ['#il-country', 'supplierCountry'],
+  ];
+
   const PANE_HTML = `
     <div class="card">
       <h2>Find importer leads</h2>
@@ -124,6 +264,43 @@
       #tab-leads .il-expand { cursor: pointer; }
       #tab-leads .il-empty { padding: 18px; color: var(--muted); }
       #tab-leads td.il-nowrap { white-space: nowrap; }
+      /* Autosuggest combobox. The listbox is ALWAYS anchored below the input
+         (top: 100%) inside a position:relative wrap, so it can never flip
+         upward regardless of viewport position. left/right:0 keep its width
+         bounded to the field, so it never causes horizontal overflow. */
+      #tab-leads .il-combo { position: relative; display: block; }
+      #tab-leads .il-listbox {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 60;
+        margin: 0;
+        padding: 4px 0;
+        list-style: none;
+        max-height: 260px;
+        overflow-y: auto;
+        background: var(--card, #fff);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+      }
+      #tab-leads .il-listbox[hidden] { display: none; }
+      #tab-leads .il-option {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 7px 12px;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--ink, #0f172a);
+      }
+      #tab-leads .il-option[aria-selected="true"],
+      #tab-leads .il-option:hover { background: #f1f5f9; }
+      #tab-leads .il-option .il-opt-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #tab-leads .il-option .il-opt-hint { color: var(--muted); font-size: 11.5px; white-space: nowrap; flex: none; }
+      #tab-leads .il-option-empty { padding: 9px 12px; color: var(--muted); font-size: 12.5px; }
     `;
     document.head.appendChild(style);
   }
@@ -350,6 +527,9 @@
 
     runBtn.addEventListener('click', run);
     downloadBtn.addEventListener('click', download);
+    // Attach autosuggest to each filter field (entry port, product, HS code,
+    // supplier country). Fields keep working as plain inputs if this fails.
+    COMBO_FIELDS.forEach(([sel, field]) => attachCombobox($(sel), field));
     refreshNotice();
   }
 

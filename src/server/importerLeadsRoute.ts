@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { findImporterLeads, MAX_LEADS_CAP, type FindImporterLeadsParams } from './importerLeads.js';
+import { suggestImporterField, isSuggestField } from './importerSuggestData.js';
 
 /**
  * Importer-Leads admin route. Auth is the app-wide HTTP Basic gate (see app.ts);
@@ -40,6 +41,19 @@ function validateParams(p: FindImporterLeadsParams): string | null {
 }
 
 export function registerImporterLeadsRoute(app: Express): void {
+  // Filter-field autosuggest. Static in-process lookup only — never touches the
+  // paid ImportYeti/Hunter/Anthropic APIs, so it is safe to call per keystroke.
+  //   GET /api/importer-leads/suggest?field=entryPort|supplierCountry|hsCode|product&q=...
+  app.get('/api/importer-leads/suggest', (req: Request, res: Response) => {
+    const field = req.query.field;
+    if (!isSuggestField(field)) {
+      res.status(400).json({ error: 'Unknown suggest field. Use entryPort, supplierCountry, hsCode, or product.' });
+      return;
+    }
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    res.json({ suggestions: suggestImporterField(field, q) });
+  });
+
   app.post('/api/importer-leads', async (req: Request, res: Response) => {
     const params = readParams((req.body ?? {}) as Record<string, unknown>);
     const invalid = validateParams(params);
